@@ -17,7 +17,11 @@ import {
   ImagePlus,
   Trash2,
   Loader2,
-  Usb
+  Usb,
+  Wifi,
+  WifiOff,
+  Globe,
+  Sparkles
 } from "lucide-react"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodeScannerModal from "../components/BarcodeScanner"
@@ -31,6 +35,7 @@ interface UOMConversion {
 
 interface NewItemForm {
   barcode: string
+  barcodeAuto: boolean  // Use item code as barcode
   itemName: string
   itemCode: string
   itemCodeAuto: boolean
@@ -50,6 +55,7 @@ interface NewItemForm {
 
 const initialFormState: NewItemForm = {
   barcode: "",
+  barcodeAuto: false,  // Manual barcode entry by default
   itemName: "",
   itemCode: "",
   itemCodeAuto: true,
@@ -65,6 +71,125 @@ const initialFormState: NewItemForm = {
   buyingPrice: 0,
   sellingPrice: 0,
   itemGroup: "Products"
+}
+
+// Barcode lookup APIs
+interface ProductInfo {
+  name: string
+  image_url: string | null
+  shelf_life_months: number | null
+  brand: string | null
+  category: string | null
+}
+
+// Fetch and optimize image from URL
+const fetchAndOptimizeImage = async (imageUrl: string): Promise<string | null> => {
+  try {
+    // Fetch image through a proxy to avoid CORS
+    const response = await fetch(imageUrl)
+    if (!response.ok) return null
+    
+    const blob = await response.blob()
+    
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const img = new Image()
+        img.crossOrigin = 'anonymous'
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let { width, height } = img
+          
+          const MAX_SIZE = 800
+          if (width > height) {
+            if (width > MAX_SIZE) {
+              height = Math.round((height * MAX_SIZE) / width)
+              width = MAX_SIZE
+            }
+          } else {
+            if (height > MAX_SIZE) {
+              width = Math.round((width * MAX_SIZE) / height)
+              height = MAX_SIZE
+            }
+          }
+          
+          canvas.width = width
+          canvas.height = height
+          
+          const ctx = canvas.getContext('2d')
+          if (!ctx) {
+            resolve(null)
+            return
+          }
+          
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(0, 0, width, height)
+          ctx.drawImage(img, 0, 0, width, height)
+          
+          resolve(canvas.toDataURL('image/jpeg', 0.8))
+        }
+        img.onerror = () => resolve(null)
+        img.src = e.target?.result as string
+      }
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
+// Lookup product info from barcode using Open Food Facts API
+const lookupBarcode = async (barcode: string): Promise<ProductInfo | null> => {
+  try {
+    // Try Open Food Facts first (good for food products)
+    const offResponse = await fetch(
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    
+    if (offResponse.ok) {
+      const offData = await offResponse.json()
+      if (offData.status === 1 && offData.product) {
+        const product = offData.product
+        return {
+          name: product.product_name || product.product_name_en || null,
+          image_url: product.image_url || product.image_front_url || product.image_small_url || null,
+          shelf_life_months: null, // OFF doesn't provide shelf life directly
+          brand: product.brands || null,
+          category: product.categories?.split(',')[0]?.trim() || null
+        }
+      }
+    }
+    
+    // Try UPC Item DB as fallback
+    try {
+      const upcResponse = await fetch(
+        `https://api.upcitemdb.com/prod/trial/lookup?upc=${barcode}`,
+        { signal: AbortSignal.timeout(5000) }
+      )
+      
+      if (upcResponse.ok) {
+        const upcData = await upcResponse.json()
+        if (upcData.items && upcData.items.length > 0) {
+          const item = upcData.items[0]
+          return {
+            name: item.title || null,
+            image_url: item.images?.[0] || null,
+            shelf_life_months: null,
+            brand: item.brand || null,
+            category: item.category || null
+          }
+        }
+      }
+    } catch {
+      // UPC lookup failed, continue
+    }
+    
+    return null
+  } catch {
+    return null
+  }
 }
 
 // Image optimization settings
@@ -141,21 +266,83 @@ export default function ItemsPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [isOptimizingImage, setIsOptimizingImage] = useState(false)
   
+  // Barcode lookup state
+  const [isLookingUpBarcode, setIsLookingUpBarcode] = useState(false)
+  const [barcodeLookupStatus, setBarcodeLookupStatus] = useState<'idle' | 'searching' | 'found' | 'not_found' | 'error'>('idle')
+  
   const [form, setForm] = useState<NewItemForm>({
     ...initialFormState,
     barcode: prefilledBarcode
   })
 
+  // Perform barcode lookup to auto-fill product info
+  const performBarcodeLookup = useCallback(async (barcode: string) => {
+    if (!barcode || barcode.length < 8) return
+    
+    setIsLookingUpBarcode(true)
+    setBarcodeLookupStatus('searching')
+    
+    try {
+      // Check internet connectivity
+      if (!navigator.onLine) {
+        setBarcodeLookupStatus('error')
+        toast.warning('No internet connection. Please enter product details manually.', { autoClose: 3000 })
+        return
+      }
+      
+      toast.info('Looking up product info...', { autoClose: 2000, toastId: 'barcode-lookup' })
+      
+      const productInfo = await lookupBarcode(barcode)
+      
+      if (productInfo && productInfo.name) {
+        setBarcodeLookupStatus('found')
+        
+        // Update form with found info
+        setForm(prev => ({
+          ...prev,
+          itemName: productInfo.name || prev.itemName,
+          shelfLifeMonths: productInfo.shelf_life_months || prev.shelfLifeMonths
+        }))
+        
+        // Try to fetch and optimize product image
+        if (productInfo.image_url) {
+          toast.info('Fetching product image...', { autoClose: 1500 })
+          try {
+            const optimizedImage = await fetchAndOptimizeImage(productInfo.image_url)
+            if (optimizedImage) {
+              setImagePreview(optimizedImage)
+            }
+          } catch {
+            console.log('Could not fetch product image')
+          }
+        }
+        
+        const brandInfo = productInfo.brand ? ` (${productInfo.brand})` : ''
+        toast.success(`Found: ${productInfo.name}${brandInfo}`, { autoClose: 3000 })
+      } else {
+        setBarcodeLookupStatus('not_found')
+        toast.info('Product not found in database. Please enter details manually.', { autoClose: 3000 })
+      }
+    } catch (err) {
+      console.error('Barcode lookup error:', err)
+      setBarcodeLookupStatus('error')
+      toast.warning('Could not lookup product. Please enter details manually.', { autoClose: 3000 })
+    } finally {
+      setIsLookingUpBarcode(false)
+    }
+  }, [])
+
   // USB Barcode Scanner support for item creation
   // When in 'add' view, USB scanner input will fill the barcode field
   const handleUSBBarcodeScanned = useCallback(async (barcode: string) => {
     if (view !== 'add') return // Only process when adding item
+    if (form.barcodeAuto) return // Don't process if using auto-generated barcode
     
     console.log('USB Scanner detected barcode for item:', barcode)
     toast.info(`Scanned: ${barcode}`, { autoClose: 1500 })
     
     // Update form with scanned barcode
-    setForm(prev => ({ ...prev, barcode }))
+    setForm(prev => ({ ...prev, barcode, barcodeAuto: false }))
     setBarcodeError(null)
     
     // Check if barcode already exists
@@ -170,13 +357,17 @@ export default function ItemsPage() {
       if (data.message?.exists) {
         setBarcodeError(`Barcode "${barcode}" is already assigned to another item`)
         toast.error(`Barcode "${barcode}" already exists!`)
+        return // Don't lookup if barcode exists
       } else {
         toast.success(`Barcode "${barcode}" is available`)
       }
     } catch (err) {
       console.error('Error checking barcode:', err)
     }
-  }, [view])
+    
+    // Perform barcode lookup to auto-fill product info
+    await performBarcodeLookup(barcode)
+  }, [view, form.barcodeAuto, performBarcodeLookup])
 
   useUSBBarcodeScanner({
     onBarcodeScanned: handleUSBBarcodeScanned,
@@ -284,7 +475,7 @@ export default function ItemsPage() {
 
   const handleBarcodeScanned = async (barcode: string) => {
     setShowScanner(false)
-    setForm(prev => ({ ...prev, barcode }))
+    setForm(prev => ({ ...prev, barcode, barcodeAuto: false }))
     setBarcodeError(null)
     
     // Check if barcode already exists
@@ -292,14 +483,19 @@ export default function ItemsPage() {
     if (exists) {
       setBarcodeError(`Barcode "${barcode}" is already assigned to another item`)
       toast.error(`Barcode "${barcode}" already exists!`)
+      return // Don't lookup if barcode exists
     } else {
       toast.success(`Barcode "${barcode}" scanned successfully`)
     }
+    
+    // Perform barcode lookup to auto-fill product info
+    await performBarcodeLookup(barcode)
   }
 
   const handleBarcodeChange = async (barcode: string) => {
-    setForm(prev => ({ ...prev, barcode }))
+    setForm(prev => ({ ...prev, barcode, barcodeAuto: false }))
     setBarcodeError(null)
+    setBarcodeLookupStatus('idle')
     
     // Debounced check
     if (barcode.trim().length >= 8) {
@@ -307,6 +503,13 @@ export default function ItemsPage() {
       if (exists) {
         setBarcodeError(`Barcode "${barcode}" is already assigned to another item`)
       }
+    }
+  }
+  
+  // Trigger barcode lookup manually
+  const handleLookupBarcode = async () => {
+    if (form.barcode && form.barcode.length >= 8 && !barcodeError) {
+      await performBarcodeLookup(form.barcode)
     }
   }
 
@@ -429,6 +632,9 @@ export default function ItemsPage() {
         }
       }
 
+      // Determine barcode value - use item code as barcode if barcodeAuto is true
+      const barcodeValue = form.barcodeAuto ? '__USE_ITEM_CODE__' : (form.barcode || undefined)
+
       // Use the new API that handles barcode in child table and opening stock
       const response = await fetch('/api/method/klik_pos.api.item.create_item_with_barcode', {
         method: 'POST',
@@ -438,7 +644,8 @@ export default function ItemsPage() {
           item_code: itemCode || undefined,
           item_group: form.itemGroup,
           stock_uom: form.uom,
-          barcode: form.barcode || undefined,
+          barcode: barcodeValue,
+          use_item_code_as_barcode: form.barcodeAuto ? 1 : 0,
           has_batch_no: form.hasBatch ? 1 : 0,
           has_expiry_date: form.hasBatch && (form.shelfLifeMonths > 0 || form.bestBefore) ? 1 : 0,
           shelf_life_in_days: shelfLifeDays > 0 ? shelfLifeDays : undefined,
@@ -477,12 +684,20 @@ export default function ItemsPage() {
         throw new Error(result.message?.message || 'Failed to create item')
       }
 
+      const createdItemCode = result.message?.item_code
       toast.success(`Item "${form.itemName}" created successfully!`)
       
-      // Reset form and go back to list
+      // Reset form
       setForm(initialFormState)
       setImagePreview(null)
-      setView('list')
+      setBarcodeLookupStatus('idle')
+      
+      // Navigate to item detail page for barcode printing
+      if (createdItemCode) {
+        navigate(`/items/${encodeURIComponent(createdItemCode)}`)
+      } else {
+        setView('list')
+      }
       
     } catch (err) {
       console.error('Error creating item:', err)
@@ -577,23 +792,38 @@ export default function ItemsPage() {
                 filteredItems.map((item) => (
                   <div
                     key={item.name}
-                    className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700"
+                    onClick={() => navigate(`/items/${encodeURIComponent(item.item_code)}`)}
+                    className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-beveren-500 hover:shadow-md transition-all"
                   >
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">
-                          {item.item_name}
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          Code: {item.item_code}
-                        </p>
-                        {item.barcode && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center mt-1">
-                            <Barcode size={12} className="mr-1" />
-                            {item.barcode}
-                          </p>
+                      <div className="flex items-start space-x-3">
+                        {item.image ? (
+                          <img 
+                            src={item.image} 
+                            alt={item.item_name}
+                            className="w-12 h-12 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center border border-gray-200 dark:border-gray-600">
+                            <Package size={20} className="text-gray-400" />
+                          </div>
                         )}
+                        <div>
+                          <h3 className="font-medium text-gray-900 dark:text-white">
+                            {item.item_name}
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Code: {item.item_code}
+                          </p>
+                          {item.barcode && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center mt-1">
+                              <Barcode size={12} className="mr-1" />
+                              {item.barcode}
+                            </p>
+                          )}
+                        </div>
                       </div>
+                      <ArrowLeft size={20} className="text-gray-400 rotate-180" />
                     </div>
                   </div>
                 ))
@@ -610,39 +840,123 @@ export default function ItemsPage() {
                 Barcode
               </h2>
               
-              <div className="flex space-x-2">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={form.barcode}
-                    onChange={(e) => handleBarcodeChange(e.target.value)}
-                    placeholder="Enter or scan barcode"
-                    className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
-                      barcodeError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                  />
-                  {barcodeError && (
-                    <div className="absolute -bottom-6 left-0 text-red-500 text-xs flex items-center">
-                      <AlertCircle size={12} className="mr-1" />
-                      {barcodeError}
+              {/* Auto-generate option */}
+              <label className="flex items-center space-x-2 mb-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.barcodeAuto}
+                  onChange={(e) => {
+                    setForm(prev => ({ 
+                      ...prev, 
+                      barcodeAuto: e.target.checked,
+                      barcode: e.target.checked ? '' : prev.barcode 
+                    }))
+                    setBarcodeError(null)
+                    setBarcodeLookupStatus('idle')
+                  }}
+                  className="w-4 h-4 text-beveren-600 rounded"
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-400">
+                  Auto Generate (use Item Code as Barcode)
+                </span>
+              </label>
+              
+              {!form.barcodeAuto && (
+                <>
+                  <div className="flex space-x-2">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={form.barcode}
+                        onChange={(e) => handleBarcodeChange(e.target.value)}
+                        placeholder="Enter or scan barcode"
+                        className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+                          barcodeError ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                        }`}
+                      />
+                      {barcodeError && (
+                        <div className="absolute -bottom-6 left-0 text-red-500 text-xs flex items-center">
+                          <AlertCircle size={12} className="mr-1" />
+                          {barcodeError}
+                        </div>
+                      )}
+                    </div>
+                    {/* Lookup button */}
+                    <button
+                      type="button"
+                      onClick={handleLookupBarcode}
+                      disabled={isLookingUpBarcode || !form.barcode || form.barcode.length < 8 || !!barcodeError}
+                      className="px-3 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Lookup product info online"
+                    >
+                      {isLookingUpBarcode ? (
+                        <Loader2 size={20} className="animate-spin text-beveren-600" />
+                      ) : (
+                        <Globe size={20} className="text-beveren-600" />
+                      )}
+                    </button>
+                    {/* Camera scanner */}
+                    <button
+                      type="button"
+                      onClick={() => setShowScanner(true)}
+                      className="px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                    >
+                      <Camera size={20} />
+                    </button>
+                  </div>
+                  {barcodeError && <div className="h-4" />}
+                  
+                  {/* Barcode lookup status */}
+                  {barcodeLookupStatus !== 'idle' && (
+                    <div className={`mt-3 flex items-center text-xs ${
+                      barcodeLookupStatus === 'searching' ? 'text-blue-500' :
+                      barcodeLookupStatus === 'found' ? 'text-green-500' :
+                      barcodeLookupStatus === 'not_found' ? 'text-yellow-500' :
+                      'text-red-500'
+                    }`}>
+                      {barcodeLookupStatus === 'searching' && (
+                        <>
+                          <Loader2 size={14} className="mr-1.5 animate-spin" />
+                          <span>Looking up product info...</span>
+                        </>
+                      )}
+                      {barcodeLookupStatus === 'found' && (
+                        <>
+                          <Sparkles size={14} className="mr-1.5" />
+                          <span>Product info found and filled!</span>
+                        </>
+                      )}
+                      {barcodeLookupStatus === 'not_found' && (
+                        <>
+                          <AlertCircle size={14} className="mr-1.5" />
+                          <span>Product not found in database. Enter details manually.</span>
+                        </>
+                      )}
+                      {barcodeLookupStatus === 'error' && (
+                        <>
+                          <WifiOff size={14} className="mr-1.5" />
+                          <span>Could not connect. Check internet and try again.</span>
+                        </>
+                      )}
                     </div>
                   )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowScanner(true)}
-                  className="px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
-                >
-                  <Camera size={20} />
-                </button>
-              </div>
-              {barcodeError && <div className="h-4" />}
+                  
+                  {/* USB Scanner indicator */}
+                  <div className="mt-3 flex items-center text-xs text-gray-500 dark:text-gray-400">
+                    <Usb size={14} className="mr-1.5 text-green-500" />
+                    <span>USB barcode scanner ready - scan to auto-fill product info from internet</span>
+                  </div>
+                </>
+              )}
               
-              {/* USB Scanner indicator */}
-              <div className="mt-3 flex items-center text-xs text-gray-500 dark:text-gray-400">
-                <Usb size={14} className="mr-1.5 text-green-500" />
-                <span>USB barcode scanner ready - just scan to auto-fill</span>
-              </div>
+              {form.barcodeAuto && (
+                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+                  <div className="flex items-center">
+                    <CheckCircle size={16} className="mr-2" />
+                    <span>The unique Item Code will be used as the barcode for this product.</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Item Image Section */}

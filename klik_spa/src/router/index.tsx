@@ -17,6 +17,7 @@ import InvoiceHistoryPage from "../pages/InvoiceHistory";
 import InvoiceViewPage from "../pages/InvoiceViewPage";
 import CustomerDetailsPage from "../pages/CustomerPageDetails";
 import ItemsPage from "../pages/ItemsPage";
+import ItemDetailPage from "../pages/ItemDetailPage";
 
 const router = createBrowserRouter([
   {
@@ -62,6 +63,10 @@ const router = createBrowserRouter([
       {
         path: "items",
         element: <ProtectedRoute element={<ItemsPage />} />,
+      },
+      {
+        path: "items/:itemCode",
+        element: <ProtectedRoute element={<ItemDetailPage />} />,
       },
       {
         path: "cart",
