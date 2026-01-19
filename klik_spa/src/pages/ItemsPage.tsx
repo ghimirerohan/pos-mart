@@ -659,8 +659,8 @@ export default function ItemsPage() {
         }
       }
 
-      // Determine barcode value - use item code as barcode if barcodeAuto is true
-      const barcodeValue = form.barcodeAuto ? '__USE_ITEM_CODE__' : (form.barcode || undefined)
+      // Determine barcode value - don't send barcode if barcodeAuto is true (backend will use item_code)
+      const barcodeValue = form.barcodeAuto ? undefined : (form.barcode || undefined)
 
       // Use the new API that handles barcode in child table and opening stock
       const response = await fetch('/api/method/klik_pos.api.item.create_item_with_barcode', {
