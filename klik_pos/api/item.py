@@ -8,6 +8,47 @@ from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
 
+def _detect_barcode_type(barcode: str) -> str | None:
+	"""
+	Auto-detect barcode type based on format.
+	Returns the barcode type if it matches a known format, otherwise None (allowing any format).
+	
+	Supported types:
+	- EAN-13: 13 digits
+	- EAN-8: 8 digits  
+	- UPC-A: 12 digits
+	- None: Any other format (no validation)
+	"""
+	if not barcode:
+		return None
+	
+	# Remove any whitespace
+	barcode = barcode.strip()
+	
+	# Check if barcode is all digits
+	if not barcode.isdigit():
+		# Not a standard EAN/UPC - allow any format
+		return None
+	
+	length = len(barcode)
+	
+	# EAN-13 (most common international barcode)
+	if length == 13:
+		return "EAN"
+	
+	# EAN-8 (short form)
+	if length == 8:
+		return "EAN"
+	
+	# UPC-A (common in North America)
+	if length == 12:
+		return "UPC-A"
+	
+	# Any other format - don't set type to allow flexibility
+	# This handles Code128, Code39, custom barcodes, item codes as barcodes, etc.
+	return None
+
+
 def get_price_list_with_customer_priority(customer=None):
 	"""
 	Get price list with customer-first priority:
@@ -511,7 +552,7 @@ def _fetch_batch_stock(item_codes: list, warehouse: str) -> dict:
 
 
 def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict) -> dict:
-	"""Fetch prices for multiple items in optimized batch queries."""
+	"""Fetch selling and buying prices for multiple items in optimized batch queries."""
 	if not item_codes:
 		return {}
 
@@ -572,15 +613,69 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 				"currency": row["currency"] or default_currency,
 				"currency_symbol": symbol or default_symbol,
 				"uom": row.get("uom"),
+				"buying_price": 0,  # Will be populated below
 			}
 
-		# For items without prices, use default values
+		# Fetch buying prices separately
+		buying_sql = f"""
+			SELECT item_code, price_list_rate, uom
+			FROM `tabItem Price`
+			WHERE item_code IN ({placeholders})
+			AND buying = 1
+			ORDER BY modified DESC
+		"""
+		buying_results = frappe.db.sql(buying_sql, item_codes, as_dict=True)
+
+		# Build buying price map
+		buying_price_map = {}
+		for row in buying_results:
+			item_code = row["item_code"]
+			item_uom = uom_map.get(item_code, "Nos")
+
+			# If we already have a buying price for this item, only replace if UOM matches better
+			if item_code in buying_price_map:
+				existing_uom_match = buying_price_map[item_code].get("uom") == item_uom
+				new_uom_match = row.get("uom") == item_uom
+				if not new_uom_match or existing_uom_match:
+					continue
+
+			buying_price_map[item_code] = {
+				"buying_price": row["price_list_rate"] or 0,
+				"uom": row.get("uom"),
+			}
+
+		# Fallback: fetch valuation_rate from Item table for items without Item Price buying entry
+		items_without_buying_price = [ic for ic in item_codes if ic not in buying_price_map]
+		if items_without_buying_price:
+			valuation_placeholders = ", ".join(["%s"] * len(items_without_buying_price))
+			valuation_sql = f"""
+				SELECT name as item_code, valuation_rate
+				FROM `tabItem`
+				WHERE name IN ({valuation_placeholders})
+				AND valuation_rate > 0
+			"""
+			valuation_results = frappe.db.sql(valuation_sql, items_without_buying_price, as_dict=True)
+			for row in valuation_results:
+				item_code = row["item_code"]
+				if item_code not in buying_price_map:
+					buying_price_map[item_code] = {
+						"buying_price": row["valuation_rate"] or 0,
+						"uom": None,
+					}
+
+		# Merge buying prices into price map
 		for item_code in item_codes:
-			if item_code not in price_map:
+			if item_code in price_map:
+				if item_code in buying_price_map:
+					price_map[item_code]["buying_price"] = buying_price_map[item_code]["buying_price"]
+			else:
+				# Item not in selling prices, create entry
+				buying_price = buying_price_map.get(item_code, {}).get("buying_price", 0)
 				price_map[item_code] = {
 					"price": 0,
 					"currency": default_currency,
 					"currency_symbol": default_symbol,
+					"buying_price": buying_price,
 				}
 
 	except Exception:
@@ -589,6 +684,7 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 		for item_code in item_codes:
 			uom = uom_map.get(item_code, "Nos")
 			price_map[item_code] = fetch_item_price(item_code, price_list, uom=uom)
+			price_map[item_code]["buying_price"] = 0
 
 	return price_map
 
@@ -828,6 +924,7 @@ def get_items_with_balance_and_price(
 					"description": item.get("description", ""),
 					"category": item.get("item_group", "General"),
 					"price": price_info["price"],
+					"buying_price": price_info.get("buying_price", 0),
 					"currency": price_info["currency"],
 					"currency_symbol": price_info["currency_symbol"],
 					"available": balance,
@@ -1866,6 +1963,7 @@ def create_item_with_barcode(
 	item_group: str = "Products",
 	stock_uom: str = "Nos",
 	barcode: str | None = None,
+	use_item_code_as_barcode: int = 0,
 	has_batch_no: int = 0,
 	has_expiry_date: int = 0,
 	shelf_life_in_days: int | None = None,
@@ -1885,6 +1983,7 @@ def create_item_with_barcode(
 		item_group: Item group (default: Products)
 		stock_uom: Stock UOM (default: Nos)
 		barcode: Barcode to assign to item
+		use_item_code_as_barcode: If 1, use item_code as the barcode (0 or 1)
 		has_batch_no: Whether item has batch tracking (0 or 1)
 		has_expiry_date: Whether item has expiry tracking (0 or 1)
 		shelf_life_in_days: Shelf life in days for expiry calculation
@@ -1899,13 +1998,7 @@ def create_item_with_barcode(
 		dict with item details
 	"""
 	try:
-		# Check if barcode already exists
-		if barcode and barcode.strip():
-			existing = frappe.db.exists("Item Barcode", {"barcode": barcode})
-			if existing:
-				frappe.throw(_("Barcode '{0}' is already assigned to another item").format(barcode))
-		
-		# Generate item_code if not provided
+		# Generate item_code if not provided (do this first so we can use it for barcode)
 		if not item_code or not item_code.strip():
 			# Use item name based code
 			base_code = item_name.upper().replace(" ", "-")[:20]
@@ -1914,6 +2007,16 @@ def create_item_with_barcode(
 		# Check if item_code already exists
 		if frappe.db.exists("Item", item_code):
 			frappe.throw(_("Item code '{0}' already exists").format(item_code))
+		
+		# Handle barcode - use item_code as barcode if flag is set
+		if use_item_code_as_barcode:
+			barcode = item_code
+		
+		# Check if barcode already exists (only if not using item_code as barcode since item_code was just validated)
+		if barcode and barcode.strip() and not use_item_code_as_barcode:
+			existing = frappe.db.exists("Item Barcode", {"barcode": barcode})
+			if existing:
+				frappe.throw(_("Barcode '{0}' is already assigned to another item").format(barcode))
 		
 		# Get default company
 		company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
@@ -1938,10 +2041,12 @@ def create_item_with_barcode(
 		
 		# Add barcode to child table
 		if barcode and barcode.strip():
-			item_doc.append("barcodes", {
-				"barcode": barcode.strip(),
-				"barcode_type": "EAN"
-			})
+			barcode_value = barcode.strip()
+			barcode_type = _detect_barcode_type(barcode_value)
+			barcode_entry = {"barcode": barcode_value}
+			if barcode_type:
+				barcode_entry["barcode_type"] = barcode_type
+			item_doc.append("barcodes", barcode_entry)
 		
 		item_doc.insert(ignore_permissions=True)
 		
@@ -1983,7 +2088,37 @@ def create_item_with_barcode(
 						})
 						price_doc.insert(ignore_permissions=True)
 			except Exception as price_err:
-				frappe.log_error(frappe.get_traceback(), f"Error creating item price for {item_code}")
+				frappe.log_error(frappe.get_traceback(), f"Error creating selling item price for {item_code}")
+		
+		# Create Item Price for buying
+		if buying_price and buying_price > 0:
+			try:
+				# Get default buying price list
+				buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
+				if not buying_price_list:
+					buying_price_list = frappe.db.get_value("Price List", {"buying": 1, "enabled": 1}, "name")
+				
+				if buying_price_list:
+					# Check if buying price already exists
+					existing_buying_price = frappe.db.exists("Item Price", {
+						"item_code": item_code,
+						"price_list": buying_price_list,
+						"buying": 1
+					})
+					
+					if not existing_buying_price:
+						buying_price_doc = frappe.get_doc({
+							"doctype": "Item Price",
+							"item_code": item_code,
+							"price_list": buying_price_list,
+							"price_list_rate": buying_price,
+							"selling": 0,
+							"buying": 1,
+							"uom": stock_uom,
+						})
+						buying_price_doc.insert(ignore_permissions=True)
+			except Exception as price_err:
+				frappe.log_error(frappe.get_traceback(), f"Error creating buying item price for {item_code}")
 		
 		# Create opening stock if specified
 		if opening_stock and opening_stock > 0:
@@ -2171,3 +2306,100 @@ def check_barcode_exists(barcode: str):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), f"Error checking barcode: {barcode}")
 		return {"exists": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def update_item_barcode(item_code: str, barcode: str | None = None):
+	"""
+	Update or add barcode for an item.
+	
+	Args:
+		item_code: Item code
+		barcode: New barcode value (empty string to clear)
+	"""
+	try:
+		if not frappe.db.exists("Item", item_code):
+			frappe.throw(_("Item '{0}' not found").format(item_code))
+		
+		item_doc = frappe.get_doc("Item", item_code)
+		
+		# Clear existing barcodes
+		item_doc.barcodes = []
+		
+		# Add new barcode if provided
+		if barcode and barcode.strip():
+			# Check if barcode is already used by another item
+			existing = frappe.db.sql("""
+				SELECT parent FROM `tabItem Barcode` 
+				WHERE barcode = %s AND parent != %s
+			""", (barcode.strip(), item_code), as_dict=True)
+			
+			if existing:
+				frappe.throw(_("Barcode '{0}' is already assigned to item '{1}'").format(
+					barcode, existing[0].parent
+				))
+			
+			barcode_value = barcode.strip()
+			barcode_type = _detect_barcode_type(barcode_value)
+			barcode_entry = {"barcode": barcode_value}
+			if barcode_type:
+				barcode_entry["barcode_type"] = barcode_type
+			item_doc.append("barcodes", barcode_entry)
+		
+		item_doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		
+		return {
+			"success": True,
+			"message": _("Barcode updated successfully")
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error updating barcode for {item_code}")
+		frappe.throw(_("Error updating barcode: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def update_item_image(item_code: str, image_data: str | None = None):
+	"""
+	Update item image.
+	
+	Args:
+		item_code: Item code
+		image_data: Base64 encoded image data (data:image/jpeg;base64,...)
+	"""
+	try:
+		if not frappe.db.exists("Item", item_code):
+			frappe.throw(_("Item '{0}' not found").format(item_code))
+		
+		item_doc = frappe.get_doc("Item", item_code)
+		
+		if image_data and image_data.strip():
+			# Save the image
+			image_url = _save_item_image(item_code, item_doc.item_name, image_data)
+			if image_url:
+				item_doc.image = image_url
+				item_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				
+				return {
+					"success": True,
+					"message": _("Image updated successfully"),
+					"image_url": image_url
+				}
+			else:
+				frappe.throw(_("Failed to save image"))
+		else:
+			# Clear image
+			item_doc.image = None
+			item_doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			
+			return {
+				"success": True,
+				"message": _("Image removed")
+			}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error updating image for {item_code}")
+		frappe.throw(_("Error updating image: {0}").format(str(e)))
