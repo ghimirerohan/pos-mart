@@ -8,6 +8,74 @@ from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
 
+def _calculate_ean13_check_digit(barcode_12: str) -> str:
+	"""
+	Calculate EAN-13 check digit using the standard algorithm.
+	
+	Args:
+		barcode_12: 12-digit barcode without check digit
+		
+	Returns:
+		Check digit (single digit as string)
+	"""
+	if len(barcode_12) != 12 or not barcode_12.isdigit():
+		raise ValueError("barcode_12 must be exactly 12 digits")
+	
+	# EAN-13 check digit calculation
+	sum_even = sum(int(barcode_12[i]) for i in range(1, 12, 2))  # Even positions (1-indexed)
+	sum_odd = sum(int(barcode_12[i]) for i in range(0, 12, 2))    # Odd positions (1-indexed)
+	total = sum_odd + (sum_even * 3)
+	check_digit = (10 - (total % 10)) % 10
+	
+	return str(check_digit)
+
+
+def _generate_unique_barcode() -> str:
+	"""
+	Generate a unique EAN-13 standard barcode.
+	
+	Uses a combination of timestamp and random number to ensure uniqueness.
+	Format: 2 (internal use prefix) + 6 digits (timestamp) + 5 digits (random) + 1 check digit = 13 digits
+	
+	Returns:
+		13-digit EAN-13 barcode string
+	"""
+	import time
+	import random
+	
+	max_attempts = 100
+	for attempt in range(max_attempts):
+		# Use prefix 2 for internal use (not assigned to any country)
+		prefix = "2"
+		
+		# Get timestamp (last 6 digits of Unix timestamp)
+		timestamp_part = str(int(time.time()))[-6:]
+		
+		# Add random 5 digits for uniqueness (total: 1 prefix + 6 timestamp + 5 random = 12 digits)
+		random_part = str(random.randint(10000, 99999))
+		
+		# Combine to make 12 digits (prefix + timestamp + random)
+		barcode_12 = prefix + timestamp_part + random_part
+		
+		# Calculate check digit
+		check_digit = _calculate_ean13_check_digit(barcode_12)
+		
+		# Full 13-digit barcode
+		barcode = barcode_12 + check_digit
+		
+		# Check if barcode already exists
+		if not frappe.db.exists("Item Barcode", {"barcode": barcode}):
+			return barcode
+	
+	# If we couldn't generate a unique barcode after max attempts, use a more random approach
+	import secrets
+	prefix = "2"
+	random_10 = str(secrets.randbelow(10000000000)).zfill(10)
+	barcode_12 = prefix + random_10
+	check_digit = _calculate_ean13_check_digit(barcode_12)
+	return barcode_12 + check_digit
+
+
 def _detect_barcode_type(barcode: str) -> str | None:
 	"""
 	Auto-detect barcode type based on format.
@@ -1983,7 +2051,7 @@ def create_item_with_barcode(
 		item_group: Item group (default: Products)
 		stock_uom: Stock UOM (default: Nos)
 		barcode: Barcode to assign to item
-		use_item_code_as_barcode: If 1, use item_code as the barcode (0 or 1)
+		use_item_code_as_barcode: If 1, generate a unique EAN-13 standard barcode (0 or 1)
 		has_batch_no: Whether item has batch tracking (0 or 1)
 		has_expiry_date: Whether item has expiry tracking (0 or 1)
 		shelf_life_in_days: Shelf life in days for expiry calculation
@@ -2008,11 +2076,14 @@ def create_item_with_barcode(
 		if frappe.db.exists("Item", item_code):
 			frappe.throw(_("Item code '{0}' already exists").format(item_code))
 		
-		# Handle barcode - use item_code as barcode if flag is set
+		# Handle barcode - generate unique EAN-13 barcode if flag is set
 		if use_item_code_as_barcode:
-			barcode = item_code
+			barcode = _generate_unique_barcode()
+		# Ignore placeholder if it was sent (shouldn't happen with frontend fix, but for safety)
+		elif barcode and barcode.strip() == '__USE_ITEM_CODE__':
+			barcode = None
 		
-		# Check if barcode already exists (only if not using item_code as barcode since item_code was just validated)
+		# Check if barcode already exists (generated barcodes are already checked for uniqueness)
 		if barcode and barcode.strip() and not use_item_code_as_barcode:
 			existing = frappe.db.exists("Item Barcode", {"barcode": barcode})
 			if existing:
