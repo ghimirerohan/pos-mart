@@ -39,7 +39,7 @@ interface UOMConversion {
 
 interface NewItemForm {
   barcode: string
-  barcodeAuto: boolean  // Use item code as barcode
+  barcodeAuto: boolean  // Auto-generate unique SKU-standard barcode
   itemName: string
   itemCode: string
   itemCodeAuto: boolean
@@ -659,7 +659,7 @@ export default function ItemsPage() {
         }
       }
 
-      // Determine barcode value - don't send barcode if barcodeAuto is true (backend will use item_code)
+      // Determine barcode value - don't send barcode if barcodeAuto is true (backend will generate unique barcode)
       const barcodeValue = form.barcodeAuto ? undefined : (form.barcode || undefined)
 
       // Use the new API that handles barcode in child table and opening stock
@@ -931,7 +931,7 @@ export default function ItemsPage() {
                   className="w-4 h-4 text-beveren-600 rounded"
                 />
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Auto Generate (use Item Code as Barcode)
+                  Auto Generate (unique SKU-standard barcode)
                 </span>
               </label>
               
@@ -1027,7 +1027,7 @@ export default function ItemsPage() {
                 <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300">
                   <div className="flex items-center">
                     <CheckCircle size={16} className="mr-2" />
-                    <span>The unique Item Code will be used as the barcode for this product.</span>
+                    <span>A unique EAN-13 standard barcode will be automatically generated for this product.</span>
                   </div>
                 </div>
               )}
