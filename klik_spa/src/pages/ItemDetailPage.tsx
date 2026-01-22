@@ -34,6 +34,7 @@ interface ItemDetails {
   has_expiry_date: number
   shelf_life_in_days: number | null
   available_qty: number
+  warehouse: string
 }
 
 interface EditForm {
@@ -44,6 +45,7 @@ interface EditForm {
   valuation_rate: number
   shelf_life_in_days: number | null
   barcode: string
+  available_qty: number
 }
 
 // Image optimization settings
@@ -115,8 +117,10 @@ export default function ItemDetailPage() {
     standard_rate: 0,
     valuation_rate: 0,
     shelf_life_in_days: null,
-    barcode: ''
+    barcode: '',
+    available_qty: 0
   })
+  const [isUpdatingStock, setIsUpdatingStock] = useState(false)
   const [newImage, setNewImage] = useState<string | null>(null)
   const [isOptimizingImage, setIsOptimizingImage] = useState(false)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
@@ -150,6 +154,7 @@ export default function ItemDetailPage() {
         
         // Fetch stock qty
         let availableQty = 0
+        let warehouse = ''
         try {
           const stockResponse = await fetch('/api/method/klik_pos.api.item.get_item_stock', {
             method: 'POST',
@@ -159,6 +164,7 @@ export default function ItemDetailPage() {
           })
           const stockData = await stockResponse.json()
           availableQty = stockData.message?.available || 0
+          warehouse = stockData.message?.warehouse || ''
         } catch {
           console.error('Failed to fetch stock')
         }
@@ -175,7 +181,8 @@ export default function ItemDetailPage() {
           has_batch_no: itemDoc.has_batch_no || 0,
           has_expiry_date: itemDoc.has_expiry_date || 0,
           shelf_life_in_days: itemDoc.shelf_life_in_days || null,
-          available_qty: availableQty
+          available_qty: availableQty,
+          warehouse: warehouse
         }
         
         setItem(itemDetails)
@@ -187,7 +194,8 @@ export default function ItemDetailPage() {
           standard_rate: itemDetails.standard_rate,
           valuation_rate: itemDetails.valuation_rate,
           shelf_life_in_days: itemDetails.shelf_life_in_days,
-          barcode: itemDetails.barcode || ''
+          barcode: itemDetails.barcode || '',
+          available_qty: itemDetails.available_qty
         }
         setForm(formData)
         setOriginalForm(formData)
@@ -247,7 +255,8 @@ export default function ItemDetailPage() {
       form.standard_rate !== originalForm.standard_rate ||
       form.valuation_rate !== originalForm.valuation_rate ||
       form.shelf_life_in_days !== originalForm.shelf_life_in_days ||
-      form.barcode !== originalForm.barcode
+      form.barcode !== originalForm.barcode ||
+      form.available_qty !== originalForm.available_qty
     )
   }
 
@@ -339,6 +348,44 @@ export default function ItemDetailPage() {
         }
       }
       
+      // Handle stock quantity update if changed
+      const stockChanged = form.available_qty !== originalForm?.available_qty
+      if (stockChanged && itemCode && item?.warehouse) {
+        setIsUpdatingStock(true)
+        try {
+          const stockResponse = await fetch('/api/method/klik_pos.api.item.update_opening_stock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              item_code: itemCode,
+              warehouse: item.warehouse,
+              qty: form.available_qty,
+              batch_no: null, // Can be enhanced to support batch selection
+              valuation_rate: form.valuation_rate,
+              remarks: 'Opening stock correction from Item Detail page'
+            }),
+            credentials: 'include'
+          })
+          
+          const stockResult = await stockResponse.json()
+          
+          if (stockResult.exc || stockResult.exception) {
+            throw new Error(stockResult.exc || stockResult.exception || 'Failed to update stock')
+          }
+          
+          if (stockResult.message && stockResult.message.status === 'success') {
+            toast.success(`Stock updated: ${stockResult.message.old_qty} → ${stockResult.message.new_qty}`)
+          }
+        } catch (stockErr: any) {
+          console.error('Stock update failed:', stockErr)
+          toast.error(`Failed to update stock: ${stockErr.message || 'Unknown error'}`)
+        } finally {
+          setIsUpdatingStock(false)
+        }
+      } else if (stockChanged && !item?.warehouse) {
+        toast.error('Warehouse not found. Please configure POS profile with a warehouse.')
+      }
+      
       toast.success('Item updated successfully!')
       setIsEditing(false)
       setNewImage(null)
@@ -414,11 +461,11 @@ export default function ItemDetailPage() {
               </button>
               <button
                 onClick={handleUpdate}
-                disabled={isSaving}
+                disabled={isSaving || isUpdatingStock}
                 className="flex items-center space-x-1 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors disabled:opacity-50"
               >
-                {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                <span>Update</span>
+                {(isSaving || isUpdatingStock) ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                <span>{isUpdatingStock ? 'Updating Stock...' : 'Update'}</span>
               </button>
             </div>
           ) : (
@@ -628,13 +675,25 @@ export default function ItemDetailPage() {
             <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400">Stock & Pricing</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Available Stock (Read-only) */}
+            {/* Available Stock (Editable in edit mode) */}
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Available Stock</label>
-              <div className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-gray-900 dark:text-white flex items-center">
-                <Box size={16} className="mr-2 text-gray-500" />
-                {item.available_qty} {item.stock_uom}
-              </div>
+              {isEditing ? (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.available_qty}
+                  onChange={(e) => setForm(prev => ({ ...prev, available_qty: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="0"
+                />
+              ) : (
+                <div className="px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-gray-900 dark:text-white flex items-center">
+                  <Box size={16} className="mr-2 text-gray-500" />
+                  {item.available_qty} {item.stock_uom}
+                </div>
+              )}
             </div>
 
             {/* Selling Price */}
