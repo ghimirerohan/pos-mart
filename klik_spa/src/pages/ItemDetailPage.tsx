@@ -169,6 +169,28 @@ export default function ItemDetailPage() {
           console.error('Failed to fetch stock')
         }
         
+        // Fetch prices from Item Price table (single source of truth)
+        let sellingPrice = 0
+        let buyingPrice = 0
+        try {
+          const pricesResponse = await fetch('/api/method/klik_pos.api.item.get_item_prices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_code: itemCode }),
+            credentials: 'include'
+          })
+          const pricesData = await pricesResponse.json()
+          if (pricesData.message) {
+            sellingPrice = pricesData.message.selling_price || 0
+            buyingPrice = pricesData.message.buying_price || 0
+          }
+        } catch {
+          console.error('Failed to fetch prices from Item Price table, using Item document fallback')
+          // Fallback to Item document fields if API fails
+          sellingPrice = itemDoc.standard_rate || 0
+          buyingPrice = itemDoc.valuation_rate || 0
+        }
+        
         const itemDetails: ItemDetails = {
           item_code: itemDoc.item_code,
           item_name: itemDoc.item_name,
@@ -176,8 +198,8 @@ export default function ItemDetailPage() {
           stock_uom: itemDoc.stock_uom,
           image: itemDoc.image,
           barcode: barcode,
-          standard_rate: itemDoc.standard_rate || 0,
-          valuation_rate: itemDoc.valuation_rate || 0,
+          standard_rate: sellingPrice, // From Item Price table (selling = 1)
+          valuation_rate: buyingPrice, // From Item Price table (buying = 1)
           has_batch_no: itemDoc.has_batch_no || 0,
           has_expiry_date: itemDoc.has_expiry_date || 0,
           shelf_life_in_days: itemDoc.shelf_life_in_days || null,
@@ -283,13 +305,11 @@ export default function ItemDetailPage() {
     setIsSaving(true)
     
     try {
-      // Update item document
+      // Update item document (excluding prices - they go to Item Price table)
       const updateData: Record<string, unknown> = {
         item_name: form.item_name,
         item_group: form.item_group,
         stock_uom: form.stock_uom,
-        standard_rate: form.standard_rate,
-        valuation_rate: form.valuation_rate,
         shelf_life_in_days: form.shelf_life_in_days || 0,
         has_expiry_date: form.shelf_life_in_days && form.shelf_life_in_days > 0 ? 1 : (item?.has_expiry_date || 0)
       }
@@ -297,6 +317,11 @@ export default function ItemDetailPage() {
       // Handle barcode change
       const barcodeChanged = form.barcode !== originalForm?.barcode
       
+      // Check if prices changed
+      const sellingPriceChanged = form.standard_rate !== originalForm?.standard_rate
+      const buyingPriceChanged = form.valuation_rate !== originalForm?.valuation_rate
+      
+      // Update item document (non-price fields)
       const response = await fetch('/api/method/frappe.client.set_value', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -312,6 +337,42 @@ export default function ItemDetailPage() {
       
       if (result.exc || result.exception) {
         throw new Error(result.exc || result.exception)
+      }
+      
+      // Update Item Price entries (single source of truth for prices)
+      if (sellingPriceChanged || buyingPriceChanged) {
+        try {
+          const priceUpdateResponse = await fetch('/api/method/klik_pos.api.item.update_item_prices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              item_code: itemCode,
+              selling_price: form.standard_rate,
+              buying_price: form.valuation_rate
+            }),
+            credentials: 'include'
+          })
+          
+          const priceUpdateResult = await priceUpdateResponse.json()
+          
+          if (priceUpdateResult.exc || priceUpdateResult.exception) {
+            throw new Error(priceUpdateResult.exc || priceUpdateResult.exception || 'Failed to update prices')
+          }
+          
+          if (priceUpdateResult.message?.success) {
+            const updated = priceUpdateResult.message.updated || []
+            if (updated.includes('selling') && updated.includes('buying')) {
+              toast.success('Selling and buying prices updated in Item Price table')
+            } else if (updated.includes('selling')) {
+              toast.success('Selling price updated in Item Price table')
+            } else if (updated.includes('buying')) {
+              toast.success('Buying price updated in Item Price table')
+            }
+          }
+        } catch (priceErr: any) {
+          console.error('Price update failed:', priceErr)
+          toast.error(`Failed to update prices: ${priceErr.message || 'Unknown error'}`)
+        }
       }
       
       // Handle barcode update separately (child table)

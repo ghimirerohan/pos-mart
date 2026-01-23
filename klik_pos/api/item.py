@@ -2477,6 +2477,239 @@ def update_item_image(item_code: str, image_data: str | None = None):
 
 
 @frappe.whitelist()
+def update_item_prices(
+	item_code: str,
+	selling_price: float | None = None,
+	buying_price: float | None = None,
+	price_list: str | None = None,
+	buying_price_list: str | None = None
+):
+	"""
+	Update Item Price entries for selling and/or buying prices.
+	Creates new entries if they don't exist.
+	
+	Args:
+		item_code: Item code
+		selling_price: Selling price to update (optional)
+		buying_price: Buying price to update (optional)
+		price_list: Selling price list (optional, will use default if not provided)
+		buying_price_list: Buying price list (optional, will use default if not provided)
+	"""
+	try:
+		if not frappe.db.exists("Item", item_code):
+			frappe.throw(_("Item '{0}' not found").format(item_code))
+		
+		item_doc = frappe.get_doc("Item", item_code)
+		stock_uom = item_doc.stock_uom or "Nos"
+		
+		updated = []
+		
+		# Update selling price
+		if selling_price is not None and selling_price >= 0:
+			# Get default selling price list if not provided
+			if not price_list:
+				price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+				if not price_list:
+					price_list = frappe.db.get_value("Price List", {"selling": 1, "enabled": 1}, "name")
+			
+			if price_list:
+				# Check if Item Price entry exists
+				existing_price = frappe.db.get_value(
+					"Item Price",
+					{
+						"item_code": item_code,
+						"price_list": price_list,
+						"selling": 1,
+						"uom": stock_uom
+					},
+					"name"
+				)
+				
+				if existing_price:
+					# Update existing entry
+					price_doc = frappe.get_doc("Item Price", existing_price)
+					price_doc.price_list_rate = selling_price
+					price_doc.save(ignore_permissions=True)
+					updated.append("selling")
+				else:
+					# Create new entry
+					price_doc = frappe.get_doc({
+						"doctype": "Item Price",
+						"item_code": item_code,
+						"price_list": price_list,
+						"price_list_rate": selling_price,
+						"selling": 1,
+						"buying": 0,
+						"uom": stock_uom,
+					})
+					price_doc.insert(ignore_permissions=True)
+					updated.append("selling")
+		
+		# Update buying price
+		if buying_price is not None and buying_price >= 0:
+			# Get default buying price list if not provided
+			if not buying_price_list:
+				buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
+				if not buying_price_list:
+					buying_price_list = frappe.db.get_value("Price List", {"buying": 1, "enabled": 1}, "name")
+			
+			if buying_price_list:
+				# Check if Item Price entry exists
+				existing_buying_price = frappe.db.get_value(
+					"Item Price",
+					{
+						"item_code": item_code,
+						"price_list": buying_price_list,
+						"buying": 1,
+						"uom": stock_uom
+					},
+					"name"
+				)
+				
+				if existing_buying_price:
+					# Update existing entry
+					buying_price_doc = frappe.get_doc("Item Price", existing_buying_price)
+					buying_price_doc.price_list_rate = buying_price
+					buying_price_doc.save(ignore_permissions=True)
+					updated.append("buying")
+				else:
+					# Create new entry
+					buying_price_doc = frappe.get_doc({
+						"doctype": "Item Price",
+						"item_code": item_code,
+						"price_list": buying_price_list,
+						"price_list_rate": buying_price,
+						"selling": 0,
+						"buying": 1,
+						"uom": stock_uom,
+					})
+					buying_price_doc.insert(ignore_permissions=True)
+					updated.append("buying")
+		
+		frappe.db.commit()
+		
+		return {
+			"success": True,
+			"message": _("Prices updated successfully"),
+			"updated": updated
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error updating prices for {item_code}")
+		frappe.throw(_("Error updating prices: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_item_prices(item_code: str):
+	"""
+	Get selling and buying prices from Item Price table for an item.
+	Returns the prices that are actually used by POS and ItemsPage.
+	
+	Args:
+		item_code: Item code
+		
+	Returns:
+		dict with selling_price, buying_price, and price_lists used
+	"""
+	try:
+		if not frappe.db.exists("Item", item_code):
+			frappe.throw(_("Item '{0}' not found").format(item_code))
+		
+		item_doc = frappe.get_doc("Item", item_code)
+		stock_uom = item_doc.stock_uom or "Nos"
+		
+		# Get default price lists
+		selling_price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+		if not selling_price_list:
+			selling_price_list = frappe.db.get_value("Price List", {"selling": 1, "enabled": 1}, "name")
+		
+		buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
+		if not buying_price_list:
+			buying_price_list = frappe.db.get_value("Price List", {"buying": 1, "enabled": 1}, "name")
+		
+		# Fetch selling price
+		selling_price = 0
+		if selling_price_list:
+			selling_price_doc = frappe.db.get_value(
+				"Item Price",
+				{
+					"item_code": item_code,
+					"price_list": selling_price_list,
+					"selling": 1,
+					"uom": stock_uom
+				},
+				"price_list_rate",
+				as_dict=True
+			)
+			if selling_price_doc:
+				selling_price = selling_price_doc.price_list_rate or 0
+			else:
+				# Try without UOM filter
+				selling_price_doc = frappe.db.get_value(
+					"Item Price",
+					{
+						"item_code": item_code,
+						"price_list": selling_price_list,
+						"selling": 1
+					},
+					"price_list_rate",
+					as_dict=True,
+					order_by="modified desc"
+				)
+				if selling_price_doc:
+					selling_price = selling_price_doc.price_list_rate or 0
+		
+		# Fetch buying price
+		buying_price = 0
+		if buying_price_list:
+			buying_price_doc = frappe.db.get_value(
+				"Item Price",
+				{
+					"item_code": item_code,
+					"price_list": buying_price_list,
+					"buying": 1,
+					"uom": stock_uom
+				},
+				"price_list_rate",
+				as_dict=True
+			)
+			if buying_price_doc:
+				buying_price = buying_price_doc.price_list_rate or 0
+			else:
+				# Try without UOM filter
+				buying_price_doc = frappe.db.get_value(
+					"Item Price",
+					{
+						"item_code": item_code,
+						"price_list": buying_price_list,
+						"buying": 1
+					},
+					"price_list_rate",
+					as_dict=True,
+					order_by="modified desc"
+				)
+				if buying_price_doc:
+					buying_price = buying_price_doc.price_list_rate or 0
+		
+		# Fallback to Item document fields if no Item Price entries found
+		if selling_price == 0:
+			selling_price = item_doc.standard_rate or 0
+		if buying_price == 0:
+			buying_price = item_doc.valuation_rate or 0
+		
+		return {
+			"selling_price": selling_price,
+			"buying_price": buying_price,
+			"selling_price_list": selling_price_list,
+			"buying_price_list": buying_price_list
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error fetching prices for {item_code}")
+		frappe.throw(_("Error fetching prices: {0}").format(str(e)))
+
+
+@frappe.whitelist()
 def update_opening_stock(
 	item_code: str,
 	warehouse: str,
