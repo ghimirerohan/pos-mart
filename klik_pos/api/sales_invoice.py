@@ -513,6 +513,7 @@ def create_and_submit_invoice(data):
 			business_type,
 			roundoff_amount,
 			delivery_personnel,
+			is_credit_sale,
 		) = parse_invoice_data(data)
 
 		# Validate required fields
@@ -520,27 +521,107 @@ def create_and_submit_invoice(data):
 			frappe.throw("Customer is required")
 		if not items or len(items) == 0:
 			frappe.throw("At least one item is required")
+		
+		# Validate customer exists and is valid
+		try:
+			customer_doc = frappe.get_doc("Customer", customer)
+			if not customer_doc:
+				frappe.throw(f"Customer '{customer}' not found")
+		except frappe.DoesNotExistError:
+			frappe.throw(f"Customer '{customer}' does not exist")
+		except Exception as e:
+			frappe.throw(f"Error validating customer: {str(e)}")
 
 		# Build invoice document
+		# For credit sale, don't include payment entries - let ERPNext handle it naturally
 		doc = build_sales_invoice_doc(
 			customer,
 			items,
 			amount_paid,
 			sales_and_tax_charges,
-			mode_of_payment,
+			mode_of_payment if not is_credit_sale else None,  # Don't add payment entries for credit sale
 			business_type,
 			roundoff_amount,
-			include_payments=True,
+			include_payments=not is_credit_sale,  # Don't include payments for credit sale
 			delivery_personnel=delivery_personnel,
+			is_credit_sale=is_credit_sale,
 		)
 
-		doc.base_paid_amount = amount_paid
-		doc.paid_amount = amount_paid
-		doc.outstanding_amount = 0
+		# Ensure totals are calculated before accessing them
+		# ERPNext should calculate these automatically, but ensure they're set
+		try:
+			doc.run_method("calculate_taxes_and_totals")
+		except Exception:
+			# If calculation fails, try to trigger it differently
+			doc.flags.ignore_validate = True
+			doc.run_method("set_missing_values")
+			doc.run_method("calculate_taxes_and_totals")
 
+		# For credit sale: Let ERPNext handle outstanding amount automatically (no payment entries = full outstanding)
+		# For normal payment: Calculate paid amounts from payment entries
+		if is_credit_sale:
+			# Credit sale: No payment entries, so paid_amount = 0, outstanding_amount = grand_total
+			# ERPNext will set this automatically, but we ensure it's correct
+			doc.paid_amount = 0.0
+			doc.base_paid_amount = 0.0
+			# Outstanding amount will be calculated automatically by ERPNext as grand_total - paid_amount
+		else:
+			# Normal payment: Calculate paid amounts from payment entries
+			total_payment_amount = 0.0
+			if doc.payments and len(doc.payments) > 0:
+				total_payment_amount = sum(flt(payment.amount) for payment in doc.payments)
+			
+			# If no payment entries but amount_paid was provided, use that (for backward compatibility)
+			if total_payment_amount == 0 and amount_paid > 0:
+				total_payment_amount = amount_paid
+			
+			# Set paid amounts - ERPNext will validate these match payment entries
+			doc.paid_amount = flt(total_payment_amount, doc.precision("paid_amount"))
+			doc.base_paid_amount = flt(total_payment_amount, doc.precision("base_paid_amount"))
+			
+			# Validate payment entries sum matches paid_amount (ERPNext requirement)
+			if doc.payments and len(doc.payments) > 0:
+				payment_sum = sum(flt(payment.amount) for payment in doc.payments)
+				if abs(payment_sum - doc.paid_amount) > 0.01:  # Allow small rounding differences
+					frappe.logger().warning(
+						f"Payment sum mismatch: payments={payment_sum}, paid_amount={doc.paid_amount}. "
+						f"Adjusting paid_amount to match payment entries."
+					)
+					doc.paid_amount = flt(payment_sum, doc.precision("paid_amount"))
+					doc.base_paid_amount = flt(payment_sum, doc.precision("base_paid_amount"))
+		
+		# Outstanding amount will be calculated automatically by ERPNext on save
+		# We don't need to set it manually - ERPNext does: outstanding_amount = grand_total - paid_amount
+
+		# Ensure customer and customer_name are set before save/submit
+		# This is critical for receivable account validation in credit sales
+		if not doc.customer:
+			frappe.throw("Customer is required for invoice creation")
+		
+		if not doc.customer_name:
+			try:
+				customer_doc = frappe.get_doc("Customer", doc.customer)
+				doc.customer_name = customer_doc.customer_name or customer_doc.name
+			except Exception as e:
+				frappe.log_error(f"Error setting customer_name: {str(e)}")
+				frappe.throw(f"Error setting customer name: {str(e)}")
+		
 		# Save and submit in one transaction
-		doc.save(ignore_permissions=True)
-		doc.submit()
+		try:
+			doc.save(ignore_permissions=True)
+		except Exception as save_error:
+			frappe.log_error(frappe.get_traceback(), f"Error saving invoice: {str(save_error)}")
+			frappe.throw(f"Error saving invoice: {str(save_error)}")
+		
+		try:
+			doc.submit()
+		except Exception as submit_error:
+			frappe.log_error(frappe.get_traceback(), f"Error submitting invoice {doc.name}: {str(submit_error)}")
+			# Try to get more detailed error message
+			error_msg = str(submit_error)
+			if hasattr(submit_error, 'message'):
+				error_msg = submit_error.message
+			frappe.throw(f"Error submitting invoice: {error_msg}")
 
 		payment_entry = None
 		should_create_payment_entry = False
@@ -589,8 +670,13 @@ def create_and_submit_invoice(data):
 		}
 
 	except Exception as e:
-		frappe.log_error(frappe.get_traceback(), "Submit Invoice Error")
-		return {"success": False, "message": str(e)}
+		error_traceback = frappe.get_traceback()
+		frappe.log_error(error_traceback, "Submit Invoice Error")
+		# Return more detailed error message
+		error_message = str(e)
+		if hasattr(e, 'message'):
+			error_message = e.message
+		return {"success": False, "message": error_message, "error": error_message, "traceback": error_traceback}
 
 
 @frappe.whitelist()
@@ -658,6 +744,9 @@ def parse_invoice_data(data):
 	# Extract delivery personnel
 	delivery_personnel = data.get("deliveryPersonnel")
 
+	# Extract isCreditSale flag
+	is_credit_sale = data.get("isCreditSale", False)
+
 	if not customer or not items:
 		frappe.throw(_("Customer and items are required"))
 
@@ -670,6 +759,7 @@ def parse_invoice_data(data):
 		business_type,
 		roundoff_amount,
 		delivery_personnel,
+		is_credit_sale,
 	)
 
 
@@ -683,10 +773,20 @@ def build_sales_invoice_doc(
 	roundoff_amount=0.0,
 	include_payments=False,
 	delivery_personnel=None,
+	is_credit_sale=False,
 ):
 	"""Main function to build a sales invoice document."""
 	doc = frappe.new_doc("Sales Invoice")
 	doc.customer = customer
+	
+	# Ensure customer_name is set (required for receivable account validation)
+	try:
+		customer_doc = frappe.get_doc("Customer", customer)
+		doc.customer_name = customer_doc.customer_name or customer_doc.name
+	except Exception:
+		# Fallback - will be set automatically by ERPNext
+		pass
+	
 	doc.due_date = frappe.utils.nowdate()
 	doc.custom_delivery_date = frappe.utils.nowdate()
 
@@ -696,7 +796,7 @@ def build_sales_invoice_doc(
 
 	# Configure POS profile and company settings
 	pos_profile = _get_active_pos_profile()
-	_set_pos_profile_fields(doc, pos_profile, customer, business_type)
+	_set_pos_profile_fields(doc, pos_profile, customer, business_type, is_credit_sale)
 
 	# Set posting details
 	_set_posting_fields(doc)
@@ -749,7 +849,7 @@ def _get_active_pos_profile():
 		raise
 
 
-def _set_pos_profile_fields(doc, pos_profile, customer, business_type):
+def _set_pos_profile_fields(doc, pos_profile, customer, business_type, is_credit_sale=False):
 	"""Set POS profile, company, currency and POS-specific fields."""
 	doc.pos_profile = pos_profile.name
 	doc.company = pos_profile.company
@@ -758,8 +858,13 @@ def _set_pos_profile_fields(doc, pos_profile, customer, business_type):
 	doc.update_stock = 1
 	doc.warehouse = pos_profile.warehouse
 
-	# Determine if this is a POS invoice
-	doc.is_pos = _determine_is_pos(customer, business_type)
+	# For credit sales, set is_pos = 0 to bypass payment entry requirement
+	# ERPNext POS invoices require at least one payment mode
+	if is_credit_sale:
+		doc.is_pos = 0
+	else:
+		# Determine if this is a POS invoice based on business type
+		doc.is_pos = _determine_is_pos(customer, business_type)
 
 
 def _determine_is_pos(customer, business_type):
@@ -961,10 +1066,27 @@ def _add_payment_entries(doc, mode_of_payment):
 		return
 
 	for payment in mode_of_payment:
-		doc.append(
-			"payments",
-			{"mode_of_payment": payment["method"], "amount": payment["amount"]},
-		)
+		payment_method = payment.get("method", "")
+		payment_amount = flt(payment.get("amount", 0))
+		
+		# Add payment entry if amount is greater than 0 (normal payment)
+		# OR if amount is 0 and it's Credit payment method (for credit sales)
+		payment_method_lower = payment_method.lower() if payment_method else ""
+		is_credit_method = payment_method_lower in ["credit", "credit sale"]
+		
+		if payment_amount > 0:
+			# Normal payment - add it
+			doc.append(
+				"payments",
+				{"mode_of_payment": payment_method, "amount": payment_amount},
+			)
+		elif payment_amount == 0 and is_credit_method:
+			# Credit sale - add payment entry with 0 amount
+			doc.append(
+				"payments",
+				{"mode_of_payment": payment_method, "amount": 0.0},
+			)
+		# If amount is 0 and not Credit, don't add it (skip)
 
 
 def get_tax_template(template_name):
@@ -1514,6 +1636,123 @@ def get_customer_receivable_account(customer, company):
 	except Exception as e:
 		frappe.log_error(f"Error getting receivable account for customer {customer}: {e!s}")
 		return frappe.db.get_value("Company", company, "default_receivable_account")
+
+
+@frappe.whitelist()
+def pay_unpaid_invoice(invoice_name, mode_of_payment, amount=None):
+	"""
+	Pay an unpaid invoice by creating a Payment Entry.
+	This is used to settle credit sales.
+	
+	Args:
+		invoice_name: Name of the Sales Invoice to pay
+		mode_of_payment: Mode of Payment (e.g., "Cash", "Card", etc.)
+		amount: Optional amount to pay. If not provided, pays the full outstanding amount.
+	
+	Returns:
+		dict with success status, payment entry name, and updated invoice status
+	"""
+	try:
+		# Get the sales invoice
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Validate invoice status
+		if invoice.docstatus != 1:
+			frappe.throw(f"Invoice {invoice_name} is not submitted")
+		
+		if invoice.outstanding_amount <= 0:
+			frappe.throw(f"Invoice {invoice_name} has no outstanding amount")
+		
+		# Determine amount to pay
+		payment_amount = flt(amount) if amount else flt(invoice.outstanding_amount)
+		
+		if payment_amount <= 0:
+			frappe.throw("Payment amount must be greater than 0")
+		
+		if payment_amount > invoice.outstanding_amount:
+			frappe.throw(f"Payment amount ({payment_amount}) cannot exceed outstanding amount ({invoice.outstanding_amount})")
+		
+		# Get company details
+		company = invoice.company
+		customer = invoice.customer
+		company_doc = frappe.get_doc("Company", company)
+		
+		# Create Payment Entry
+		payment_entry = frappe.new_doc("Payment Entry")
+		payment_entry.payment_type = "Receive"
+		payment_entry.party_type = "Customer"
+		payment_entry.party = customer
+		payment_entry.company = company
+		payment_entry.posting_date = frappe.utils.nowdate()
+		
+		# Set amounts
+		payment_entry.paid_amount = payment_amount
+		payment_entry.received_amount = payment_amount
+		payment_entry.source_exchange_rate = 1
+		payment_entry.target_exchange_rate = 1
+		
+		# Set accounts
+		payment_entry.party_account = get_customer_receivable_account(customer, company)
+		
+		# Get Mode of Payment account
+		mode_of_payment_doc = frappe.get_doc("Mode of Payment", mode_of_payment)
+		paid_to_account = None
+		for account in mode_of_payment_doc.accounts:
+			if account.company == company:
+				paid_to_account = account.default_account
+				break
+		
+		if not paid_to_account:
+			paid_to_account = company_doc.default_cash_account
+		
+		payment_entry.paid_to = paid_to_account
+		payment_entry.mode_of_payment = mode_of_payment
+		
+		# Set currencies
+		payment_entry.paid_from_account_currency = invoice.currency
+		payment_entry.paid_to_account_currency = invoice.currency
+		
+		# Link to the invoice
+		payment_entry.append(
+			"references",
+			{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": invoice_name,
+				"allocated_amount": payment_amount,
+			},
+		)
+		
+		# Link to current POS Opening Entry if available (for cashier tracking)
+		current_opening_entry = get_current_pos_opening_entry()
+		if current_opening_entry:
+			# Check if custom field exists on Payment Entry
+			payment_entry_meta = frappe.get_meta("Payment Entry")
+			if payment_entry_meta.has_field("custom_pos_opening_entry"):
+				payment_entry.custom_pos_opening_entry = current_opening_entry
+		
+		# Save and submit
+		payment_entry.save(ignore_permissions=True)
+		payment_entry.submit()
+		
+		# Reload the invoice to get updated status
+		invoice.reload()
+		
+		return {
+			"success": True,
+			"payment_entry": payment_entry.name,
+			"payment_amount": payment_amount,
+			"invoice_name": invoice_name,
+			"new_outstanding_amount": invoice.outstanding_amount,
+			"new_status": invoice.status,
+			"pos_opening_entry": current_opening_entry,
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error paying invoice {invoice_name}")
+		return {
+			"success": False,
+			"error": str(e),
+		}
 
 
 @frappe.whitelist()

@@ -638,28 +638,34 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 		)
 		default_symbol = frappe.db.get_value("Currency", default_currency, "symbol") or default_currency
 
-		# Build query for Item Price
+		# Build query for Item Price with validity date filtering
 		placeholders = ", ".join(["%s"] * len(item_codes))
+		today = frappe.utils.nowdate()
 
 		if price_list and price_list.strip():
-			# Try with price list first
+			# Try with price list first, respecting validity dates
 			sql = f"""
 				SELECT item_code, price_list_rate, currency, uom
 				FROM `tabItem Price`
 				WHERE item_code IN ({placeholders})
 				AND price_list = %s
 				AND selling = 1
+				AND (valid_from IS NULL OR valid_from <= %s)
+				AND (valid_upto IS NULL OR valid_upto >= %s)
+				ORDER BY valid_from DESC, creation DESC
 			"""
-			params = [*item_codes, price_list]
+			params = [*item_codes, price_list, today, today]
 		else:
 			sql = f"""
 				SELECT item_code, price_list_rate, currency, uom
 				FROM `tabItem Price`
 				WHERE item_code IN ({placeholders})
 				AND selling = 1
-				ORDER BY modified DESC
+				AND (valid_from IS NULL OR valid_from <= %s)
+				AND (valid_upto IS NULL OR valid_upto >= %s)
+				ORDER BY valid_from DESC, creation DESC
 			"""
-			params = item_codes
+			params = [*item_codes, today, today]
 
 		results = frappe.db.sql(sql, params, as_dict=True)
 
@@ -684,15 +690,17 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 				"buying_price": 0,  # Will be populated below
 			}
 
-		# Fetch buying prices separately
+		# Fetch buying prices separately, respecting validity dates
 		buying_sql = f"""
 			SELECT item_code, price_list_rate, uom
 			FROM `tabItem Price`
 			WHERE item_code IN ({placeholders})
 			AND buying = 1
-			ORDER BY modified DESC
+			AND (valid_from IS NULL OR valid_from <= %s)
+			AND (valid_upto IS NULL OR valid_upto >= %s)
+			ORDER BY valid_from DESC, creation DESC
 		"""
-		buying_results = frappe.db.sql(buying_sql, item_codes, as_dict=True)
+		buying_results = frappe.db.sql(buying_sql, [*item_codes, today, today], as_dict=True)
 
 		# Build buying price map
 		buying_price_map = {}
@@ -2600,6 +2608,161 @@ def update_item_prices(
 
 
 @frappe.whitelist()
+def update_item_prices_with_validity(
+	item_code: str,
+	new_purchase_price: float | None = None,
+	new_selling_price: float | None = None,
+	original_purchase_price: float | None = None,
+	original_selling_price: float | None = None,
+	uom: str | None = None,
+):
+	"""
+	Update Item Prices with valid_from/valid_upto dates for price history tracking.
+	
+	When a price changes:
+	1. Set valid_upto on the existing price entry to now - 1 second
+	2. Create a new price entry with valid_from = now
+	
+	If no existing price entry, create a new one with valid_from = now.
+	
+	This is typically used during purchase invoice creation when prices change.
+	
+	Args:
+		item_code: Item code
+		new_purchase_price: New buying/purchase price
+		new_selling_price: New selling price
+		original_purchase_price: Original buying price (for comparison)
+		original_selling_price: Original selling price (for comparison)
+		uom: Unit of measure (defaults to stock UOM)
+	
+	Returns:
+		dict with item_code, buying_updated, selling_updated flags
+	"""
+	from datetime import datetime, timedelta
+	from frappe.utils import flt
+	
+	try:
+		results = {"item_code": item_code, "buying_updated": False, "selling_updated": False}
+		now = datetime.now()
+
+		# Get default price lists
+		buying_price_list = frappe.db.get_single_value("Buying Settings", "buying_price_list")
+		if not buying_price_list:
+			buying_price_list = frappe.db.get_value("Price List", {"buying": 1, "enabled": 1}, "name")
+
+		selling_price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+		if not selling_price_list:
+			selling_price_list = frappe.db.get_value("Price List", {"selling": 1, "enabled": 1}, "name")
+
+		# Get item's stock UOM if not provided
+		if not uom:
+			uom = frappe.db.get_value("Item", item_code, "stock_uom") or "Nos"
+
+		# Update buying price if changed
+		if new_purchase_price is not None and (
+			original_purchase_price is None or 
+			flt(new_purchase_price) != flt(original_purchase_price)
+		):
+			if buying_price_list:
+				_update_price_entry_with_validity(
+					item_code=item_code,
+					price_list=buying_price_list,
+					new_price=new_purchase_price,
+					is_buying=True,
+					uom=uom,
+					now=now,
+				)
+				results["buying_updated"] = True
+
+		# Update selling price if changed
+		if new_selling_price is not None and (
+			original_selling_price is None or 
+			flt(new_selling_price) != flt(original_selling_price)
+		):
+			if selling_price_list:
+				_update_price_entry_with_validity(
+					item_code=item_code,
+					price_list=selling_price_list,
+					new_price=new_selling_price,
+					is_buying=False,
+					uom=uom,
+					now=now,
+				)
+				results["selling_updated"] = True
+
+		frappe.db.commit()
+		return results
+
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error updating prices with validity for {item_code}")
+		return {"item_code": item_code, "error": str(e)}
+
+
+def _update_price_entry_with_validity(item_code, price_list, new_price, is_buying, uom, now):
+	"""
+	Internal helper to update or create an Item Price with validity dates.
+	
+	Args:
+		item_code: Item code
+		price_list: Price list name
+		new_price: New price value
+		is_buying: True for buying price, False for selling
+		uom: Unit of measure
+		now: Current datetime
+	"""
+	from datetime import timedelta
+	from frappe.utils import flt
+	
+	# Find existing active price entry
+	filters = {
+		"item_code": item_code,
+		"price_list": price_list,
+		"buying": 1 if is_buying else 0,
+		"selling": 0 if is_buying else 1,
+		"uom": uom,
+	}
+
+	# Find the most recent valid price entry
+	existing_prices = frappe.get_all(
+		"Item Price",
+		filters=filters,
+		fields=["name", "price_list_rate", "valid_from", "valid_upto"],
+		order_by="valid_from desc, creation desc",
+		limit=1,
+	)
+
+	if existing_prices:
+		existing = existing_prices[0]
+		
+		# Check if price actually changed
+		if flt(existing.price_list_rate) == flt(new_price):
+			return  # No change needed
+		
+		# End the existing price validity
+		valid_upto = now - timedelta(seconds=1)
+		frappe.db.set_value(
+			"Item Price",
+			existing.name,
+			"valid_upto",
+			valid_upto,
+			update_modified=False,
+		)
+
+	# Create new price entry with valid_from = now
+	new_price_doc = frappe.get_doc({
+		"doctype": "Item Price",
+		"item_code": item_code,
+		"price_list": price_list,
+		"price_list_rate": new_price,
+		"buying": 1 if is_buying else 0,
+		"selling": 0 if is_buying else 1,
+		"uom": uom,
+		"valid_from": now.date(),
+	})
+	new_price_doc.insert(ignore_permissions=True)
+
+
+@frappe.whitelist()
 def get_item_prices(item_code: str):
 	"""
 	Get selling and buying prices from Item Price table for an item.
@@ -3052,3 +3215,117 @@ def get_current_stock(item_code: str, warehouse: str, batch_no: str | None = Non
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), f"Error getting stock: {str(e)}")
 		frappe.throw(_("Failed to get stock: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_items_for_export():
+	"""
+	Get all items with complete details for CSV export.
+	
+	Returns all active stock items with:
+	- item_code
+	- item_name
+	- barcode
+	- selling_price
+	- buying_price
+	- stock_qty
+	- uom (stock_uom)
+	- shelf_life_in_days
+	- item_group
+	- has_batch_no
+	- has_expiry_date
+	
+	Returns:
+		dict with items list
+	"""
+	try:
+		# Get POS context for warehouse
+		pos_doc, warehouse, price_list, hide_unavailable = _get_pos_context()
+		
+		# Fetch all active stock items
+		items = frappe.get_all(
+			"Item",
+			filters={
+				"disabled": 0,
+				"is_stock_item": 1
+			},
+			fields=[
+				"name",
+				"item_name",
+				"item_group",
+				"stock_uom",
+				"shelf_life_in_days",
+				"has_batch_no",
+				"has_expiry_date",
+				"valuation_rate",
+				"standard_rate"
+			],
+			order_by="item_name asc",
+			limit=0  # No limit - get all items
+		)
+		
+		if not items:
+			return {"items": []}
+		
+		item_codes = [item["name"] for item in items]
+		
+		# Fetch barcodes in batch
+		barcode_map = {}
+		try:
+			barcode_results = frappe.get_all(
+				"Item Barcode",
+				filters={"parent": ["in", item_codes]},
+				fields=["parent", "barcode"],
+				limit=0,
+			)
+			for barcode_row in barcode_results:
+				item_code = barcode_row.get("parent")
+				if item_code and item_code not in barcode_map:
+					barcode_map[item_code] = barcode_row.get("barcode")
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Error fetching barcodes for export")
+		
+		# Build UOM map
+		uom_map = {item["name"]: item.get("stock_uom", "Nos") for item in items}
+		
+		# Fetch stock balances in batch
+		stock_map = _fetch_batch_stock(item_codes, warehouse) if warehouse else {}
+		
+		# Fetch prices in batch
+		price_map = _fetch_batch_prices(item_codes, price_list, uom_map)
+		
+		# Build export items
+		export_items = []
+		for item in items:
+			item_code = item["name"]
+			
+			# Get price info
+			price_info = price_map.get(item_code, {})
+			selling_price = price_info.get("price", 0) or item.get("standard_rate", 0)
+			buying_price = price_info.get("buying_price", 0) or item.get("valuation_rate", 0)
+			
+			# Get stock qty
+			stock_qty = stock_map.get(item_code, 0)
+			
+			export_items.append({
+				"item_code": item_code,
+				"item_name": item.get("item_name", item_code),
+				"barcode": barcode_map.get(item_code, ""),
+				"selling_price": selling_price,
+				"buying_price": buying_price,
+				"stock_qty": stock_qty,
+				"uom": item.get("stock_uom", "Nos"),
+				"shelf_life_in_days": item.get("shelf_life_in_days"),
+				"item_group": item.get("item_group", "Products"),
+				"has_batch_no": item.get("has_batch_no", 0),
+				"has_expiry_date": item.get("has_expiry_date", 0)
+			})
+		
+		return {
+			"items": export_items,
+			"total_count": len(export_items)
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Error exporting items")
+		frappe.throw(_("Error exporting items: {0}").format(str(e)))
