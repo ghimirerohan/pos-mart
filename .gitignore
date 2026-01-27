@@ -6,6 +6,10 @@ tags
 node_modules
 __pycache__
 
+# SPA build output (auto-generated)
+klik_pos/public/klik_spa/
+klik_pos/www/klik_spa.html
+
 
 # dependencies
 /.pnp
