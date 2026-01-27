@@ -1,4 +1,4 @@
-import { Receipt, FileText, Grid3X3, BarChart3, Users, Package } from "lucide-react"
+import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 
 export default function BottomNavigation() {
@@ -7,6 +7,7 @@ export default function BottomNavigation() {
 
    const menuItems = [
     { icon: Grid3X3, path: "/pos", label: "POS" },
+    { icon: PackagePlus, path: "/purchase", label: "Purchase" },
     { icon: Receipt, path: "/invoice", label: "Invoice" },
     { icon: Package, path: "/items", label: "Items" },
     { icon: Users, path: "/customers", label: "Customers" },

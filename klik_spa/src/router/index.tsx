@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 import LoginPage from "../pages/LoginPage";
 import POSPage from "../pages/POSPage";
+import PurchasePage from "../pages/PurchasePage";
 import DashboardPage from "../pages/DashboardPage";
 import ClosingShiftPage from "../pages/ClosingShiftPage";
 import SettingsPage from "../components/SettingsPage";
@@ -15,6 +16,8 @@ import App from "../App";
 import HomePage from "../pages/HomePage";
 import InvoiceHistoryPage from "../pages/InvoiceHistory";
 import InvoiceViewPage from "../pages/InvoiceViewPage";
+import PurchaseInvoiceHistoryPage from "../pages/PurchaseInvoiceHistory";
+import PurchaseInvoiceViewPage from "../pages/PurchaseInvoiceViewPage";
 import CustomerDetailsPage from "../pages/CustomerPageDetails";
 import ItemsPage from "../pages/ItemsPage";
 import ItemDetailPage from "../pages/ItemDetailPage";
@@ -37,6 +40,10 @@ const router = createBrowserRouter([
         element: <ProtectedRoute element={<POSPage />} />,
       },
       {
+        path: "purchase",
+        element: <ProtectedRoute element={<PurchasePage />} />,
+      },
+      {
         path: "dashboard",
         element: <ProtectedRoute element={<DashboardPage />} />,
       },
@@ -51,6 +58,14 @@ const router = createBrowserRouter([
       {
         path: "invoice/:id",
         element: <ProtectedRoute element={<InvoiceViewPage />} />,
+      },
+      {
+        path: "purchase-invoice",
+        element: <ProtectedRoute element={<PurchaseInvoiceHistoryPage />} />,
+      },
+      {
+        path: "purchase-invoice/:id",
+        element: <ProtectedRoute element={<PurchaseInvoiceViewPage />} />,
       },
       {
         path: "customers",

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { 
   Package, 
@@ -25,11 +25,14 @@ import {
   Boxes,
   TrendingUp,
   TrendingDown,
-  ChevronRight
+  ChevronRight,
+  Download
 } from "lucide-react"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodeScannerModal from "../components/BarcodeScanner"
 import { useUSBBarcodeScanner } from "../hooks/useUSBBarcodeScanner"
+import { useProducts } from "../hooks/useProducts"
+import { useAuth } from "../hooks/useAuth"
 import { toast } from "react-toastify"
 
 interface UOMConversion {
@@ -258,23 +261,45 @@ export default function ItemsPage() {
   const [searchParams] = useSearchParams()
   const prefilledBarcode = searchParams.get('barcode') || ''
   
+  // Use shared ProductProvider context - same data as POS Dashboard
+  const {
+    products,
+    isLoading: productsLoading,
+    isSearching,
+    error: productsError,
+    refetch: refetchProducts,
+    searchProducts,
+    clearSearch,
+    totalCount,
+  } = useProducts()
+  
+  // Auth hook for authentication state
+  const { isAuthenticated, loading: authLoading } = useAuth()
+  
   const [view, setView] = useState<'list' | 'add'>(prefilledBarcode ? 'add' : 'list')
-  const [searchQuery, setSearchQuery] = useState("")
+  const [localSearchQuery, setLocalSearchQuery] = useState("")
   const [showScanner, setShowScanner] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [barcodeError, setBarcodeError] = useState<string | null>(null)
-  const [items, setItems] = useState<Array<{
-    name: string
-    item_code: string
-    item_name: string
-    barcode?: string
-    image?: string
-    available?: number
-    price?: number
-    buying_price?: number
-    currency_symbol?: string
-  }>>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  
+  // Derive loading state from context
+  const isLoading = productsLoading || authLoading
+  
+  // Map products from context to the expected format for this component
+  const items = useMemo(() => {
+    return products.map(product => ({
+      name: product.id,
+      item_code: product.id,
+      item_name: product.name,
+      barcode: product.barcode || '',
+      image: product.image || '',
+      available: product.available || 0,
+      price: product.price || 0,
+      buying_price: product.buying_price || 0,
+      currency_symbol: product.currency_symbol || 'SAR'
+    }))
+  }, [products])
   
   // Image upload state
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -390,96 +415,26 @@ export default function ItemsPage() {
     maxTimeBetweenChars: 50,
   })
 
-  // Fetch items list with barcodes
-  const fetchItems = async () => {
-    setIsLoading(true)
-    try {
-      // Try primary API that fetches items with barcodes from child table
-      const response = await fetch('/api/method/klik_pos.api.item.get_items_with_balance_and_price', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          limit: 200,
-          offset: 0
-        }),
-        credentials: 'include'
-      })
-      const data = await response.json()
-      
-      if (data.message?.items && data.message.items.length > 0) {
-        // Map the response to our expected format
-        const mappedItems = data.message.items.map((item: { 
-          id: string
-          name: string
-          barcode?: string
-          image?: string
-          available?: number
-          price?: number
-          buying_price?: number
-          currency_symbol?: string
-        }) => ({
-          name: item.id,
-          item_code: item.id,
-          item_name: item.name,
-          barcode: item.barcode || '',
-          image: item.image || '',
-          available: item.available || 0,
-          price: item.price || 0,
-          buying_price: item.buying_price || 0,
-          currency_symbol: item.currency_symbol || 'SAR'
-        }))
-        setItems(mappedItems)
-        return
-      }
-      
-      // If primary API returns empty, try fallback
-      throw new Error('Primary API returned no items')
-    } catch (err) {
-      console.error('Primary fetch failed, trying fallback:', err)
-      // Fallback to basic fetch - get ALL items (no stock filter)
-      try {
-        const response = await fetch('/api/method/frappe.client.get_list', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            doctype: 'Item',
-            fields: ['name', 'item_code', 'item_name', 'image'],
-            filters: { disabled: 0 },
-            limit_page_length: 200,
-            order_by: 'modified desc'
-          }),
-          credentials: 'include'
-        })
-        const data = await response.json()
-        if (data.message && data.message.length > 0) {
-          setItems(data.message)
-        } else {
-          console.log('No items found in fallback either')
-          setItems([])
-        }
-      } catch (fallbackErr) {
-        console.error('Fallback fetch also failed:', fallbackErr)
-        toast.error('Failed to load items')
-        setItems([])
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Fetch items on mount and when switching to list view
+  // Handle search with debouncing using the shared context
   useEffect(() => {
-    if (view === 'list') {
-      fetchItems()
-    }
-  }, [view])
-
-  // Also fetch on initial mount
+    const timer = setTimeout(() => {
+      if (localSearchQuery.trim()) {
+        searchProducts(localSearchQuery.trim())
+      } else {
+        clearSearch()
+      }
+    }, 300) // 300ms debounce
+    
+    return () => clearTimeout(timer)
+  }, [localSearchQuery, searchProducts, clearSearch])
+  
+  // Refetch products when switching back to list view to ensure fresh data
   useEffect(() => {
-    if (!prefilledBarcode) {
-      fetchItems()
+    if (view === 'list' && isAuthenticated && !authLoading) {
+      // Only refetch if we don't have products yet (prevents unnecessary refetch)
+      // The ProductProvider already handles initial loading
     }
-  }, [])
+  }, [view, isAuthenticated, authLoading])
 
   // Check if barcode already exists
   const checkBarcodeExists = async (barcode: string): Promise<boolean> => {
@@ -719,6 +674,9 @@ export default function ItemsPage() {
       setImagePreview(null)
       setBarcodeLookupStatus('idle')
       
+      // Refresh products in the shared context so both Items page and POS Dashboard show the new item
+      await refetchProducts()
+      
       // Navigate to item detail page for barcode printing
       if (createdItemCode) {
         navigate(`/items/${encodeURIComponent(createdItemCode)}`)
@@ -735,11 +693,153 @@ export default function ItemsPage() {
     }
   }
 
-  const filteredItems = items.filter(item => 
-    item.item_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.item_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Export all items to CSV
+  const handleExportCSV = async () => {
+    setIsExporting(true)
+    
+    try {
+      // Fetch all items with complete details for export
+      const response = await fetch('/api/method/klik_pos.api.item.get_items_for_export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        credentials: 'include'
+      })
+      
+      const data = await response.json()
+      
+      let exportItems: Array<{
+        item_code: string
+        item_name: string
+        barcode: string
+        selling_price: number
+        buying_price: number
+        stock_qty: number
+        uom: string
+        shelf_life_in_days: number | null
+        item_group: string
+        has_batch_no: number
+        has_expiry_date: number
+      }> = []
+      
+      if (data.message?.items && data.message.items.length > 0) {
+        exportItems = data.message.items
+      } else {
+        // Fallback: use existing items list with available data
+        // Apply current search filter
+        const itemsToExport = localSearchQuery 
+          ? items.filter(item => 
+              item.item_name?.toLowerCase().includes(localSearchQuery.toLowerCase()) ||
+              item.item_code?.toLowerCase().includes(localSearchQuery.toLowerCase()) ||
+              item.barcode?.toLowerCase().includes(localSearchQuery.toLowerCase())
+            )
+          : items
+        
+        exportItems = itemsToExport.map(item => ({
+          item_code: item.item_code,
+          item_name: item.item_name,
+          barcode: item.barcode || '',
+          selling_price: item.price || 0,
+          buying_price: item.buying_price || 0,
+          stock_qty: item.available || 0,
+          uom: 'Nos', // Default if not available
+          shelf_life_in_days: null,
+          item_group: 'Products',
+          has_batch_no: 0,
+          has_expiry_date: 0
+        }))
+      }
+      
+      if (exportItems.length === 0) {
+        toast.warning('No items to export')
+        return
+      }
+      
+      // CSV headers
+      const headers = [
+        'Item Code',
+        'Item Name',
+        'Barcode',
+        'Selling Price',
+        'Buying Price',
+        'Stock Qty',
+        'UOM',
+        'Shelf Life (Days)',
+        'Item Group',
+        'Batch Tracked',
+        'Expiry Tracked'
+      ]
+      
+      // Escape CSV values (handle commas, quotes, newlines)
+      const escapeCSV = (value: string | number | null | undefined): string => {
+        const strValue = String(value ?? '')
+        if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+          return `"${strValue.replace(/"/g, '""')}"`
+        }
+        return strValue
+      }
+      
+      // Build CSV rows
+      const csvRows = exportItems.map(item => [
+        escapeCSV(item.item_code),
+        escapeCSV(item.item_name),
+        escapeCSV(item.barcode),
+        escapeCSV(item.selling_price?.toFixed(2) || '0.00'),
+        escapeCSV(item.buying_price?.toFixed(2) || '0.00'),
+        escapeCSV(item.stock_qty?.toString() || '0'),
+        escapeCSV(item.uom),
+        escapeCSV(item.shelf_life_in_days?.toString() || ''),
+        escapeCSV(item.item_group),
+        escapeCSV(item.has_batch_no ? 'Yes' : 'No'),
+        escapeCSV(item.has_expiry_date ? 'Yes' : 'No')
+      ].join(','))
+      
+      // Build CSV content
+      const csvContent = [
+        headers.map(escapeCSV).join(','),
+        ...csvRows
+      ].join('\n')
+      
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      
+      // Generate filename with date
+      const date = new Date().toISOString().split('T')[0]
+      const filename = `items_export_${date}.csv`
+      
+      link.setAttribute('href', url)
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      toast.success(`Exported ${exportItems.length} items to CSV`)
+    } catch (err) {
+      console.error('Export error:', err)
+      toast.error('Failed to export items')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  // Items are already filtered by the ProductProvider when using searchProducts
+  // We just apply local filtering for additional client-side filtering if needed
+  const filteredItems = useMemo(() => {
+    // If we have a local search query, filter locally as well for immediate feedback
+    if (localSearchQuery.trim()) {
+      const query = localSearchQuery.toLowerCase().trim()
+      return items.filter(item => 
+        item.item_name?.toLowerCase().includes(query) ||
+        item.item_code?.toLowerCase().includes(query) ||
+        item.barcode?.toLowerCase().includes(query)
+      )
+    }
+    return items
+  }, [items, localSearchQuery])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20">
@@ -769,13 +869,30 @@ export default function ItemsPage() {
           </div>
           
           {view === 'list' && (
-            <button
-              onClick={() => setView('add')}
-              className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
-            >
-              <Plus size={18} />
-              <span>Add Item</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              {/* Export CSV Button */}
+              <button
+                onClick={handleExportCSV}
+                disabled={isExporting || isLoading}
+                className="flex items-center space-x-1 px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                title="Export all items to CSV"
+              >
+                {isExporting ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Download size={18} />
+                )}
+                <span className="hidden sm:inline">Export</span>
+              </button>
+              {/* Add Item Button */}
+              <button
+                onClick={() => setView('add')}
+                className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+              >
+                <Plus size={18} />
+                <span>Add Item</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -790,30 +907,68 @@ export default function ItemsPage() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={localSearchQuery}
+                onChange={(e) => setLocalSearchQuery(e.target.value)}
                 placeholder="Search items by name, code, or barcode..."
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
+              {isSearching && (
+                <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 animate-spin" size={20} />
+              )}
             </div>
 
             {/* Refresh Button */}
             <button
-              onClick={fetchItems}
+              onClick={() => {
+                setLocalSearchQuery('')
+                refetchProducts()
+              }}
               disabled={isLoading}
               className="flex items-center space-x-2 text-beveren-600 hover:text-beveren-700"
             >
               <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
               <span>Refresh</span>
             </button>
+            
+            {/* Item count indicator */}
+            {!isLoading && (
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                Showing {filteredItems.length} of {totalCount} items
+              </div>
+            )}
 
             {/* Items List */}
             <div className="space-y-2">
-              {isLoading ? (
-                <div className="text-center py-8 text-gray-500">Loading items...</div>
+              {!isAuthenticated && !authLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <AlertCircle size={48} className="mx-auto mb-4 text-amber-500" />
+                  <p>Please log in to view items</p>
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="mt-4 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700"
+                  >
+                    Go to Login
+                  </button>
+                </div>
+              ) : productsError ? (
+                <div className="text-center py-8 text-gray-500">
+                  <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
+                  <p className="text-red-600">{productsError}</p>
+                  <button
+                    onClick={refetchProducts}
+                    className="mt-4 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : isLoading ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Loader2 size={32} className="mx-auto mb-4 animate-spin" />
+                  <p>Loading items...</p>
+                </div>
               ) : filteredItems.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  {searchQuery ? 'No items found' : 'No items yet. Add your first item!'}
+                  {localSearchQuery ? 'No items found matching your search' : 'No items yet. Add your first item!'}
                 </div>
               ) : (
                 filteredItems.map((item) => (

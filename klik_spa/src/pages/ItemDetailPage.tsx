@@ -15,7 +15,8 @@ import {
   Trash2,
   Loader2,
   X,
-  Printer
+  Printer,
+  Download
 } from "lucide-react"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodePrintDialog from "../components/BarcodePrintDialog"
@@ -462,6 +463,70 @@ export default function ItemDetailPage() {
     }
   }
 
+  // Export item details to CSV
+  const handleExportCSV = () => {
+    if (!item) return
+    
+    // CSV headers
+    const headers = [
+      'Item Code',
+      'Item Name',
+      'Barcode',
+      'Selling Price',
+      'Buying Price',
+      'Stock Qty',
+      'UOM',
+      'Shelf Life (Days)',
+      'Item Group',
+      'Batch Tracked',
+      'Expiry Tracked'
+    ]
+    
+    // CSV row data
+    const rowData = [
+      item.item_code,
+      item.item_name,
+      item.barcode || '',
+      item.standard_rate.toFixed(2),
+      item.valuation_rate.toFixed(2),
+      item.available_qty.toString(),
+      item.stock_uom,
+      item.shelf_life_in_days?.toString() || '',
+      item.item_group,
+      item.has_batch_no ? 'Yes' : 'No',
+      item.has_expiry_date ? 'Yes' : 'No'
+    ]
+    
+    // Escape CSV values (handle commas, quotes, newlines)
+    const escapeCSV = (value: string): string => {
+      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`
+      }
+      return value
+    }
+    
+    // Build CSV content
+    const csvContent = [
+      headers.map(escapeCSV).join(','),
+      rowData.map(escapeCSV).join(',')
+    ].join('\n')
+    
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    
+    link.setAttribute('href', url)
+    link.setAttribute('download', `${item.item_code}_details.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    toast.success('Item details exported to CSV')
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20 flex items-center justify-center">
@@ -531,6 +596,15 @@ export default function ItemDetailPage() {
             </div>
           ) : (
             <div className="flex items-center space-x-2">
+              {/* Export CSV Button */}
+              <button
+                onClick={handleExportCSV}
+                className="flex items-center space-x-1 px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                title="Export to CSV"
+              >
+                <Download size={18} />
+                <span className="hidden sm:inline">Export</span>
+              </button>
               {/* Print Barcode Button - only show if item has barcode */}
               {item.barcode && (
                 <button

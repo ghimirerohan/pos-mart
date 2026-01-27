@@ -29,6 +29,7 @@ import {
 
 
 import PaymentDialog from "../components/PaymentDialog";
+import PayNowModal from "../components/PayNowModal";
 import { useInvoiceDetails } from "../hooks/useInvoiceDetails";
 import { useCustomerStatistics } from "../hooks/useCustomerStatistics";
 import { usePOSDetails } from "../hooks/usePOSProfile";
@@ -68,6 +69,9 @@ export default function InvoiceViewPage() {
 
   // Delete confirmation state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Pay Now modal state
+  const [showPayNowModal, setShowPayNowModal] = useState(false)
 
 
   const handleBackClick = () => {
@@ -407,6 +411,22 @@ export default function InvoiceViewPage() {
                       <FileMinus size={20} />
                       <span className="absolute top-full left-1/2 transform -translate-x-1/2 mt-0.5 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
                         Delete Draft Invoice
+                      </span>
+                    </button>
+                  </>
+                )}
+
+                {/* Pay Now Button for Unpaid Invoices */}
+                {["Unpaid", "Overdue", "Partly Paid"].includes(invoice.status) && invoice.outstanding_amount > 0 && (
+                  <>
+                    <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+                    <button
+                      className="group relative p-2 text-green-600 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900 rounded-lg transition-all duration-200"
+                      onClick={() => setShowPayNowModal(true)}
+                    >
+                      <DollarSign size={20} />
+                      <span className="absolute top-full left-1/2 transform -translate-x-1/2 mt-0.5 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap z-50">
+                        Receive Payment
                       </span>
                     </button>
                   </>
@@ -881,6 +901,19 @@ export default function InvoiceViewPage() {
         confirmText="Delete"
         cancelText="Cancel"
         confirmButtonClass="bg-red-600 hover:bg-red-700 text-white"
+      />
+
+      {/* Pay Now Modal for Unpaid Invoices */}
+      <PayNowModal
+        isOpen={showPayNowModal}
+        onClose={() => setShowPayNowModal(false)}
+        invoiceName={invoice?.name || invoice?.id || ''}
+        outstandingAmount={invoice?.outstanding_amount || 0}
+        currency={posDetails?.currency || 'NPR'}
+        onPaymentComplete={() => {
+          // Reload the page to get updated invoice status
+          window.location.reload();
+        }}
       />
 
       </div>

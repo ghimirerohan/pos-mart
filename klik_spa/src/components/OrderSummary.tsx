@@ -785,33 +785,22 @@ export default function OrderSummary({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleCompletePayment = async (paymentData: any) => {
-    console.log("OrderSummary: Payment completed, invoice created - modal stays open for preview", paymentData);
-    // Don't close modal or clear cart - let user see invoice preview
-    // Cart will be cleared when modal is closed via "New Order" button
-  };
-
-  const handleClosePaymentDialog = async (paymentCompleted?: boolean) => {
-    setShowPaymentDialog(false);
-
-    // Only clear cart if payment was completed
-    if (paymentCompleted) {
-      // console.log("OrderSummary: Payment was completed - clearing cart for next order");
-      handleClearCart();
-    } else {
-      console.log("OrderSummary: Payment was not completed - keeping cart items");
-    }
-
+    console.log("OrderSummary: Payment completed, clearing cart and refreshing stock", paymentData);
+    
+    // Save cart item codes BEFORE clearing for stock refresh
+    const cartItemCodes = cartItems.map(item => item.item_code || item.id);
+    
+    // Clear cart immediately after successful payment
+    handleClearCart();
+    
     // Refresh stock so cashier can see updated availability
     try {
       const success = await refreshStockOnly();
       if (success) {
-        // toast.success("Stock updated - ready for next order!");
-      } else {
-        console.log("OrderSummary: No stock updates needed");
+        console.log("OrderSummary: Stock refreshed successfully");
       }
 
       // Also update batch quantities for items that were in the cart
-      const cartItemCodes = cartItems.map(item => item.item_code || item.id);
       if (cartItemCodes.length > 0) {
         try {
           await updateBatchQuantitiesForItems(cartItemCodes);
@@ -819,11 +808,18 @@ export default function OrderSummary({
           console.error("OrderSummary: Failed to update batch quantities:", error);
         }
       }
-      //eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error("OrderSummary: Failed to refresh stock:", error);
-      const errorMessage = error?.message || "Unknown error";
-      toast.error(`Failed to update stock: ${errorMessage}`);
+    }
+  };
+
+  const handleClosePaymentDialog = async (paymentCompleted?: boolean) => {
+    setShowPaymentDialog(false);
+
+    // Cart is already cleared in handleCompletePayment when payment succeeds
+    // This is just for closing the dialog
+    if (!paymentCompleted) {
+      console.log("OrderSummary: Payment was not completed - keeping cart items");
     }
   };
 

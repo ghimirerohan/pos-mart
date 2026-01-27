@@ -101,9 +101,13 @@ const getIconAndColor = (
   if (lowerLabel.includes("cash")) {
     return { icon: <Banknote size={24} />, color: "bg-beveren-600" };
   }
+  // Credit (as payment mode, not credit card) - use different icon
+  if (lowerLabel === "credit" || lowerLabel === "credit sale") {
+    return { icon: <CreditCard size={24} />, color: "bg-orange-600" };
+  }
   if (
     lowerLabel.includes("card") ||
-    lowerLabel.includes("credit") ||
+    (lowerLabel.includes("credit") && !lowerLabel.includes("sale")) ||
     lowerLabel.includes("debit") ||
     lowerLabel.includes("bank")
   ) {
@@ -128,7 +132,7 @@ export default function PaymentDialog({
   cartItems,
   appliedCoupons,
   selectedCustomer,
-
+  onCompletePayment,
   onHoldOrder,
   isMobile = false,
   isFullPage = false,
@@ -182,6 +186,9 @@ export default function PaymentDialog({
   // Delivery personnel states (optional, user-controlled via footer field)
   const [showDeliveryPersonnelModal, setShowDeliveryPersonnelModal] = useState(false);
   const [selectedDeliveryPersonnel, setSelectedDeliveryPersonnel] = useState<string | null>(null);
+
+  // Credit sale checkbox state
+  const [isCreditSale, setIsCreditSale] = useState(false);
 
   // Hooks
   const { posDetails, loading: posLoading } = usePOSDetails();
@@ -855,15 +862,22 @@ export default function PaymentDialog({
       toast.error("Kindly select a customer");
       return;
     }
+
+    // Validate credit sale checkbox
+    if (isCreditSale && !posDetails?.custom_allow_credit_sales) {
+      toast.error("Credit sales are not enabled in POS Profile. Please enable 'Allow Credit Sales' in POS Profile settings.");
+      return;
+    }
+
     // For B2B, we don't need payment validation
-    // For B2C, validate payment completion
-    if (isB2C) {
+    // For B2C, validate payment completion (unless Credit Sale is checked)
+    if (isB2C && !isCreditSale) {
       const activePaymentMethods = Object.entries(paymentAmounts)
         .filter(([, amount]) => amount > 0)
         .map(([method, amount]) => ({ method, amount }));
 
       if (activePaymentMethods.length === 0) {
-        toast.error("Please enter payment amounts");
+        toast.error("Please enter payment amounts or select Credit Sale");
         return;
       }
 
@@ -876,42 +890,51 @@ export default function PaymentDialog({
     // For B2B, no payment validation required - can be partial or zero payment
     setIsProcessingPayment(true);
 
-    // Calculate net amount to send to backend (amount paid minus change for B2C)
-    const netAmountToSend = isB2B ? totalPaidAmount : calculations.grandTotal;
+    // If Credit Sale is checked, don't send payment methods - let ERPNext handle it naturally
+    let adjustedPaymentMethods: Array<[string, number]> = [];
+    let netAmountToSend = 0;
 
-    // For B2C, adjust payment method amounts to reflect net payment (after change)
-    const adjustedPaymentMethods = isB2B
-      ? Object.entries(paymentAmounts).filter(([, amount]) => amount > 0)
-      : (() => {
-          const validPayments = Object.entries(paymentAmounts).filter(([, amount]) => amount > 0);
+    if (isCreditSale) {
+      // Credit sale: no payment entries, ERPNext will set outstanding_amount = grand_total
+      adjustedPaymentMethods = [];
+      netAmountToSend = 0;
+    } else {
+      // Normal payment: process payment methods
+      netAmountToSend = isB2B ? totalPaidAmount : calculations.grandTotal;
 
-          if (validPayments.length === 0) return [];
+      adjustedPaymentMethods = isB2B
+        ? Object.entries(paymentAmounts).filter(([, amount]) => amount > 0)
+        : (() => {
+            const validPayments = Object.entries(paymentAmounts).filter(([, amount]) => amount > 0);
 
-          // Calculate total of all payment methods
-          const totalPaymentAmount = validPayments.reduce((sum, [, amount]) => sum + amount, 0);
+            if (validPayments.length === 0) return [];
 
-          // If total exceeds grand total, adjust the last payment method
-          if (totalPaymentAmount > calculations.grandTotal) {
-            const excess = totalPaymentAmount - calculations.grandTotal;
-            const lastPaymentIndex = validPayments.length - 1;
-            const lastPayment = validPayments[lastPaymentIndex];
-            if (!lastPayment) return;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const [lastMethod, lastAmount] = lastPayment;
+            // Calculate total of all payment methods
+            const totalPaymentAmount = validPayments.reduce((sum, [, amount]) => sum + amount, 0);
 
-            // Reduce the last payment method by the excess amount
-            const adjustedLastAmount = parseFloat(Math.max(0, lastAmount - excess).toFixed(2));
+            // If total exceeds grand total, adjust the last payment method
+            if (totalPaymentAmount > calculations.grandTotal) {
+              const excess = totalPaymentAmount - calculations.grandTotal;
+              const lastPaymentIndex = validPayments.length - 1;
+              const lastPayment = validPayments[lastPaymentIndex];
+              if (!lastPayment) return [];
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const [lastMethod, lastAmount] = lastPayment;
 
-            return validPayments.map(([method, amount], index) => {
-              if (index === lastPaymentIndex) {
-                return [method, adjustedLastAmount];
-              }
-              return [method, amount];
-            });
-          }
+              // Reduce the last payment method by the excess amount
+              const adjustedLastAmount = parseFloat(Math.max(0, lastAmount - excess).toFixed(2));
 
-          return validPayments;
-        })();
+              return validPayments.map(([method, amount], index) => {
+                if (index === lastPaymentIndex) {
+                  return [method, adjustedLastAmount];
+                }
+                return [method, amount];
+              });
+            }
+
+            return validPayments;
+          })();
+    }
 
     const paymentData = {
       items: cartItems.map(item => ({
@@ -926,7 +949,7 @@ export default function PaymentDialog({
         discountAmount: itemDiscounts[item.id]?.discountAmount || 0,
       })),
       customer: selectedCustomer,
-      paymentMethods: (adjustedPaymentMethods ?? []).map(([method, amount]) => ({ method, amount: parseFloat((Number(amount) || 0).toFixed(2)) })),
+      paymentMethods: adjustedPaymentMethods.map(([method, amount]) => ({ method, amount: parseFloat((Number(amount) || 0).toFixed(2)) })),
       subtotal: calculations.subtotal,
       SalesTaxCharges: selectedSalesTaxCharges,
       taxAmount: calculations.taxAmount,
@@ -934,11 +957,12 @@ export default function PaymentDialog({
       couponDiscount: calculations.couponDiscount,
       roundOffAmount,
       grandTotal: calculations.grandTotal,
-      amountPaid: netAmountToSend, // Send net amount (grand total for B2C, total paid for B2B)
-      outstandingAmount: outstandingAmount,
+      amountPaid: netAmountToSend,
+      outstandingAmount: isCreditSale ? calculations.grandTotal : outstandingAmount, // For credit sale, full amount is outstanding
       appliedCoupons,
       businessType: posDetails?.business_type,
       deliveryPersonnel: deliveryPersonnel || null,
+      isCreditSale: isCreditSale, // Send flag to backend
     };
 
     try {
@@ -970,14 +994,27 @@ export default function PaymentDialog({
       // Clear draft invoice cache since payment is completed
       clearDraftInvoiceCache();
 
-      // Don't clear cart immediately - let modal stay open for invoice preview
+      // Call onCompletePayment to clear cart and refresh stock immediately
+      // Modal stays open for invoice preview, but cart is cleared for next order
+      onCompletePayment(paymentData);
+
       //eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
+      console.error("Payment processing error:", err);
       const defaultMessage = isB2B
         ? "Failed to submit invoice"
         : "Failed to process payment";
 
-      const errorMessage = extractErrorFromException(err, defaultMessage);
+      // Extract detailed error message
+      let errorMessage = defaultMessage;
+      if (err?.message) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      
+      // Clean up error message
+      errorMessage = extractErrorFromException(err, errorMessage);
       toast.error(errorMessage);
     } finally {
       setIsProcessingPayment(false);
@@ -1071,6 +1108,10 @@ export default function PaymentDialog({
       return isB2B ? "Submitting Invoice..." : "Processing Payment...";
     }
 
+    if (isCreditSale) {
+      return isB2B ? "Submit Invoice (Credit Sale)" : "Complete Sale (Credit)";
+    }
+
     if (isB2B) {
       if (totalPaidAmount === 0) {
         return "Submit Invoice (Pay Later)";
@@ -1086,6 +1127,10 @@ export default function PaymentDialog({
 
   const isActionButtonDisabled = () => {
     if (invoiceSubmitted || isProcessingPayment) return true;
+    
+    // If Credit Sale checkbox is checked, always allow submission
+    if (isCreditSale) return false;
+    
     // For B2C, check if payment is complete
     if (isB2C) return outstandingAmount > 0;
     // For B2B, no payment validation needed
@@ -1241,6 +1286,35 @@ export default function PaymentDialog({
               </div>
             ) : (
               <>
+                {/* Credit Sale Checkbox - Only show if credit sales are enabled */}
+                {posDetails?.custom_allow_credit_sales && (
+                  <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isCreditSale}
+                        onChange={(e) => {
+                          setIsCreditSale(e.target.checked);
+                          // Clear payment amounts when credit sale is checked
+                          if (e.target.checked) {
+                            setPaymentAmounts({});
+                          }
+                        }}
+                        disabled={invoiceSubmitted || isProcessingPayment}
+                        className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          Credit Sale
+                        </span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Stock will be updated, invoice created, but payment will be marked as unpaid
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                )}
+
                 {/* Payment Methods - Only show for B2C */}
                 {(isB2C || isB2B) && (
                   <div>
@@ -1287,13 +1361,21 @@ export default function PaymentDialog({
                                 )
                               }
                               placeholder="0.00"
-                              disabled={invoiceSubmitted || isProcessingPayment}
+                              disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
                               className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
-                                invoiceSubmitted || isProcessingPayment
+                                invoiceSubmitted || isProcessingPayment || isCreditSale
                                   ? "cursor-not-allowed opacity-50"
                                   : ""
                               }`}
                             />
+                            {/* Helper text for Credit payment */}
+                            {(method.name.toLowerCase() === 'credit' || method.name.toLowerCase() === 'credit sale') && (
+                              <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
+                                {posDetails?.custom_allow_credit_sales 
+                                  ? "Credit sale - enter 0 for full credit"
+                                  : "Credit sales not enabled in POS Profile"}
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1967,6 +2049,35 @@ export default function PaymentDialog({
             ) : (
               // Original payment content
               <div className="space-y-6">
+                {/* Credit Sale Checkbox - Only show if credit sales are enabled */}
+                {posDetails?.custom_allow_credit_sales && (
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isCreditSale}
+                        onChange={(e) => {
+                          setIsCreditSale(e.target.checked);
+                          // Clear payment amounts when credit sale is checked
+                          if (e.target.checked) {
+                            setPaymentAmounts({});
+                          }
+                        }}
+                        disabled={invoiceSubmitted || isProcessingPayment}
+                        className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
+                      />
+                      <div>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          Credit Sale
+                        </span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Stock will be updated, invoice created, but payment will be marked as unpaid
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                )}
+
                 {/* Payment Methods */}
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -2044,13 +2155,21 @@ export default function PaymentDialog({
                               }
                             }}
                             placeholder="0.00"
-                            disabled={invoiceSubmitted || isProcessingPayment}
+                            disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
                             className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm ${
-                              invoiceSubmitted || isProcessingPayment
+                              invoiceSubmitted || isProcessingPayment || isCreditSale
                                 ? "cursor-not-allowed opacity-50"
                                 : ""
                             }`}
                           />
+                          {/* Helper text for Credit payment */}
+                          {(method.name.toLowerCase() === 'credit' || method.name.toLowerCase() === 'credit sale') && (
+                            <p className="mt-1 text-xs text-orange-600 dark:text-orange-400">
+                              {posDetails?.custom_allow_credit_sales 
+                                ? "Credit sale - enter 0 for full credit"
+                                : "Credit sales not enabled in POS Profile"}
+                            </p>
+                          )}
                         </div>
                       </div>
                     ))}

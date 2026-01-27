@@ -36,6 +36,8 @@ export interface MenuItem {
   uom?: string
   currency_symbol?: string
   barcode?: string
+  buying_price?: number
+  currency?: string
 }
 
 export interface Category {
@@ -274,3 +276,70 @@ export type AddressDoc = {
   street_name:string;
   // ... add more as needed
 };
+
+// Purchase Invoice Types
+export interface PurchaseInvoiceItem {
+  id?: string;
+  item_code: string;
+  item_name: string;
+  description?: string;
+  category?: string;
+  quantity?: number;
+  qty: number;
+  rate: number;
+  amount: number;
+  returned_qty?: number;
+  available_qty?: number;
+}
+
+export interface PurchaseInvoice {
+  id: string;
+  name: string;
+  date: string;
+  time: string;
+  user: string;
+  userId: string;
+  supplier: string;
+  supplierId: string;
+  supplier_name?: string;
+  items: PurchaseInvoiceItem[];
+  subtotal: number;
+  discountAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+  paymentMethod: string;
+  payment_methods?: Array<{
+    mode_of_payment: string;
+    amount: number;
+  }>;
+  outstandingAmount: number;
+  outstanding_amount?: number;
+  paidAmount: number;
+  paid_amount?: number;
+  status: "Draft" | "Unpaid" | "Partly Paid" | "Paid" | "Overdue" | "Cancelled" | "Return" | "Debit Note Issued";
+  currency: string;
+  company: string;
+  isReturn: boolean;
+  is_return?: number;
+  returnAgainst: string;
+  return_against?: string;
+  canReturn?: boolean;
+  posting_date?: string;
+  posting_time?: string;
+  user_name?: string;
+  owner?: string;
+  supplier_address_doc?: AddressDoc;
+  company_address_doc?: AddressDoc;
+  base_grand_total?: number;
+  grand_total?: number;
+  total_taxes_and_charges?: number;
+  discount_amount?: number;
+  taxes?: Array<{
+    charge_type: string;
+    account_head: string;
+    description: string;
+    rate: number;
+    tax_amount: number;
+  }>;
+  mode_of_payment?: string;
+}

@@ -1,4 +1,4 @@
-import { Receipt, Grid3X3, BarChart3, Users, MonitorX, Package } from "lucide-react"
+import { Receipt, Grid3X3, BarChart3, Users, MonitorX, Package, ShoppingBag } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 
 // Inside your component
@@ -9,6 +9,7 @@ export default function RetailSidebar() {
   const menuItems = [
     { icon: Grid3X3, path: "/pos", label: "POS" },
     { icon: Receipt, path: "/invoice", label: "Invoice" },
+    { icon: ShoppingBag, path: "/purchase-invoice", label: "Purchase" },
     { icon: Package, path: "/items", label: "Items" },
     { icon: Users, path: "/customers", label: "Customers" },
     { icon: BarChart3, path: "/dashboard", label: "Dashboard" },

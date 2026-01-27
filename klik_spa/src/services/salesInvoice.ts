@@ -40,9 +40,10 @@ export async function createSalesInvoice(data: any) {
 
   const result = await response.json();
 
-
+  // Log the full response for debugging
   if (!response.ok || !result.message || result.message.success === false) {
-    const errorMessage = extractErrorMessage(result, 'Failed to create invoice');
+    console.error('Invoice creation error:', result);
+    const errorMessage = extractErrorMessage(result, result.message?.message || result.message?.error || 'Failed to create invoice');
     throw new Error(errorMessage);
   }
 
@@ -177,6 +178,40 @@ export async function submitDraftInvoice(invoiceId: string) {
 
   if (!response.ok || !result.message || result.message.success === false) {
     const errorMessage = extractErrorMessage(result, result.message?.error || 'Failed to submit draft invoice');
+    throw new Error(errorMessage);
+  }
+
+  return result.message;
+}
+
+export async function payUnpaidInvoice(invoiceName: string, modeOfPayment: string, amount?: number) {
+  const csrfToken = window.csrf_token;
+
+  const body: { invoice_name: string; mode_of_payment: string; amount?: number } = {
+    invoice_name: invoiceName,
+    mode_of_payment: modeOfPayment,
+  };
+  
+  if (amount !== undefined) {
+    body.amount = amount;
+  }
+
+  const response = await fetch('/api/method/klik_pos.api.sales_invoice.pay_unpaid_invoice', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Frappe-CSRF-Token': csrfToken
+    },
+    body: JSON.stringify(body),
+    credentials: 'include'
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || !result.message || result.message.success === false) {
+    const errorMessage = result.message?.error || (result._server_messages 
+      ? JSON.parse(result._server_messages)[0] 
+      : 'Failed to process payment');
     throw new Error(errorMessage);
   }
 
