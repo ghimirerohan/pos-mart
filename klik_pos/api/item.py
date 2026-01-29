@@ -3329,3 +3329,92 @@ def get_items_for_export():
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Error exporting items")
 		frappe.throw(_("Error exporting items: {0}").format(str(e)))
+
+
+@frappe.whitelist(allow_guest=True)
+def get_item_purchase_history(item_code: str, limit: int = 5):
+	"""
+	Get the last N purchase records for an item, sorted by lowest rate first.
+	
+	Args:
+		item_code: The item code to fetch purchase history for
+		limit: Number of records to return (default 5)
+	
+	Returns:
+		dict with:
+			- success: bool
+			- data: list of purchase records with supplier, rate, datetime
+			- message: string (for no purchases case)
+	"""
+	try:
+		if not item_code:
+			return {"success": False, "error": "Item code is required"}
+		
+		# Validate item exists
+		if not frappe.db.exists("Item", item_code):
+			return {"success": False, "error": f"Item '{item_code}' does not exist"}
+		
+		# Fetch purchase invoice items for this item
+		# Join with Purchase Invoice to get supplier and datetime info
+		# Only fetch from submitted invoices (docstatus = 1)
+		# Exclude return invoices (is_return = 0)
+		query = """
+			SELECT 
+				pii.rate as purchase_rate,
+				pii.qty,
+				pi.supplier,
+				pi.supplier_name,
+				pi.posting_date,
+				pi.posting_time,
+				pi.name as invoice_name,
+				pi.creation as created_at
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pii.parent = pi.name
+			WHERE pii.item_code = %s
+				AND pi.docstatus = 1
+				AND pi.is_return = 0
+			ORDER BY pii.rate ASC, pi.posting_date DESC, pi.posting_time DESC
+			LIMIT %s
+		"""
+		
+		purchases = frappe.db.sql(query, (item_code, int(limit)), as_dict=True)
+		
+		if not purchases:
+			return {
+				"success": True,
+				"data": [],
+				"message": "No purchase history found for this item"
+			}
+		
+		# Format the results
+		formatted_purchases = []
+		for purchase in purchases:
+			# Format posting_time if it's a timedelta
+			posting_time_str = ""
+			if purchase.get("posting_time"):
+				if hasattr(purchase["posting_time"], "total_seconds"):
+					total_seconds = int(purchase["posting_time"].total_seconds())
+					hours = total_seconds // 3600
+					minutes = (total_seconds % 3600) // 60
+					posting_time_str = f"{hours:02d}:{minutes:02d}"
+				else:
+					posting_time_str = str(purchase["posting_time"])[:5]  # HH:MM
+			
+			formatted_purchases.append({
+				"supplier": purchase.get("supplier"),
+				"supplier_name": purchase.get("supplier_name"),
+				"purchase_rate": float(purchase.get("purchase_rate", 0)),
+				"qty": float(purchase.get("qty", 0)),
+				"posting_date": str(purchase.get("posting_date")) if purchase.get("posting_date") else "",
+				"posting_time": posting_time_str,
+				"invoice_name": purchase.get("invoice_name"),
+			})
+		
+		return {
+			"success": True,
+			"data": formatted_purchases
+		}
+		
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error fetching purchase history for {item_code}")
+		return {"success": False, "error": str(e)}

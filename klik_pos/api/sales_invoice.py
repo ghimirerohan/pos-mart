@@ -208,10 +208,11 @@ def _batch_fetch_cashier_names(user_ids):
 
 
 def _batch_fetch_payment_methods(invoice_names):
-	"""Batch fetch payment methods for given invoices."""
+	"""Batch fetch payment methods for given invoices from both child table and Payment Entry references."""
 	if not invoice_names:
 		return {}
 
+	# First, fetch from Sales Invoice Payment child table (for POS invoices paid at checkout)
 	payment_query = """
 		SELECT parent, mode_of_payment, amount
 		FROM `tabSales Invoice Payment`
@@ -227,6 +228,29 @@ def _batch_fetch_payment_methods(invoice_names):
 		payment_methods_map[payment.parent].append(
 			{"mode_of_payment": payment.mode_of_payment, "amount": payment.amount}
 		)
+
+	# Find invoices that don't have payment methods in the child table
+	# These might have been paid later via Payment Entry (e.g., credit sales paid later)
+	invoices_without_child_payments = [name for name in invoice_names if name not in payment_methods_map]
+
+	if invoices_without_child_payments:
+		# Fetch payment methods from Payment Entry references for these invoices
+		pe_query = """
+			SELECT per.reference_name as parent, pe.mode_of_payment, per.allocated_amount as amount
+			FROM `tabPayment Entry Reference` per
+			JOIN `tabPayment Entry` pe ON pe.name = per.parent
+			WHERE per.reference_doctype = 'Sales Invoice'
+			AND per.reference_name IN ({})
+			AND pe.docstatus = 1
+		""".format(",".join([f"'{name}'" for name in invoices_without_child_payments]))
+		pe_results = frappe.db.sql(pe_query, as_dict=True)
+
+		for payment in pe_results:
+			if payment.parent not in payment_methods_map:
+				payment_methods_map[payment.parent] = []
+			payment_methods_map[payment.parent].append(
+				{"mode_of_payment": payment.mode_of_payment, "amount": payment.amount}
+			)
 
 	return payment_methods_map
 
@@ -263,6 +287,9 @@ def _batch_fetch_items(invoice_names):
 
 def _process_invoices(invoices, cashier_names_map, payment_methods_map, items_map):
 	"""Process and enrich invoices with related data."""
+	# Define unpaid statuses - invoices with these statuses and no payment methods should show "Credit"
+	unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
+
 	for inv in invoices:
 		# Set cashier name
 		inv["cashier_name"] = cashier_names_map.get(inv.owner, inv.owner)
@@ -283,8 +310,17 @@ def _process_invoices(invoices, cashier_names_map, payment_methods_map, items_ma
 		inv["payment_methods"] = payment_methods
 
 		# Set backward-compatible mode_of_payment field
+		# Logic: 
+		# - If no payment methods and invoice is unpaid/overdue/pending → show "Credit"
+		# - If no payment methods and invoice is paid → should have been fetched from Payment Entry, but fallback to "-"
+		# - If payment methods exist → show the payment method(s)
 		if len(payment_methods) == 0:
-			inv["mode_of_payment"] = "-"
+			invoice_status = inv.get("status", "")
+			if invoice_status in unpaid_statuses:
+				inv["mode_of_payment"] = "Credit"
+			else:
+				# Paid invoice without any payment methods found (edge case) - show "-"
+				inv["mode_of_payment"] = "-"
 		elif len(payment_methods) == 1:
 			inv["mode_of_payment"] = payment_methods[0]["mode_of_payment"]
 		else:
@@ -363,6 +399,48 @@ def get_invoice_details(invoice_id):
 			"User", invoice_data.get("owner"), "full_name"
 		) or invoice_data.get("owner")
 		invoice_data["cashier_name"] = cashier_name
+
+		# Get payment methods and set paymentMethod field
+		payment_methods = []
+		
+		# First check payments child table (for POS invoices paid at checkout)
+		if invoice.payments:
+			for payment in invoice.payments:
+				payment_methods.append(
+					{"mode_of_payment": payment.mode_of_payment, "amount": payment.amount}
+				)
+		
+		# If no payments in child table, check Payment Entry references (for later payments)
+		if not payment_methods:
+			payment_entries = frappe.get_all(
+				"Payment Entry Reference",
+				filters={"reference_name": invoice_id, "reference_doctype": "Sales Invoice"},
+				fields=["parent", "allocated_amount"],
+			)
+			for pe_ref in payment_entries:
+				pe_doc = frappe.get_doc("Payment Entry", pe_ref.parent)
+				if pe_doc.docstatus == 1:
+					payment_methods.append(
+						{"mode_of_payment": pe_doc.mode_of_payment, "amount": pe_ref.allocated_amount}
+					)
+		
+		invoice_data["payment_methods"] = payment_methods
+		
+		# Set paymentMethod field based on payment methods and invoice status
+		# Logic: 
+		# - If no payment methods and invoice is unpaid/overdue/pending → show "Credit"
+		# - If no payment methods and invoice is paid → show "-" (edge case)
+		# - If payment methods exist → show the payment method(s)
+		unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
+		if len(payment_methods) == 0:
+			if invoice.status in unpaid_statuses:
+				invoice_data["paymentMethod"] = "Credit"
+			else:
+				invoice_data["paymentMethod"] = "-"
+		elif len(payment_methods) == 1:
+			invoice_data["paymentMethod"] = payment_methods[0]["mode_of_payment"]
+		else:
+			invoice_data["paymentMethod"] = "/".join([pm["mode_of_payment"] for pm in payment_methods])
 
 		return {
 			"success": True,
@@ -1991,8 +2069,16 @@ def get_customer_invoices_for_return(customer, start_date=None, end_date=None, s
 
 			invoice.payment_methods = payment_methods
 			# Keep backward compatibility - show first payment method or combined display
+			# Logic: 
+			# - If no payment methods and invoice is unpaid/overdue/pending → show "Credit"
+			# - If no payment methods and invoice is paid → show "-" (edge case)
+			# - If payment methods exist → show the payment method(s)
+			unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
 			if len(payment_methods) == 0:
-				invoice.payment_method = "-"
+				if invoice_doc.status in unpaid_statuses:
+					invoice.payment_method = "Credit"
+				else:
+					invoice.payment_method = "-"
 			elif len(payment_methods) == 1:
 				invoice.payment_method = payment_methods[0]["mode_of_payment"]
 			else:

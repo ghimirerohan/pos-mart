@@ -13,6 +13,7 @@ import {
 import type { PurchaseCartItem, Supplier } from "../types/supplier";
 import PurchasePaymentDialog from "./PurchasePaymentDialog";
 import AddSupplierModal from "./AddSupplierModal";
+import { PurchaseHistoryInfoButton } from "./ItemPurchaseHistoryPopover";
 import { usePurchaseCartStore } from "../stores/purchaseCartStore";
 import { toast } from "react-toastify";
 import { usePOSDetails } from "../hooks/usePOSProfile";
@@ -366,12 +367,22 @@ export default function PurchaseOrderSummary({
 
                     {/* Product Info */}
                     <div className="flex-1 min-w-0 px-3">
-                      <h4 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
-                        {item.name}
-                      </h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                        {item.category}
-                      </p>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                            {item.name}
+                          </h4>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                            {item.category}
+                          </p>
+                        </div>
+                        {/* Purchase History Info Button */}
+                        <PurchaseHistoryInfoButton
+                          itemCode={item.item_code}
+                          itemName={item.name}
+                          className="ml-2 flex-shrink-0"
+                        />
+                      </div>
                       <div className="text-sm text-amber-600 dark:text-amber-400 font-semibold">
                         {currency_symbol}
                         {item.purchase_price.toFixed(2)}

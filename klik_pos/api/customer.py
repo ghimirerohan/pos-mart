@@ -746,7 +746,7 @@ def update_customer(customer_id, customer_data):
 
 @frappe.whitelist()
 def get_customer_statistics(customer_id):
-	"""Get customer statistics including total orders and total spent"""
+	"""Get customer statistics including total orders, total spent, and outstanding amount"""
 	try:
 		# Get total invoices (orders) for the customer
 		total_orders = frappe.db.count(
@@ -796,12 +796,29 @@ def get_customer_statistics(customer_id):
 
 		last_visit = last_visit_result[0].last_visit if last_visit_result else None
 
+		# Get total outstanding amount (overdue + unpaid + partially paid)
+		outstanding_result = frappe.db.sql(
+			"""
+            SELECT COALESCE(SUM(outstanding_amount), 0) as total_outstanding
+            FROM `tabSales Invoice`
+            WHERE customer = %s
+            AND docstatus = 1
+            AND is_return = 0
+            AND outstanding_amount > 0
+        """,
+			(customer_id,),
+			as_dict=True,
+		)
+
+		total_outstanding = outstanding_result[0].total_outstanding if outstanding_result else 0
+
 		return {
 			"success": True,
 			"data": {
 				"total_orders": total_orders,
 				"total_spent": total_spent,
 				"last_visit": last_visit,
+				"total_outstanding": total_outstanding,
 			},
 		}
 

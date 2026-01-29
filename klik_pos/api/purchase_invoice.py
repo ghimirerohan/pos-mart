@@ -131,6 +131,8 @@ def _build_filters_and_fields(user_ids=None):
 		"paid_amount",
 		"is_return",
 		"return_against",
+		"is_paid",
+		"mode_of_payment",  # For invoices paid directly at creation (is_paid=1)
 	]
 
 	# Add user filter if provided
@@ -233,6 +235,9 @@ def _batch_fetch_items(invoice_names):
 
 def _process_invoices(invoices, user_names_map, payment_methods_map, items_map):
 	"""Process and enrich invoices with related data."""
+	# Define unpaid statuses - invoices with these statuses and no payment methods should show "Credit"
+	unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
+
 	for inv in invoices:
 		# Set user name
 		inv["user_name"] = user_names_map.get(inv.owner, inv.owner)
@@ -248,17 +253,37 @@ def _process_invoices(invoices, user_names_map, payment_methods_map, items_map):
 			else:
 				inv["posting_time"] = str(inv["posting_time"])
 
-		# Set payment methods
+		# Set payment methods from Payment Entry references
 		payment_methods = payment_methods_map.get(inv.name, [])
+		
+		# Store the original mode_of_payment from the invoice (for invoices paid directly at creation)
+		invoice_direct_mode_of_payment = inv.get("mode_of_payment")
+		
 		inv["payment_methods"] = payment_methods
 
-		# Set backward-compatible mode_of_payment field
-		if len(payment_methods) == 0:
-			inv["mode_of_payment"] = "-"
-		elif len(payment_methods) == 1:
-			inv["mode_of_payment"] = payment_methods[0]["mode_of_payment"]
+		# Set the display mode_of_payment field
+		# Logic: 
+		# 1. If payment methods from Payment Entry exist → show them
+		# 2. Else if invoice has mode_of_payment set (paid at creation with is_paid=1) → show it
+		# 3. Else if invoice is unpaid/overdue/pending → show "Credit"
+		# 4. Else fallback to "-"
+		if len(payment_methods) > 0:
+			# Payment Entry references found
+			if len(payment_methods) == 1:
+				inv["mode_of_payment"] = payment_methods[0]["mode_of_payment"]
+			else:
+				inv["mode_of_payment"] = "/".join([pm["mode_of_payment"] for pm in payment_methods])
+		elif invoice_direct_mode_of_payment:
+			# Invoice was paid directly at creation (is_paid=1 with mode_of_payment set)
+			inv["mode_of_payment"] = invoice_direct_mode_of_payment
 		else:
-			inv["mode_of_payment"] = "/".join([pm["mode_of_payment"] for pm in payment_methods])
+			# No payment method found - check status
+			invoice_status = inv.get("status", "")
+			if invoice_status in unpaid_statuses:
+				inv["mode_of_payment"] = "Credit"
+			else:
+				# Paid invoice without any payment methods found (edge case) - show "-"
+				inv["mode_of_payment"] = "-"
 
 		# Set items and calculate return data
 		items = items_map.get(inv.name, [])
@@ -336,12 +361,32 @@ def get_purchase_invoice_details(invoice_id):
 
 		# Get payment method from Payment Entry references
 		payment_methods = _get_payment_methods_for_invoice(invoice_id)
+		invoice_data["payment_methods"] = payment_methods if payment_methods else []
+		
+		# Store the original mode_of_payment from the invoice (for invoices paid directly at creation)
+		invoice_direct_mode_of_payment = invoice.mode_of_payment
+		
+		# Set mode_of_payment based on payment methods and invoice status
+		# Logic: 
+		# 1. If payment methods from Payment Entry exist → show them
+		# 2. Else if invoice has mode_of_payment set (paid at creation with is_paid=1) → show it
+		# 3. Else if invoice is unpaid/overdue/pending → show "Credit"
+		# 4. Else fallback to "-"
+		unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
 		if payment_methods:
-			invoice_data["mode_of_payment"] = "/".join([pm["mode_of_payment"] for pm in payment_methods])
-			invoice_data["payment_methods"] = payment_methods
+			if len(payment_methods) == 1:
+				invoice_data["mode_of_payment"] = payment_methods[0]["mode_of_payment"]
+			else:
+				invoice_data["mode_of_payment"] = "/".join([pm["mode_of_payment"] for pm in payment_methods])
+		elif invoice_direct_mode_of_payment:
+			# Invoice was paid directly at creation (is_paid=1 with mode_of_payment set)
+			invoice_data["mode_of_payment"] = invoice_direct_mode_of_payment
 		else:
-			invoice_data["mode_of_payment"] = "-"
-			invoice_data["payment_methods"] = []
+			invoice_status = invoice_data.get("status", "")
+			if invoice_status in unpaid_statuses:
+				invoice_data["mode_of_payment"] = "Credit"
+			else:
+				invoice_data["mode_of_payment"] = "-"
 
 		return {
 			"success": True,
@@ -810,8 +855,10 @@ def create_purchase_invoice(data):
 			if total_payment > 0:
 				doc.is_paid = 1
 				
-				# Set cash_bank_account - required when is_paid = 1
+				# Set mode_of_payment and cash_bank_account - required when is_paid = 1
 				primary_mode = payment_methods[0].get("mode_of_payment", "Cash")
+				doc.mode_of_payment = primary_mode  # Store payment method on invoice for display
+				
 				try:
 					mode_of_payment_doc = frappe.get_doc("Mode of Payment", primary_mode)
 					cash_bank_account = None

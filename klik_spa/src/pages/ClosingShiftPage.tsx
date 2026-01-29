@@ -159,58 +159,73 @@ export default function ClosingShiftPage() {
 
   // Payment Stats Calculation - Calculate from filtered invoices
   const paymentStats = useMemo(() => {
-    if (!modes || modes.length === 0) {
-      return {};
+    // Start with modes if available, but also include payment methods from invoices
+    // @ts-expect-error just ignore for now
+    const stats: Record<string, { name: string; openingAmount: number; amount: number; transactions: number }> = {};
+    
+    // Initialize from modes if available
+    if (modes && modes.length > 0) {
+      modes.forEach(mode => {
+        stats[mode.name] = {
+          name: mode.name,
+          openingAmount: mode.openingAmount || 0,
+          amount: 0,
+          transactions: 0
+        };
+      });
     }
 
-    const stats = modes.reduce((acc, mode) => {
-      // @ts-expect-error just ignore for now
-      acc[mode.name] = {
-        name: mode.name,
-        openingAmount: mode.openingAmount || 0,
-        amount: 0,
-        transactions: 0
-      };
-      return acc;
-    }, {});
+    // Helper function to ensure payment method exists in stats
+    const ensurePaymentMethod = (methodName: string) => {
+      if (!methodName) return;
+      if (!stats[methodName]) {
+        stats[methodName] = {
+          name: methodName,
+          openingAmount: 0,
+          amount: 0,
+          transactions: 0
+        };
+      }
+    };
 
     // Calculate amounts and transactions from filtered invoices
     filteredInvoices.forEach(invoice => {
       // Check if invoice has multiple payment methods
       if (invoice.payment_methods && Array.isArray(invoice.payment_methods)) {
         //eslint-disable-next-line @typescript-eslint/no-explicit-any
-        invoice.payment_methods.forEach((payment: any) => {
-                // @ts-expect-error just ignore for now
-          if (stats[payment.mode_of_payment]) {
-            const isReturn = invoice.status === "Return";
-            const amount = isReturn ? -Math.abs(payment.amount || 0) : (payment.amount || 0);
-      // @ts-expect-error just ignore for now
-            stats[payment.mode_of_payment].amount += amount;
+        invoice.payment_methods.forEach((payment: any, index: number) => {
+          const methodName = payment.mode_of_payment;
+          if (!methodName) return;
+          
+          // Ensure the payment method exists in stats
+          ensurePaymentMethod(methodName);
+          
+          const isReturn = invoice.status === "Return";
+          const amount = isReturn ? -Math.abs(payment.amount || 0) : (payment.amount || 0);
+          stats[methodName].amount += amount;
 
-      // @ts-expect-error just ignore for now
-            if (invoice.payment_methods.indexOf(payment) === 0) {
-                    // @ts-expect-error just ignore for now
-              stats[payment.mode_of_payment].transactions += 1;
-            }
+          // Count transaction only for the first payment method
+          if (index === 0) {
+            stats[methodName].transactions += 1;
           }
         });
-      } else {
-      // @ts-expect-error just ignore for now
-        if (invoice.paymentMethod && stats[invoice.paymentMethod]) {
-          // For return invoices, ensure the amount is subtracted (negative)
-          const isReturn = invoice.status === "Return";
-          const amount = isReturn ? -Math.abs(invoice.totalAmount || 0) : (invoice.totalAmount || 0);
-      // @ts-expect-error just ignore for now
-          stats[invoice.paymentMethod].amount += amount;
-                // @ts-expect-error just ignore for now
-          stats[invoice.paymentMethod].transactions += 1;
-        }
+      } else if (invoice.paymentMethod) {
+        // Single payment method
+        const methodName = invoice.paymentMethod;
+        
+        // Ensure the payment method exists in stats
+        ensurePaymentMethod(methodName);
+        
+        // For return invoices, ensure the amount is subtracted (negative)
+        const isReturn = invoice.status === "Return";
+        const amount = isReturn ? -Math.abs(invoice.totalAmount || 0) : (invoice.totalAmount || 0);
+        stats[methodName].amount += amount;
+        stats[methodName].transactions += 1;
       }
     });
 
     // Add opening amounts to the total amounts for each payment method
     Object.keys(stats).forEach(methodName => {
-            // @ts-expect-error just ignore for now
       stats[methodName].amount += stats[methodName].openingAmount;
     });
 
@@ -431,35 +446,39 @@ export default function ClosingShiftPage() {
 
           {/* Payment Summary - Only show if not hidden */}
           {!hideExpectedAmount && !hasNoOpeningEntry && (
-            <div className="grid grid-cols-1 gap-4 mb-6">
-              {Object.values(paymentStats).map((stat) => (
-                      // @ts-expect-error just ignore for now
-                <div key={stat.name} className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-4">
-                                          {/* @ts-expect-error just ignore */}
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{stat.name}</h3>
-                                          {/* @ts-expect-error just ignore */}
-                    {stat.name.toLowerCase().includes('cash') ? (
-                      <div className="text-2xl">💵</div>
-                    ) : (
-                      <CreditCard className="w-8 h-8 text-beveren-600" />
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                            {/* @ts-expect-error just ignore */}
-                      {formatCurrency(stat.amount, posDetails?.currency || 'USD')}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+              {Object.values(paymentStats).map((stat) => {
+                // @ts-expect-error just ignore for now
+                const statName = stat.name.toLowerCase();
+                // Determine icon based on payment type
+                const getPaymentIcon = () => {
+                  if (statName.includes('cash')) return '💵';
+                  if (statName.includes('qr') || statName.includes('fonepay') || statName.includes('esewa') || statName.includes('khalti')) return '📱';
+                  if (statName.includes('credit') || statName.includes('card')) return '💳';
+                  return '💰'; // Default icon
+                };
+                
+                return (
+                  // @ts-expect-error just ignore for now
+                  <div key={stat.name} className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-4">
+                      {/* @ts-expect-error just ignore */}
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{stat.name}</h3>
+                      <div className="text-2xl">{getPaymentIcon()}</div>
                     </div>
-                    {/* <div className="text-sm text-gray-600 dark:text-gray-400">
-                      {stat.transactions} transactions
-                    </div> */}
-                    <div className="text-sm text-gray-600 dark:text-gray-400">
-                                            {/* @ts-expect-error just ignore */}
-                      {total > 0 ? ((stat.amount / total) * 100).toFixed(1) : 0}% of total
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {/* @ts-expect-error just ignore */}
+                        {formatCurrency(stat.amount, posDetails?.currency || 'USD')}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        {/* @ts-expect-error just ignore */}
+                        {total > 0 ? ((stat.amount / total) * 100).toFixed(1) : 0}% of total
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -650,44 +669,50 @@ export default function ClosingShiftPage() {
               </div>
 
               <div className="space-y-4">
-                {Object.values(paymentStats).map((stat) => (
-                        // @ts-expect-error just ignore for now
-                  <div key={stat.name} className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div className="flex items-center space-x-3 flex-shrink-0">
-                                            {/* @ts-expect-error just ignore */}
-                      {stat.name.toLowerCase().includes('cash') ? (
-                        <div className="text-xl">💵</div>
-                      ) : (
-                        <CreditCard className="w-5 h-5 text-orange-600" />
-                      )}
-                                            {/* @ts-expect-error just ignore */}
-                      <span className="font-medium text-gray-900 dark:text-white">{stat.name}</span>
-                    </div>
-
-                    <div className="flex flex-col space-y-2">
-                      <div className="text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">Opening: </span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                                                {/* @ts-expect-error just ignore */}
-                          {formatCurrency(stat.openingAmount, posDetails?.currency || 'USD')}
-                        </span>
+                {Object.values(paymentStats).map((stat) => {
+                  // @ts-expect-error just ignore for now
+                  const statName = stat.name.toLowerCase();
+                  const getPaymentIcon = () => {
+                    if (statName.includes('cash')) return '💵';
+                    if (statName.includes('qr') || statName.includes('fonepay') || statName.includes('esewa') || statName.includes('khalti')) return '📱';
+                    if (statName.includes('credit') || statName.includes('card')) return '💳';
+                    return '💰';
+                  };
+                  
+                  return (
+                    // @ts-expect-error just ignore for now
+                    <div key={stat.name} className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div className="flex items-center space-x-3 flex-shrink-0">
+                        <div className="text-xl">{getPaymentIcon()}</div>
+                        {/* @ts-expect-error just ignore */}
+                        <span className="font-medium text-gray-900 dark:text-white">{stat.name}</span>
                       </div>
 
-                      <div className="flex-shrink-0">
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="Closing amount"
-                                // @ts-expect-error just ignore for now
-                          value={closingAmounts[stat.name] || ''}
-                          // @ts-expect-error just ignore for now
-                          onChange={(e) => handleClosingAmountChange(stat.name, e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        />
+                      <div className="flex flex-col space-y-2">
+                        <div className="text-sm">
+                          <span className="text-gray-600 dark:text-gray-400">Opening: </span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {/* @ts-expect-error just ignore */}
+                            {formatCurrency(stat.openingAmount, posDetails?.currency || 'USD')}
+                          </span>
+                        </div>
+
+                        <div className="flex-shrink-0">
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="Closing amount"
+                            // @ts-expect-error just ignore for now
+                            value={closingAmounts[stat.name] || ''}
+                            // @ts-expect-error just ignore for now
+                            onChange={(e) => handleClosingAmountChange(stat.name, e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">
@@ -773,35 +798,39 @@ export default function ClosingShiftPage() {
           {!hideExpectedAmount && !hasNoOpeningEntry && (
             <>
               {/* Payment Method Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {Object.values(paymentStats).map((stat) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {Object.values(paymentStats).map((stat) => {
                   // @ts-expect-error just ignore for now
-                  <div key={stat.name} className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-4">
-                                            {/* @ts-expect-error just ignore */}
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{stat.name}</h3>
-                                            {/* @ts-expect-error just ignore */}
-                      {stat.name.toLowerCase().includes('cash') ? (
-                        <div className="text-2xl">💵</div>
-                      ) : (
-                        <CreditCard className="w-8 h-8 text-orange-600" />
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                                              {/* @ts-expect-error just ignore */}
-                        {formatCurrency(stat.amount, posDetails?.currency || 'USD')}
+                  const statName = stat.name.toLowerCase();
+                  // Determine icon based on payment type
+                  const getPaymentIcon = () => {
+                    if (statName.includes('cash')) return '💵';
+                    if (statName.includes('qr') || statName.includes('fonepay') || statName.includes('esewa') || statName.includes('khalti')) return '📱';
+                    if (statName.includes('credit') || statName.includes('card')) return '💳';
+                    return '💰'; // Default icon
+                  };
+                  
+                  return (
+                    // @ts-expect-error just ignore for now
+                    <div key={stat.name} className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-between mb-4">
+                        {/* @ts-expect-error just ignore */}
+                        <h3 className="font-semibold text-gray-900 dark:text-white">{stat.name}</h3>
+                        <div className="text-2xl">{getPaymentIcon()}</div>
                       </div>
-                      {/* <div className="text-sm text-gray-600 dark:text-gray-400">
-                        {stat.transactions} transactions
-                      </div> */}
-                      <div className="text-sm text-gray-600 dark:text-gray-400">
-                                              {/* @ts-expect-error just ignore */}
-                        {total > 0 ? ((stat.amount / total) * 100).toFixed(1) : 0}% of total
+                      <div className="space-y-2">
+                        <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                          {/* @ts-expect-error just ignore */}
+                          {formatCurrency(stat.amount, posDetails?.currency || 'USD')}
+                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                          {/* @ts-expect-error just ignore */}
+                          {total > 0 ? ((stat.amount / total) * 100).toFixed(1) : 0}% of total
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -998,46 +1027,50 @@ export default function ClosingShiftPage() {
               </div>
 
               <div className="space-y-4">
-                {Object.values(paymentStats).map((stat) => (
+                {Object.values(paymentStats).map((stat) => {
                   // @ts-expect-error just ignore for now
-                  <div key={stat.name} className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div className="flex items-center space-x-3 flex-shrink-0">
-                      {/* @ts-expect-error just ignore */}
-                      {stat.name.toLowerCase().includes('cash') ? (
-                        <div className="text-xl">💵</div>
-                      ) : (
-                        <CreditCard className="w-5 h-5 text-beveren-600" />
-                      )}
-                                            {/* @ts-expect-error just ignore */}
-
-                      <span className="font-medium text-gray-900 dark:text-white">{stat.name}</span>
-                    </div>
-
-                    <div className="flex items-center space-x-4">
-                      <div className="text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">Opening: </span>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                                                {/* @ts-expect-error just ignore */}
-
-                          {formatCurrency(stat.openingAmount, posDetails?.currency || 'USD')}
-                        </span>
+                  const statName = stat.name.toLowerCase();
+                  const getPaymentIcon = () => {
+                    if (statName.includes('cash')) return '💵';
+                    if (statName.includes('qr') || statName.includes('fonepay') || statName.includes('esewa') || statName.includes('khalti')) return '📱';
+                    if (statName.includes('credit') || statName.includes('card')) return '💳';
+                    return '💰';
+                  };
+                  
+                  return (
+                    // @ts-expect-error just ignore for now
+                    <div key={stat.name} className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div className="flex items-center space-x-3 flex-shrink-0">
+                        <div className="text-xl">{getPaymentIcon()}</div>
+                        {/* @ts-expect-error just ignore */}
+                        <span className="font-medium text-gray-900 dark:text-white">{stat.name}</span>
                       </div>
 
-                      <div className="flex-shrink-0">
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="Closing amount"
-                                // @ts-expect-error just ignore for now
-                          value={closingAmounts[stat.name] || ''}
-                          // @ts-expect-error just ignore for now
-                          onChange={(e) => handleClosingAmountChange(stat.name, e.target.value)}
-                          className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        />
+                      <div className="flex items-center space-x-4">
+                        <div className="text-sm">
+                          <span className="text-gray-600 dark:text-gray-400">Opening: </span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {/* @ts-expect-error just ignore */}
+                            {formatCurrency(stat.openingAmount, posDetails?.currency || 'USD')}
+                          </span>
+                        </div>
+
+                        <div className="flex-shrink-0">
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="Closing amount"
+                            // @ts-expect-error just ignore for now
+                            value={closingAmounts[stat.name] || ''}
+                            // @ts-expect-error just ignore for now
+                            onChange={(e) => handleClosingAmountChange(stat.name, e.target.value)}
+                            className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">

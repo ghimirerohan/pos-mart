@@ -4,6 +4,7 @@ interface CustomerStatistics {
   total_orders: number;
   total_spent: number;
   last_visit: string | null;
+  total_outstanding: number;
 }
 
 interface UseCustomerStatisticsReturn {

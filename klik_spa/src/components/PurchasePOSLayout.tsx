@@ -23,6 +23,7 @@ import {
   PackagePlus,
   ChevronDown,
 } from "lucide-react"
+import BottomNavigation from "./BottomNavigation"
 
 export default function PurchasePOSLayout() {
   const [selectedCategory, setSelectedCategory] = useState("all")
@@ -193,16 +194,20 @@ export default function PurchasePOSLayout() {
 
   if (loading && menuItems.length === 0) {
     return (
-      <div className="flex h-screen bg-amber-50 dark:bg-gray-900 pb-8">
+      <div className="flex h-screen bg-amber-50 dark:bg-gray-900 pb-16 lg:pb-8">
         <LoadingSpinner />
+        {/* Bottom Navigation for mobile */}
+        <div className="lg:hidden">
+          <BottomNavigation />
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 pb-8">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 pb-16 lg:pb-8">
       {/* Left Panel - Products */}
-      <div className="flex-1 overflow-hidden ml-20">
+      <div className="flex-1 overflow-hidden lg:ml-20">
         <div className="flex flex-col h-full">
           {/* Purchase Mode Banner */}
           <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 flex items-center justify-between">
@@ -342,8 +347,8 @@ export default function PurchasePOSLayout() {
         </div>
       </div>
 
-      {/* Right Panel - Order Summary */}
-      <div className="w-[35%] min-w-[420px] max-w-[600px] bg-white shadow-lg overflow-y-auto">
+      {/* Right Panel - Order Summary (hidden on mobile) */}
+      <div className="hidden lg:block w-[35%] min-w-[420px] max-w-[600px] bg-white shadow-lg overflow-y-auto">
         <PurchaseOrderSummary
           cartItems={cartItems}
           onUpdateQuantity={handleUpdateQuantity}
@@ -363,6 +368,11 @@ export default function PurchasePOSLayout() {
           }}
         />
       )}
+
+      {/* Bottom Navigation for mobile */}
+      <div className="lg:hidden">
+        <BottomNavigation />
+      </div>
     </div>
   )
 }

@@ -1,13 +1,16 @@
-import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus } from "lucide-react"
+import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus, ShoppingBag } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
+import { useUserInfo } from "../hooks/useUserInfo"
 
 export default function BottomNavigation() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { userInfo } = useUserInfo()
+  const isAdminUser = userInfo?.is_admin_user || false
 
-   const menuItems = [
+  // Base menu items (always visible)
+  const baseMenuItems = [
     { icon: Grid3X3, path: "/pos", label: "POS" },
-    { icon: PackagePlus, path: "/purchase", label: "Purchase" },
     { icon: Receipt, path: "/invoice", label: "Invoice" },
     { icon: Package, path: "/items", label: "Items" },
     { icon: Users, path: "/customers", label: "Customers" },
@@ -15,9 +18,28 @@ export default function BottomNavigation() {
     { icon: FileText, path: "/closing_shift", label: "Closing" },
   ]
 
+  // Admin-only menu items (Purchase module)
+  const adminMenuItems = [
+    { icon: PackagePlus, path: "/purchase", label: "Purchase" },
+    { icon: ShoppingBag, path: "/purchase-invoice", label: "Purch Inv" },
+  ]
+
+  // Combine menu items based on user role
+  const menuItems = isAdminUser
+    ? [
+        baseMenuItems[0], // POS
+        ...adminMenuItems, // Purchase, Purchase Invoice
+        ...baseMenuItems.slice(1), // Rest of menu items
+      ]
+    : baseMenuItems
+
   const isActive = (path: string) => {
     if (path === "/pos") {
       return location.pathname === "/" || location.pathname === "/pos"
+    }
+    // Exact match for /purchase to avoid matching /purchase-invoice
+    if (path === "/purchase") {
+      return location.pathname === "/purchase"
     }
     return location.pathname.startsWith(path)
   }

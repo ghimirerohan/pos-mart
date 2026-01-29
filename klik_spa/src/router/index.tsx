@@ -12,6 +12,7 @@ import MobileCustomersPage from "../components/MobileCustomersPage";
 import MobileAddCustomerPage from "../components/MobileAddCustomerPage";
 import MobilePaymentPage from "../components/MobilePaymentPage";
 import ProtectedRoute from "../components/ProtectedRoute";
+import AdminRoute from "../components/AdminRoute";
 import App from "../App";
 import HomePage from "../pages/HomePage";
 import InvoiceHistoryPage from "../pages/InvoiceHistory";
@@ -41,7 +42,7 @@ const router = createBrowserRouter([
       },
       {
         path: "purchase",
-        element: <ProtectedRoute element={<PurchasePage />} />,
+        element: <AdminRoute element={<PurchasePage />} />,
       },
       {
         path: "dashboard",
@@ -61,11 +62,11 @@ const router = createBrowserRouter([
       },
       {
         path: "purchase-invoice",
-        element: <ProtectedRoute element={<PurchaseInvoiceHistoryPage />} />,
+        element: <AdminRoute element={<PurchaseInvoiceHistoryPage />} />,
       },
       {
         path: "purchase-invoice/:id",
-        element: <ProtectedRoute element={<PurchaseInvoiceViewPage />} />,
+        element: <AdminRoute element={<PurchaseInvoiceViewPage />} />,
       },
       {
         path: "customers",

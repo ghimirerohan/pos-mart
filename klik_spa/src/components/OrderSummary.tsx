@@ -1252,16 +1252,26 @@ export default function OrderSummary({
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedCustomer(null);
-                      setCustomerSearchQuery("");
-                      setUserRemovedDefaultCustomer(true);
-                    }}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <X size={14} />
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {/* Outstanding Amount Badge */}
+                    {(customerStats?.total_outstanding || 0) > 0 && (
+                      <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
+                        <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                          Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedCustomer(null);
+                        setCustomerSearchQuery("");
+                        setUserRemovedDefaultCustomer(true);
+                      }}
+                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1371,16 +1381,26 @@ export default function OrderSummary({
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setSelectedCustomer(null);
-                    setCustomerSearchQuery("");
-                    setUserRemovedDefaultCustomer(true);
-                  }}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X size={14} />
-                </button>
+                <div className="flex items-center space-x-2">
+                  {/* Outstanding Amount Badge */}
+                  {(customerStats?.total_outstanding || 0) > 0 && (
+                    <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
+                      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                        Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSelectedCustomer(null);
+                      setCustomerSearchQuery("");
+                      setUserRemovedDefaultCustomer(true);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
