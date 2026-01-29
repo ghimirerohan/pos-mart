@@ -797,20 +797,21 @@ def get_customer_statistics(customer_id):
 		last_visit = last_visit_result[0].last_visit if last_visit_result else None
 
 		# Get total outstanding amount (overdue + unpaid + partially paid)
+		# Include both regular invoices and returns to get the NET outstanding
+		# Returns have negative outstanding_amount which offsets the original invoice
 		outstanding_result = frappe.db.sql(
 			"""
             SELECT COALESCE(SUM(outstanding_amount), 0) as total_outstanding
             FROM `tabSales Invoice`
             WHERE customer = %s
             AND docstatus = 1
-            AND is_return = 0
-            AND outstanding_amount > 0
         """,
 			(customer_id,),
 			as_dict=True,
 		)
 
-		total_outstanding = outstanding_result[0].total_outstanding if outstanding_result else 0
+		# Only show positive outstanding (if returns exceed sales, don't show negative due)
+		total_outstanding = max(0, outstanding_result[0].total_outstanding if outstanding_result else 0)
 
 		return {
 			"success": True,
