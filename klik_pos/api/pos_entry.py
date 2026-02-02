@@ -196,7 +196,13 @@ def _get_open_pos_entry(user):
 def _calculate_payment_reconciliation(opening_entry, data):
 	"""
 	Calculate payment reconciliation data including opening balances,
-	sales amounts, and expected vs closing amounts.
+	sales amounts, Payment Entry amounts (credit payments), and expected vs closing amounts.
+	
+	This comprehensive reconciliation includes:
+	- Opening balances from POS Opening Entry
+	- Sales payments from Sales Invoice Payment (IN)
+	- Return payments from Sales Invoice Payment (OUT)
+	- Payment Entries for credit payments received (IN)
 	"""
 	opening_entry_name = opening_entry.name
 	opening_start = opening_entry.period_start_date
@@ -211,8 +217,8 @@ def _calculate_payment_reconciliation(opening_entry, data):
 	)
 	opening_balance_map = {row.mode_of_payment: row.opening_amount for row in opening_modes}
 
-	# Aggregate sales by payment mode
-	sales_data = frappe.db.sql(
+	# Aggregate sales payments by payment mode (IN - regular sales)
+	sales_in_data = frappe.db.sql(
 		"""
 		SELECT sip.mode_of_payment,
 		       SUM(sip.amount) as total_amount,
@@ -223,6 +229,7 @@ def _calculate_payment_reconciliation(opening_entry, data):
 		  AND si.docstatus = 1
 		  AND si.posting_date = %s
 		  AND si.posting_time >= %s
+		  AND si.is_return = 0
 		  AND si.custom_pos_opening_entry IS NOT NULL
 		  AND si.custom_pos_opening_entry != ''
 		GROUP BY sip.mode_of_payment
@@ -230,18 +237,98 @@ def _calculate_payment_reconciliation(opening_entry, data):
 		(opening_entry.pos_profile, opening_date, opening_time),
 		as_dict=True,
 	)
-	sales_map = {row.mode_of_payment: row.total_amount for row in sales_data}
+	sales_in_map = {row.mode_of_payment: float(row.total_amount or 0) for row in sales_in_data}
+
+	# Aggregate return payments by payment mode (OUT - refunds)
+	returns_out_data = frappe.db.sql(
+		"""
+		SELECT sip.mode_of_payment,
+		       SUM(ABS(sip.amount)) as total_amount,
+		       COUNT(DISTINCT si.name) as transactions
+		FROM `tabSales Invoice` si
+		JOIN `tabSales Invoice Payment` sip ON si.name = sip.parent
+		WHERE si.pos_profile = %s
+		  AND si.docstatus = 1
+		  AND si.posting_date = %s
+		  AND si.posting_time >= %s
+		  AND si.is_return = 1
+		  AND si.custom_pos_opening_entry IS NOT NULL
+		  AND si.custom_pos_opening_entry != ''
+		GROUP BY sip.mode_of_payment
+		""",
+		(opening_entry.pos_profile, opening_date, opening_time),
+		as_dict=True,
+	)
+	returns_out_map = {row.mode_of_payment: float(row.total_amount or 0) for row in returns_out_data}
+
+	# Aggregate Payment Entries (credit payments received) - IN
+	# Check if custom_pos_opening_entry field exists on Payment Entry
+	pe_meta = frappe.get_meta("Payment Entry")
+	has_pos_opening_field = pe_meta.has_field("custom_pos_opening_entry")
+	
+	payment_entries_in_map = {}
+	if has_pos_opening_field:
+		# Use POS Opening Entry link if available
+		pe_data = frappe.db.sql(
+			"""
+			SELECT pe.mode_of_payment,
+			       SUM(pe.paid_amount) as total_amount,
+			       COUNT(DISTINCT pe.name) as transactions
+			FROM `tabPayment Entry` pe
+			WHERE pe.docstatus = 1
+			  AND pe.posting_date = %s
+			  AND pe.party_type = 'Customer'
+			  AND pe.payment_type = 'Receive'
+			  AND pe.custom_pos_opening_entry = %s
+			GROUP BY pe.mode_of_payment
+			""",
+			(opening_date, opening_entry_name),
+			as_dict=True,
+		)
+	else:
+		# Fall back to date-based filtering for the current user
+		pe_data = frappe.db.sql(
+			"""
+			SELECT pe.mode_of_payment,
+			       SUM(pe.paid_amount) as total_amount,
+			       COUNT(DISTINCT pe.name) as transactions
+			FROM `tabPayment Entry` pe
+			WHERE pe.docstatus = 1
+			  AND pe.posting_date = %s
+			  AND pe.party_type = 'Customer'
+			  AND pe.payment_type = 'Receive'
+			  AND pe.owner = %s
+			GROUP BY pe.mode_of_payment
+			""",
+			(opening_date, frappe.session.user),
+			as_dict=True,
+		)
+	
+	payment_entries_in_map = {row.mode_of_payment: float(row.total_amount or 0) for row in pe_data}
 
 	# Build reconciliation entries
 	closing_balance = data.get("closing_balance", {})
 	reconciliation = []
 
-	# Process modes with closing amounts
-	for mode, closing_amount in closing_balance.items():
-		opening_amount = opening_balance_map.get(mode, 0)
-		sales_amount = sales_map.get(mode, 0)
-		expected_amount = float(opening_amount) + float(sales_amount)
-		difference = float(closing_amount) - float(expected_amount)
+	# Collect all payment modes from all sources
+	all_modes = set(opening_balance_map.keys())
+	all_modes.update(sales_in_map.keys())
+	all_modes.update(returns_out_map.keys())
+	all_modes.update(payment_entries_in_map.keys())
+	all_modes.update(closing_balance.keys())
+
+	# Process all modes
+	for mode in all_modes:
+		opening_amount = float(opening_balance_map.get(mode, 0))
+		sales_in = float(sales_in_map.get(mode, 0))
+		returns_out = float(returns_out_map.get(mode, 0))
+		pe_in = float(payment_entries_in_map.get(mode, 0))
+		
+		# Calculate expected amount: opening + sales_in + payment_entries_in - returns_out
+		expected_amount = opening_amount + sales_in + pe_in - returns_out
+		
+		closing_amount = float(closing_balance.get(mode, 0))
+		difference = closing_amount - expected_amount
 
 		reconciliation.append(
 			{
@@ -252,23 +339,6 @@ def _calculate_payment_reconciliation(opening_entry, data):
 				"difference": difference,
 			}
 		)
-
-	# Process modes without closing amounts (including all opening modes if no closing data)
-	for mode, opening_amount in opening_balance_map.items():
-		if mode not in closing_balance:
-			sales_amount = sales_map.get(mode, 0)
-			expected_amount = float(opening_amount) + float(sales_amount)
-			difference = 0 - float(expected_amount)
-
-			reconciliation.append(
-				{
-					"mode_of_payment": mode,
-					"opening_amount": opening_amount,
-					"expected_amount": expected_amount,
-					"closing_amount": 0,
-					"difference": difference,
-				}
-			)
 
 	return reconciliation
 

@@ -157,6 +157,7 @@ def _build_filters_and_fields(skip_opening_entry_filter=False, cashier_user_ids=
 		"customer",
 		"customer_name",
 		"base_grand_total",
+		"grand_total",
 		"base_rounded_total",
 		"status",
 		"discount_amount",
@@ -164,6 +165,10 @@ def _build_filters_and_fields(skip_opening_entry_filter=False, cashier_user_ids=
 		"custom_pos_opening_entry",
 		"pos_profile",
 		"currency",
+		"paid_amount",
+		"outstanding_amount",
+		"is_return",
+		"return_against",
 	]
 
 	if has_zatca_status:
@@ -592,6 +597,9 @@ def create_and_submit_invoice(data):
 			roundoff_amount,
 			delivery_personnel,
 			is_credit_sale,
+			is_partial_payment,
+			partial_payment_amount,
+			outstanding_amount,
 		) = parse_invoice_data(data)
 
 		# Validate required fields
@@ -611,18 +619,23 @@ def create_and_submit_invoice(data):
 			frappe.throw(f"Error validating customer: {str(e)}")
 
 		# Build invoice document
-		# For credit sale, don't include payment entries - let ERPNext handle it naturally
+		# For credit sale: don't include payment entries - let ERPNext handle it naturally (outstanding = grand_total)
+		# For partial payment: don't include payment entries in child table - we'll create a separate Payment Entry
+		# For normal payment: include payment entries in child table
+		include_payments = not is_credit_sale and not is_partial_payment
+		
 		doc = build_sales_invoice_doc(
 			customer,
 			items,
 			amount_paid,
 			sales_and_tax_charges,
-			mode_of_payment if not is_credit_sale else None,  # Don't add payment entries for credit sale
+			mode_of_payment if include_payments else None,  # Only add payment entries for normal payments
 			business_type,
 			roundoff_amount,
-			include_payments=not is_credit_sale,  # Don't include payments for credit sale
+			include_payments=include_payments,
 			delivery_personnel=delivery_personnel,
 			is_credit_sale=is_credit_sale,
+			is_partial_payment=is_partial_payment,
 		)
 
 		# Ensure totals are calculated before accessing them
@@ -636,6 +649,7 @@ def create_and_submit_invoice(data):
 			doc.run_method("calculate_taxes_and_totals")
 
 		# For credit sale: Let ERPNext handle outstanding amount automatically (no payment entries = full outstanding)
+		# For partial payment: Set paid_amount to partial amount, outstanding_amount = grand_total - paid_amount
 		# For normal payment: Calculate paid amounts from payment entries
 		if is_credit_sale:
 			# Credit sale: No payment entries, so paid_amount = 0, outstanding_amount = grand_total
@@ -643,6 +657,19 @@ def create_and_submit_invoice(data):
 			doc.paid_amount = 0.0
 			doc.base_paid_amount = 0.0
 			# Outstanding amount will be calculated automatically by ERPNext as grand_total - paid_amount
+		elif is_partial_payment:
+			# Partial payment: For non-POS invoices (is_pos=0), ERPNext uses Payment Entries
+			# not the payments child table. We'll create a Payment Entry after invoice submission.
+			# Set paid_amount to 0 initially - it will be updated by the Payment Entry
+			doc.paid_amount = 0.0
+			doc.base_paid_amount = 0.0
+			# Clear payments child table since we'll use Payment Entry instead
+			doc.payments = []
+			
+			frappe.logger().info(
+				f"Partial payment: amount_paid={amount_paid}, "
+				f"will create Payment Entry after invoice submission"
+			)
 		else:
 			# Normal payment: Calculate paid amounts from payment entries
 			total_payment_amount = 0.0
@@ -704,7 +731,36 @@ def create_and_submit_invoice(data):
 		payment_entry = None
 		should_create_payment_entry = False
 
-		if business_type == "B2B":
+		# Handle partial payment - create Payment Entry immediately after invoice submission
+		if is_partial_payment and amount_paid > 0 and mode_of_payment:
+			try:
+				# For partial payments, create a Payment Entry for the partial amount
+				# Get the first payment method from the list
+				if isinstance(mode_of_payment, list) and len(mode_of_payment) > 0:
+					first_payment = mode_of_payment[0]
+					payment_method = first_payment.get("method")
+					payment_amount = flt(first_payment.get("amount", amount_paid))
+				else:
+					payment_method = mode_of_payment
+					payment_amount = amount_paid
+				
+				if payment_amount > 0:
+					# Create Payment Entry for partial payment
+					payment_entry = create_partial_payment_entry(doc, payment_method, payment_amount)
+					frappe.logger().info(
+						f"Created partial payment entry {payment_entry.name} for {payment_amount} "
+						f"against invoice {doc.name}"
+					)
+					
+					# Reload the invoice to get updated paid_amount and outstanding_amount
+					doc.reload()
+			except Exception as e:
+				frappe.log_error(frappe.get_traceback(), f"Partial Payment Entry Error for {doc.name}")
+				frappe.logger().error(f"Failed to create partial payment entry: {e}")
+				# Don't fail the whole transaction - invoice is created, payment can be made later
+		
+		# Handle B2B payment entries (existing logic)
+		elif business_type == "B2B":
 			should_create_payment_entry = True
 		elif business_type == "B2B & B2C":
 			# For B2B & B2C, only create payment entry for company customers
@@ -716,7 +772,7 @@ def create_and_submit_invoice(data):
 			if customer_doc.customer_type == "Company":
 				should_create_payment_entry = True
 
-		if should_create_payment_entry and mode_of_payment and amount_paid > 0:
+		if should_create_payment_entry and mode_of_payment and amount_paid > 0 and not is_partial_payment:
 			try:
 				payment_entry = create_payment_entry(doc, mode_of_payment, amount_paid)
 			except Exception:
@@ -742,6 +798,10 @@ def create_and_submit_invoice(data):
 				"status": doc.status,
 				"is_pos": doc.is_pos,
 				"company": doc.company,
+				"paid_amount": doc.paid_amount,
+				"outstanding_amount": doc.outstanding_amount,
+				"is_partial_payment": is_partial_payment,
+				"is_credit_sale": is_credit_sale,
 			},
 			"payment_entry": payment_entry.name if payment_entry else None,
 			"processing_time": round(processing_time, 2),
@@ -769,6 +829,10 @@ def create_draft_invoice(data):
 			business_type,
 			roundoff_amount,
 			delivery_personnel,
+			is_credit_sale,
+			is_partial_payment,
+			partial_payment_amount,
+			outstanding_amount,
 		) = parse_invoice_data(data)
 		doc = build_sales_invoice_doc(
 			customer,
@@ -780,6 +844,8 @@ def create_draft_invoice(data):
 			roundoff_amount,
 			include_payments=True,
 			delivery_personnel=delivery_personnel,
+			is_credit_sale=is_credit_sale,
+			is_partial_payment=is_partial_payment,
 		)
 		doc.insert(ignore_permissions=True)
 
@@ -825,6 +891,11 @@ def parse_invoice_data(data):
 	# Extract isCreditSale flag
 	is_credit_sale = data.get("isCreditSale", False)
 
+	# Extract isPartialPayment flag and outstanding amount for partial payments
+	is_partial_payment = data.get("isPartialPayment", False)
+	partial_payment_amount = flt(data.get("partialPaymentAmount", 0.0))
+	outstanding_amount = flt(data.get("outstandingAmount", 0.0))
+
 	if not customer or not items:
 		frappe.throw(_("Customer and items are required"))
 
@@ -838,6 +909,9 @@ def parse_invoice_data(data):
 		roundoff_amount,
 		delivery_personnel,
 		is_credit_sale,
+		is_partial_payment,
+		partial_payment_amount,
+		outstanding_amount,
 	)
 
 
@@ -852,6 +926,7 @@ def build_sales_invoice_doc(
 	include_payments=False,
 	delivery_personnel=None,
 	is_credit_sale=False,
+	is_partial_payment=False,
 ):
 	"""Main function to build a sales invoice document."""
 	doc = frappe.new_doc("Sales Invoice")
@@ -874,7 +949,9 @@ def build_sales_invoice_doc(
 
 	# Configure POS profile and company settings
 	pos_profile = _get_active_pos_profile()
-	_set_pos_profile_fields(doc, pos_profile, customer, business_type, is_credit_sale)
+	# For partial payments, treat like credit sale (is_pos=0) to allow outstanding amounts
+	is_non_pos_invoice = is_credit_sale or is_partial_payment
+	_set_pos_profile_fields(doc, pos_profile, customer, business_type, is_non_pos_invoice)
 
 	# Set posting details
 	_set_posting_fields(doc)
@@ -1705,6 +1782,94 @@ def create_payment_entry(sales_invoice, mode_of_payment, amount_paid):
 		frappe.throw(f"Failed to create payment entry: {e!s}")
 
 
+def create_partial_payment_entry(sales_invoice, mode_of_payment, payment_amount):
+	"""
+	Create Payment Entry for partial payment on a Sales Invoice.
+	This is used for partial payments where customer pays some amount now and the rest later.
+	
+	Args:
+		sales_invoice: The Sales Invoice document
+		mode_of_payment: Mode of Payment name (e.g., "Cash", "Card")
+		payment_amount: The partial amount being paid
+	
+	Returns:
+		The created and submitted Payment Entry document
+	"""
+	try:
+		company = sales_invoice.company
+		customer = sales_invoice.customer
+		company_doc = frappe.get_doc("Company", company)
+		
+		# Create Payment Entry
+		payment_entry = frappe.new_doc("Payment Entry")
+		payment_entry.payment_type = "Receive"
+		payment_entry.party_type = "Customer"
+		payment_entry.party = customer
+		payment_entry.company = company
+		payment_entry.posting_date = frappe.utils.nowdate()
+		
+		# Set amounts
+		payment_entry.paid_amount = flt(payment_amount)
+		payment_entry.received_amount = flt(payment_amount)
+		payment_entry.source_exchange_rate = 1
+		payment_entry.target_exchange_rate = 1
+		
+		# Set accounts
+		payment_entry.party_account = get_customer_receivable_account(customer, company)
+		
+		# Get Mode of Payment account
+		mode_of_payment_doc = frappe.get_doc("Mode of Payment", mode_of_payment)
+		paid_to_account = None
+		for account in mode_of_payment_doc.accounts:
+			if account.company == company:
+				paid_to_account = account.default_account
+				break
+		
+		if not paid_to_account:
+			paid_to_account = company_doc.default_cash_account
+		
+		payment_entry.paid_to = paid_to_account
+		payment_entry.mode_of_payment = mode_of_payment
+		
+		# Set currencies
+		payment_entry.paid_from_account_currency = sales_invoice.currency
+		payment_entry.paid_to_account_currency = sales_invoice.currency
+		
+		# Link to the invoice with the partial amount
+		payment_entry.append(
+			"references",
+			{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": sales_invoice.name,
+				"allocated_amount": flt(payment_amount),
+			},
+		)
+		
+		# Link to current POS Opening Entry if available
+		current_opening_entry = get_current_pos_opening_entry()
+		if current_opening_entry:
+			# Check if custom field exists on Payment Entry
+			payment_entry_meta = frappe.get_meta("Payment Entry")
+			if payment_entry_meta.has_field("custom_pos_opening_entry"):
+				payment_entry.custom_pos_opening_entry = current_opening_entry
+		
+		# Add remarks for partial payment
+		payment_entry.remarks = f"Partial payment for Sales Invoice {sales_invoice.name}"
+		
+		# Save and submit
+		payment_entry.save(ignore_permissions=True)
+		payment_entry.submit()
+		
+		return payment_entry
+		
+	except Exception as e:
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"Error creating partial payment entry for invoice {sales_invoice.name}",
+		)
+		raise e
+
+
 def get_customer_receivable_account(customer, company):
 	"""Get customer's receivable account using ERPNext utility"""
 	try:
@@ -1714,6 +1879,207 @@ def get_customer_receivable_account(customer, company):
 	except Exception as e:
 		frappe.log_error(f"Error getting receivable account for customer {customer}: {e!s}")
 		return frappe.db.get_value("Company", company, "default_receivable_account")
+
+
+@frappe.whitelist()
+def get_invoice_payment_status(invoice_name):
+	"""
+	Get detailed payment status for an invoice including GL balance.
+	Useful for diagnosing discrepancies between displayed status and actual payment state.
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		# Get actual outstanding from GL Entries
+		gl_outstanding = get_actual_outstanding_from_gl(invoice_name, invoice.company, invoice.customer)
+		
+		# Get linked Payment Entries
+		payment_entries = frappe.get_all(
+			"Payment Entry Reference",
+			filters={
+				"reference_doctype": "Sales Invoice",
+				"reference_name": invoice_name,
+			},
+			fields=["parent", "allocated_amount"]
+		)
+		
+		payment_details = []
+		for pe_ref in payment_entries:
+			pe = frappe.get_doc("Payment Entry", pe_ref.parent)
+			payment_details.append({
+				"name": pe.name,
+				"posting_date": pe.posting_date,
+				"paid_amount": pe.paid_amount,
+				"allocated_amount": pe_ref.allocated_amount,
+				"docstatus": pe.docstatus,
+				"status": "Submitted" if pe.docstatus == 1 else ("Cancelled" if pe.docstatus == 2 else "Draft")
+			})
+		
+		return {
+			"success": True,
+			"invoice_name": invoice_name,
+			"invoice_status": invoice.status,
+			"docstatus": invoice.docstatus,
+			"grand_total": invoice.grand_total,
+			"outstanding_amount_field": invoice.outstanding_amount,
+			"gl_outstanding": gl_outstanding,
+			"paid_amount_field": invoice.paid_amount,
+			"has_discrepancy": abs(flt(invoice.outstanding_amount) - flt(gl_outstanding)) > 0.01,
+			"payment_entries": payment_details,
+			"total_allocated": sum(p.get("allocated_amount", 0) for p in payment_details if p.get("docstatus") == 1),
+		}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error getting payment status for {invoice_name}")
+		return {
+			"success": False,
+			"error": str(e)
+		}
+
+
+def get_actual_outstanding_from_gl(invoice_name, company, customer):
+	"""
+	Get the actual outstanding amount from GL Entries for a Sales Invoice.
+	This is what ERPNext uses to validate Payment Entry allocations.
+	"""
+	try:
+		from erpnext.accounts.party import get_party_account
+		
+		receivable_account = get_party_account("Customer", customer, company)
+		
+		# Get the balance from GL Entries
+		gl_balance = frappe.db.sql("""
+			SELECT SUM(debit) - SUM(credit) as balance
+			FROM `tabGL Entry`
+			WHERE voucher_type = 'Sales Invoice'
+			AND voucher_no = %s
+			AND account = %s
+			AND is_cancelled = 0
+		""", (invoice_name, receivable_account), as_dict=True)
+		
+		if gl_balance and gl_balance[0].balance is not None:
+			return flt(gl_balance[0].balance)
+		
+		return 0.0
+	except Exception as e:
+		frappe.log_error(f"Error getting GL outstanding for {invoice_name}: {e}")
+		return None
+
+
+@frappe.whitelist()
+def update_invoice_outstanding(invoice_name):
+	"""
+	Recalculate and update the outstanding amount for an invoice based on GL Entries.
+	Use this to fix discrepancies between the displayed outstanding and actual GL balance.
+	Also recalculates the invoice status.
+	"""
+	try:
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+		
+		if invoice.docstatus != 1:
+			return {
+				"success": False,
+				"error": "Can only update outstanding for submitted invoices"
+			}
+		
+		# Get actual outstanding from GL
+		gl_outstanding = get_actual_outstanding_from_gl(invoice_name, invoice.company, invoice.customer)
+		
+		old_outstanding = invoice.outstanding_amount
+		old_status = invoice.status
+		
+		# Update outstanding amount
+		if gl_outstanding is not None:
+			frappe.db.set_value("Sales Invoice", invoice_name, "outstanding_amount", gl_outstanding, update_modified=False)
+		
+		# Now recalculate and update the status using ERPNext's method
+		# This is the proper way to update status in ERPNext
+		try:
+			from erpnext.accounts.doctype.sales_invoice.sales_invoice import update_linked_doc
+			from erpnext.accounts.general_ledger import make_reverse_gl_entries
+		except ImportError:
+			pass
+		
+		# Use ERPNext's update_billing_status or set_status method
+		invoice.reload()
+		
+		# Calculate the correct status based on outstanding amount
+		new_status = calculate_invoice_status(invoice)
+		
+		# Update the status field
+		if new_status != old_status:
+			frappe.db.set_value("Sales Invoice", invoice_name, "status", new_status, update_modified=False)
+		
+		frappe.db.commit()
+		
+		# Reload one more time to get final state
+		invoice.reload()
+		
+		return {
+			"success": True,
+			"message": f"Updated outstanding from {old_outstanding} to {gl_outstanding}, status from {old_status} to {invoice.status}",
+			"old_outstanding": old_outstanding,
+			"new_outstanding": gl_outstanding,
+			"old_status": old_status,
+			"new_status": invoice.status,
+		}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error updating outstanding for {invoice_name}")
+		return {
+			"success": False,
+			"error": str(e)
+		}
+
+
+def calculate_invoice_status(invoice):
+	"""
+	Calculate the correct status for a Sales Invoice based on ERPNext's logic.
+	"""
+	from frappe.utils import getdate, nowdate
+	
+	# Check if it's a return invoice
+	if invoice.is_return:
+		return "Return"
+	
+	# Check if cancelled
+	if invoice.docstatus == 2:
+		return "Cancelled"
+	
+	# Check if draft
+	if invoice.docstatus == 0:
+		return "Draft"
+	
+	# For submitted invoices (docstatus == 1)
+	outstanding = flt(invoice.outstanding_amount)
+	grand_total = flt(invoice.grand_total)
+	
+	# Check if there are any return invoices against this invoice
+	has_return = frappe.db.exists("Sales Invoice", {
+		"return_against": invoice.name,
+		"docstatus": 1
+	})
+	
+	if has_return:
+		# If there's a return and still has outstanding, it's "Credit Note Issued"
+		# If fully settled, it could be "Paid" or "Credit Note Issued"
+		if outstanding <= 0:
+			return "Credit Note Issued"
+		else:
+			return "Credit Note Issued"
+	
+	# No returns - check payment status
+	if outstanding <= 0:
+		return "Paid"
+	elif outstanding < grand_total:
+		# Partially paid
+		# Check if overdue
+		if invoice.due_date and getdate(invoice.due_date) < getdate(nowdate()):
+			return "Overdue"
+		return "Partly Paid"
+	else:
+		# Fully unpaid
+		if invoice.due_date and getdate(invoice.due_date) < getdate(nowdate()):
+			return "Overdue"
+		return "Unpaid"
 
 
 @frappe.whitelist()
@@ -1738,17 +2104,36 @@ def pay_unpaid_invoice(invoice_name, mode_of_payment, amount=None):
 		if invoice.docstatus != 1:
 			frappe.throw(f"Invoice {invoice_name} is not submitted")
 		
-		if invoice.outstanding_amount <= 0:
-			frappe.throw(f"Invoice {invoice_name} has no outstanding amount")
+		# Check actual GL outstanding (more accurate than the field value)
+		gl_outstanding = get_actual_outstanding_from_gl(invoice_name, invoice.company, invoice.customer)
+		
+		# If there's a discrepancy, update the invoice first
+		if gl_outstanding is not None and abs(flt(invoice.outstanding_amount) - flt(gl_outstanding)) > 0.01:
+			frappe.db.set_value("Sales Invoice", invoice_name, "outstanding_amount", gl_outstanding, update_modified=False)
+			invoice.reload()
+			frappe.db.commit()
+		
+		# Now check if there's actually any outstanding amount
+		actual_outstanding = gl_outstanding if gl_outstanding is not None else invoice.outstanding_amount
+		
+		if flt(actual_outstanding) <= 0:
+			# Invoice is actually fully paid - update status and return helpful message
+			return {
+				"success": False,
+				"error": f"Invoice {invoice_name} has no outstanding amount. The invoice has already been fully paid. Please refresh the page to see the updated status.",
+				"already_paid": True,
+				"gl_outstanding": gl_outstanding,
+				"field_outstanding": invoice.outstanding_amount,
+			}
 		
 		# Determine amount to pay
-		payment_amount = flt(amount) if amount else flt(invoice.outstanding_amount)
+		payment_amount = flt(amount) if amount else flt(actual_outstanding)
 		
 		if payment_amount <= 0:
 			frappe.throw("Payment amount must be greater than 0")
 		
-		if payment_amount > invoice.outstanding_amount:
-			frappe.throw(f"Payment amount ({payment_amount}) cannot exceed outstanding amount ({invoice.outstanding_amount})")
+		if payment_amount > actual_outstanding:
+			frappe.throw(f"Payment amount ({payment_amount}) cannot exceed outstanding amount ({actual_outstanding})")
 		
 		# Get company details
 		company = invoice.company

@@ -26,7 +26,10 @@ import {
   TrendingUp,
   TrendingDown,
   ChevronRight,
-  Download
+  Download,
+  Ban,
+  Eye,
+  EyeOff
 } from "lucide-react"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodeScannerModal from "../components/BarcodeScanner"
@@ -274,7 +277,10 @@ export default function ItemsPage() {
   } = useProducts()
   
   // Auth hook for authentication state
-  const { isAuthenticated, loading: authLoading } = useAuth()
+  const { isAuthenticated, loading: authLoading, user } = useAuth()
+  
+  // Check if current user is Administrator
+  const isAdministrator = user?.name === 'Administrator'
   
   const [view, setView] = useState<'list' | 'add'>(prefilledBarcode ? 'add' : 'list')
   const [localSearchQuery, setLocalSearchQuery] = useState("")
@@ -282,6 +288,12 @@ export default function ItemsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [barcodeError, setBarcodeError] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  
+  // Inactive items view (Administrator only)
+  const [showInactiveOnly, setShowInactiveOnly] = useState(false)
+  const [inactiveItems, setInactiveItems] = useState<typeof items>([])
+  const [isLoadingInactive, setIsLoadingInactive] = useState(false)
+  const [inactiveCount, setInactiveCount] = useState(0)
   
   // Derive loading state from context
   const isLoading = productsLoading || authLoading
@@ -415,27 +427,6 @@ export default function ItemsPage() {
     maxTimeBetweenChars: 50,
   })
 
-  // Handle search with debouncing using the shared context
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localSearchQuery.trim()) {
-        searchProducts(localSearchQuery.trim())
-      } else {
-        clearSearch()
-      }
-    }, 300) // 300ms debounce
-    
-    return () => clearTimeout(timer)
-  }, [localSearchQuery, searchProducts, clearSearch])
-  
-  // Refetch products when switching back to list view to ensure fresh data
-  useEffect(() => {
-    if (view === 'list' && isAuthenticated && !authLoading) {
-      // Only refetch if we don't have products yet (prevents unnecessary refetch)
-      // The ProductProvider already handles initial loading
-    }
-  }, [view, isAuthenticated, authLoading])
-
   // Check if barcode already exists
   const checkBarcodeExists = async (barcode: string): Promise<boolean> => {
     if (!barcode.trim()) return false
@@ -454,6 +445,99 @@ export default function ItemsPage() {
       return false
     }
   }
+
+  // Fetch inactive items (Administrator only) - defined before effects that use it
+  const fetchInactiveItems = useCallback(async (search: string = '') => {
+    if (!isAdministrator) return
+    
+    setIsLoadingInactive(true)
+    try {
+      const params = new URLSearchParams({ limit: '500', offset: '0' })
+      if (search.trim()) {
+        params.append('search', search.trim())
+      }
+      
+      const response = await fetch(
+        `/api/method/klik_pos.api.item.get_inactive_items?${params.toString()}`,
+        { credentials: 'include' }
+      )
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
+      const data = await response.json()
+      const result = data.message || data
+      
+      if (result.items && Array.isArray(result.items)) {
+        setInactiveItems(result.items.map((item: any) => ({
+          name: item.id,
+          item_code: item.id,
+          item_name: item.name,
+          barcode: item.barcode || '',
+          image: item.image || '',
+          available: item.available || 0,
+          price: item.price || 0,
+          buying_price: item.buying_price || 0,
+          currency_symbol: item.currency_symbol || 'SAR',
+          disabled: 1
+        })))
+        setInactiveCount(result.total_count || result.items.length)
+      } else {
+        setInactiveItems([])
+        setInactiveCount(0)
+      }
+    } catch (err) {
+      console.error('Error fetching inactive items:', err)
+      setInactiveItems([])
+      setInactiveCount(0)
+    } finally {
+      setIsLoadingInactive(false)
+    }
+  }, [isAdministrator])
+
+  // Handle toggling inactive view
+  const handleToggleInactiveView = () => {
+    if (!showInactiveOnly) {
+      // Switching to inactive view
+      setShowInactiveOnly(true)
+      fetchInactiveItems(localSearchQuery)
+    } else {
+      // Switching back to active view
+      setShowInactiveOnly(false)
+    }
+  }
+
+  // Handle search with debouncing using the shared context
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (showInactiveOnly && isAdministrator) {
+        // Search inactive items
+        fetchInactiveItems(localSearchQuery.trim())
+      } else if (localSearchQuery.trim()) {
+        searchProducts(localSearchQuery.trim())
+      } else {
+        clearSearch()
+      }
+    }, 300) // 300ms debounce
+    
+    return () => clearTimeout(timer)
+  }, [localSearchQuery, searchProducts, clearSearch, showInactiveOnly, isAdministrator, fetchInactiveItems])
+  
+  // Refetch products when switching back to list view to ensure fresh data
+  useEffect(() => {
+    if (view === 'list' && isAuthenticated && !authLoading) {
+      // Only refetch if we don't have products yet (prevents unnecessary refetch)
+      // The ProductProvider already handles initial loading
+    }
+  }, [view, isAuthenticated, authLoading])
+
+  // Effect to fetch inactive items when toggle changes
+  useEffect(() => {
+    if (showInactiveOnly && isAdministrator) {
+      fetchInactiveItems(localSearchQuery)
+    }
+  }, [showInactiveOnly, isAdministrator, fetchInactiveItems, localSearchQuery])
 
   const handleBarcodeScanned = async (barcode: string) => {
     setShowScanner(false)
@@ -829,6 +913,19 @@ export default function ItemsPage() {
   // Items are already filtered by the ProductProvider when using searchProducts
   // We just apply local filtering for additional client-side filtering if needed
   const filteredItems = useMemo(() => {
+    // If showing inactive items, use the inactive items list
+    if (showInactiveOnly) {
+      if (localSearchQuery.trim()) {
+        const query = localSearchQuery.toLowerCase().trim()
+        return inactiveItems.filter(item => 
+          item.item_name?.toLowerCase().includes(query) ||
+          item.item_code?.toLowerCase().includes(query) ||
+          item.barcode?.toLowerCase().includes(query)
+        )
+      }
+      return inactiveItems
+    }
+    
     // If we have a local search query, filter locally as well for immediate feedback
     if (localSearchQuery.trim()) {
       const query = localSearchQuery.toLowerCase().trim()
@@ -839,7 +936,7 @@ export default function ItemsPage() {
       )
     }
     return items
-  }, [items, localSearchQuery])
+  }, [items, inactiveItems, localSearchQuery, showInactiveOnly])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20">
@@ -861,19 +958,48 @@ export default function ItemsPage() {
               </button>
             )}
             <div className="flex items-center space-x-2">
-              <Package className="text-beveren-600" size={24} />
+              <Package className={showInactiveOnly ? "text-amber-600" : "text-beveren-600"} size={24} />
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                {view === 'list' ? 'Items' : 'Add New Item'}
+                {view === 'list' 
+                  ? (showInactiveOnly ? 'Inactive Items' : 'Items')
+                  : 'Add New Item'}
               </h1>
+              {showInactiveOnly && (
+                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
+                  Admin Only
+                </span>
+              )}
             </div>
           </div>
           
           {view === 'list' && (
             <div className="flex items-center space-x-2">
+              {/* Show Inactive Items Toggle - Administrator only */}
+              {isAdministrator && (
+                <button
+                  onClick={handleToggleInactiveView}
+                  disabled={isLoadingInactive}
+                  className={`flex items-center space-x-1 px-3 py-2 rounded-lg border transition-colors ${
+                    showInactiveOnly
+                      ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 text-amber-800 dark:text-amber-200'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                  title={showInactiveOnly ? 'Show active items' : 'Show inactive items only (Administrator)'}
+                >
+                  {isLoadingInactive ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : showInactiveOnly ? (
+                    <Eye size={18} />
+                  ) : (
+                    <EyeOff size={18} />
+                  )}
+                  <span className="hidden sm:inline">{showInactiveOnly ? 'Active' : 'Inactive'}</span>
+                </button>
+              )}
               {/* Export CSV Button */}
               <button
                 onClick={handleExportCSV}
-                disabled={isExporting || isLoading}
+                disabled={isExporting || isLoading || showInactiveOnly}
                 className="flex items-center space-x-1 px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
                 title="Export all items to CSV"
               >
@@ -931,9 +1057,16 @@ export default function ItemsPage() {
             </button>
             
             {/* Item count indicator */}
-            {!isLoading && (
+            {!isLoading && !isLoadingInactive && (
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                Showing {filteredItems.length} of {totalCount} items
+                {showInactiveOnly ? (
+                  <span className="flex items-center">
+                    <Ban size={14} className="mr-1 text-amber-500" />
+                    Showing {filteredItems.length} inactive item{filteredItems.length !== 1 ? 's' : ''}
+                  </span>
+                ) : (
+                  <>Showing {filteredItems.length} of {totalCount} items</>
+                )}
               </div>
             )}
 
@@ -968,94 +1101,128 @@ export default function ItemsPage() {
                 </div>
               ) : filteredItems.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  {localSearchQuery ? 'No items found matching your search' : 'No items yet. Add your first item!'}
+                  {showInactiveOnly 
+                    ? 'No inactive items found' 
+                    : localSearchQuery 
+                      ? 'No items found matching your search' 
+                      : 'No items yet. Add your first item!'}
                 </div>
               ) : (
-                filteredItems.map((item) => (
-                  <div
-                    key={item.name}
-                    onClick={() => navigate(`/items/${encodeURIComponent(item.item_code)}`)}
-                    className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-beveren-500 hover:shadow-lg transition-all overflow-hidden"
-                  >
-                    {/* Top Section - Image and Info */}
-                    <div className="p-4 pb-3">
-                      <div className="flex items-start space-x-4">
-                        {item.image ? (
-                          <img 
-                            src={item.image} 
-                            alt={item.item_name}
-                            className="w-16 h-16 rounded-xl object-cover border border-gray-200 dark:border-gray-600 flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center border border-gray-200 dark:border-gray-600 flex-shrink-0">
-                            <Package size={24} className="text-gray-400" />
+                filteredItems.map((item) => {
+                  const isInactive = showInactiveOnly || (item as any).disabled === 1
+                  return (
+                    <div
+                      key={item.name}
+                      onClick={() => navigate(`/items/${encodeURIComponent(item.item_code)}`)}
+                      className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
+                        isInactive
+                          ? 'bg-gray-100 dark:bg-gray-800/70 border-gray-300 dark:border-gray-600 opacity-90 hover:opacity-100 hover:border-amber-400'
+                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-beveren-500 hover:shadow-lg'
+                      }`}
+                    >
+                      {/* Top Section - Image and Info */}
+                      <div className="p-4 pb-3">
+                        <div className="flex items-start space-x-4">
+                          <div className="relative">
+                            {item.image ? (
+                              <img 
+                                src={item.image} 
+                                alt={item.item_name}
+                                className={`w-16 h-16 rounded-xl object-cover border flex-shrink-0 ${
+                                  isInactive ? 'border-gray-300 dark:border-gray-600 grayscale-[30%]' : 'border-gray-200 dark:border-gray-600'
+                                }`}
+                              />
+                            ) : (
+                              <div className={`w-16 h-16 rounded-xl flex items-center justify-center border flex-shrink-0 ${
+                                isInactive 
+                                  ? 'bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600' 
+                                  : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 border-gray-200 dark:border-gray-600'
+                              }`}>
+                                <Package size={24} className="text-gray-400" />
+                              </div>
+                            )}
+                            {isInactive && (
+                              <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100">
+                                Inactive
+                              </span>
+                            )}
                           </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <h3 className="font-semibold text-gray-900 dark:text-white leading-tight line-clamp-2">
-                              {item.item_name}
-                            </h3>
-                            <ChevronRight size={18} className="text-gray-400 flex-shrink-0 ml-2 mt-0.5" />
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">
-                            {item.item_code}
-                          </p>
-                          {item.barcode && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center mt-1">
-                              <Barcode size={11} className="mr-1 flex-shrink-0" />
-                              <span className="truncate">{item.barcode}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between">
+                              <h3 className={`font-semibold leading-tight line-clamp-2 ${
+                                isInactive ? 'text-gray-600 dark:text-gray-400' : 'text-gray-900 dark:text-white'
+                              }`}>
+                                {item.item_name}
+                              </h3>
+                              <ChevronRight size={18} className="text-gray-400 flex-shrink-0 ml-2 mt-0.5" />
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">
+                              {item.item_code}
                             </p>
-                          )}
+                            {item.barcode && (
+                              <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center mt-1">
+                                <Barcode size={11} className="mr-1 flex-shrink-0" />
+                                <span className="truncate">{item.barcode}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Bottom Section - Stock, Buying Price, Selling Price */}
+                      <div className={`border-t px-4 py-3 ${
+                        isInactive 
+                          ? 'border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800/30' 
+                          : 'border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50'
+                      }`}>
+                        <div className="grid grid-cols-3 gap-3">
+                          {/* Stock */}
+                          <div className="text-center">
+                            <div className="flex items-center justify-center mb-1">
+                              <Boxes size={14} className={`mr-1 ${
+                                isInactive ? 'text-gray-400' : (item.available || 0) > 0 ? 'text-green-500' : 'text-red-400'
+                              }`} />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Stock</span>
+                            </div>
+                            <p className={`text-sm font-bold ${
+                              isInactive 
+                                ? 'text-gray-500 dark:text-gray-500'
+                                : (item.available || 0) > 10 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : (item.available || 0) > 0 
+                                    ? 'text-amber-600 dark:text-amber-400' 
+                                    : 'text-red-500 dark:text-red-400'
+                            }`}>
+                              {item.available || 0}
+                            </p>
+                          </div>
+                          
+                          {/* Buying Price */}
+                          <div className="text-center border-x border-gray-200 dark:border-gray-600">
+                            <div className="flex items-center justify-center mb-1">
+                              <TrendingDown size={14} className={`mr-1 ${isInactive ? 'text-gray-400' : 'text-blue-500'}`} />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Buy</span>
+                            </div>
+                            <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
+                              {item.buying_price ? `${item.buying_price.toFixed(2)}` : '—'}
+                            </p>
+                          </div>
+                          
+                          {/* Selling Price */}
+                          <div className="text-center">
+                            <div className="flex items-center justify-center mb-1">
+                              <TrendingUp size={14} className={`mr-1 ${isInactive ? 'text-gray-400' : 'text-emerald-500'}`} />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Sell</span>
+                            </div>
+                            <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                              {item.price ? `${item.price.toFixed(2)}` : '—'}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    
-                    {/* Bottom Section - Stock, Buying Price, Selling Price */}
-                    <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 px-4 py-3">
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* Stock */}
-                        <div className="text-center">
-                          <div className="flex items-center justify-center mb-1">
-                            <Boxes size={14} className={`mr-1 ${(item.available || 0) > 0 ? 'text-green-500' : 'text-red-400'}`} />
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Stock</span>
-                          </div>
-                          <p className={`text-sm font-bold ${
-                            (item.available || 0) > 10 
-                              ? 'text-green-600 dark:text-green-400' 
-                              : (item.available || 0) > 0 
-                                ? 'text-amber-600 dark:text-amber-400' 
-                                : 'text-red-500 dark:text-red-400'
-                          }`}>
-                            {item.available || 0}
-                          </p>
-                        </div>
-                        
-                        {/* Buying Price */}
-                        <div className="text-center border-x border-gray-200 dark:border-gray-600">
-                          <div className="flex items-center justify-center mb-1">
-                            <TrendingDown size={14} className="mr-1 text-blue-500" />
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Buy</span>
-                          </div>
-                          <p className="text-sm font-bold text-blue-600 dark:text-blue-400">
-                            {item.buying_price ? `${item.buying_price.toFixed(2)}` : '—'}
-                          </p>
-                        </div>
-                        
-                        {/* Selling Price */}
-                        <div className="text-center">
-                          <div className="flex items-center justify-center mb-1">
-                            <TrendingUp size={14} className="mr-1 text-emerald-500" />
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Sell</span>
-                          </div>
-                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                            {item.price ? `${item.price.toFixed(2)}` : '—'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </div>

@@ -120,10 +120,17 @@ export default function InvoiceViewPage() {
       case "Pending":
       case "Unpaid":
         return `${baseClasses} bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400`;
+      case "Partly Paid":
+        return `${baseClasses} bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400`;
+      case "Overdue":
+        return `${baseClasses} bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400`;
+      case "Credit Note Issued":
+        return `${baseClasses} bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400`;
       case "Cancelled":
         return `${baseClasses} bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400`;
       case "Refunded":
-        return `${baseClasses} bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400`;
+      case "Return":
+        return `${baseClasses} bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400`;
       default:
         return baseClasses;
     }
@@ -416,8 +423,8 @@ export default function InvoiceViewPage() {
                   </>
                 )}
 
-                {/* Pay Now Button for Unpaid Invoices */}
-                {["Unpaid", "Overdue", "Partly Paid"].includes(invoice.status) && invoice.outstanding_amount > 0 && (
+                {/* Pay Now Button for Unpaid Invoices (including Credit Note Issued with outstanding) */}
+                {["Unpaid", "Overdue", "Partly Paid", "Credit Note Issued"].includes(invoice.status) && invoice.outstanding_amount > 0 && (
                   <>
                     <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
                     <button
@@ -681,6 +688,16 @@ export default function InvoiceViewPage() {
                         )}
                       </div>
                     </div>
+                    {/* Credit Note Issued explanation */}
+                    {invoice.status === "Credit Note Issued" && (
+                      <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-700">
+                        <p className="text-xs text-blue-700 dark:text-blue-300">
+                          <strong>Note:</strong> This invoice has a return/credit note issued against it.
+                          {invoice.outstanding_amount > 0 && " You can still receive payment for the outstanding amount using the button above."}
+                          {invoice.outstanding_amount === 0 && " The invoice is fully settled."}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Notes */}

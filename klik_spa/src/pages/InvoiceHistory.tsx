@@ -77,7 +77,20 @@ export default function InvoiceHistoryPage() {
 
   // Skip opening entry filter for Invoice History - show all invoices for cashier regardless of opening entry
   // Pass cashier filter to API so it filters on server side (more efficient)
-  const { invoices, isLoading, isLoadingMore, error, hasMore, totalLoaded, totalCount, loadMore } = useSalesInvoices(searchTerm, true, cashierFilter);
+  const { invoices, isLoading, isLoadingMore, error, hasMore, totalLoaded, totalCount, loadMore, refetch } = useSalesInvoices(searchTerm, true, cashierFilter);
+
+  // Auto-refresh when window regains focus (helps with stale data after navigating back)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Refetch data when the page becomes visible again
+        refetch();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [refetch]);
   const { modes } = useAllPaymentModes();
   const { customers } = useCustomers();
   const { posDetails } = usePOSDetails();
@@ -121,6 +134,7 @@ export default function InvoiceHistoryPage() {
     { id: "Partly Paid", name: "Partly Paid", icon: AlertTriangle, color: "text-orange-600" },
     { id: "Paid", name: "Paid", icon: CheckCircle, color: "text-green-600" },
     { id: "Overdue", name: "Overdue", icon: XCircle, color: "text-red-600" },
+    { id: "Credit Note Issued", name: "Credit Note Issued", icon: FileText, color: "text-blue-600" },
     { id: "Return", name: "Returns", icon: RefreshCw, color: "text-purple-600" },
     { id: "Cancelled", name: "Cancelled", icon: XCircle, color: "text-red-500" },
   ];
@@ -400,42 +414,50 @@ const getStatusBadge = (status: string) => {
           <div>
             <p className="text-sm text-gray-600 dark:text-gray-400">Total Amount</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {formatCurrency(filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0), posDetails?.currency || 'USD')}
+              {formatCurrency(
+                filteredInvoices
+                  // Exclude returns from total (they have negative amounts)
+                  .filter(inv => !inv.is_return)
+                  .reduce((sum, inv) => sum + Math.abs(inv.totalAmount || 0), 0),
+                posDetails?.currency || 'USD'
+              )}
             </p>
           </div>
-          <DollarSign className="w-8 h-8 text-orange-600" />
+          <DollarSign className="w-8 h-8 text-beveren-600" />
         </div>
       </div>
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-gray-600 dark:text-gray-400">Paid Amount</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">
               {formatCurrency(
                 filteredInvoices
-                  .filter(inv => inv.status === "Paid")
-                  .reduce((sum, inv) => sum + inv.totalAmount, 0),
+                  // Exclude returns (is_return) from paid amount - they have negative amounts
+                  .filter(inv => !inv.is_return)
+                  .reduce((sum, inv) => sum + (inv.paid_amount || 0), 0),
                 posDetails?.currency || 'USD'
               )}
             </p>
           </div>
-          <CheckCircle className="w-8 h-8 text-orange-600" />
+          <CheckCircle className="w-8 h-8 text-green-600" />
         </div>
       </div>
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-gray-600 dark:text-gray-400">Outstanding</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">
               {formatCurrency(
                 filteredInvoices
-                  .filter(inv => ["Unpaid", "Partly Paid", "Overdue"].includes(inv.status))
-                  .reduce((sum, inv) => sum + inv.totalAmount, 0),
+                  // Only include invoices with positive outstanding (exclude returns/credit notes)
+                  .filter(inv => !inv.is_return && (inv.outstanding_amount || 0) > 0)
+                  .reduce((sum, inv) => sum + (inv.outstanding_amount || 0), 0),
                 posDetails?.currency || 'USD'
               )}
             </p>
           </div>
-          <AlertTriangle className="w-8 h-8 text-orange-600" />
+          <AlertTriangle className="w-8 h-8 text-red-600" />
         </div>
       </div>
     </div>
@@ -492,6 +514,12 @@ const getStatusBadge = (status: string) => {
                   Amount
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Paid
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Outstanding
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
                 </th>
                 {posDetails?.is_zatca_enabled && (
@@ -527,13 +555,24 @@ const getStatusBadge = (status: string) => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {formatCurrency(invoice.totalAmount, invoice.currency)}
+                      {formatCurrency(Math.abs(invoice.totalAmount || 0), invoice.currency)}
+                      {invoice.is_return && <span className="text-xs text-red-500 ml-1">(Return)</span>}
                     </div>
                     {invoice.giftCardDiscount > 0 && (
                       <div className="text-xs text-orange-600 dark:text-green-400">
                         -{formatCurrency(invoice.giftCardDiscount, invoice.currency)} gift card
                       </div>
                     )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className={`text-sm font-medium ${(invoice.paid_amount || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                      {formatCurrency(invoice.paid_amount || 0, invoice.currency)}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className={`text-sm font-medium ${(invoice.outstanding_amount || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                      {formatCurrency(invoice.outstanding_amount || 0, invoice.currency)}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={getStatusBadge(invoice.status)}>{invoice.status}</span>
@@ -608,8 +647,25 @@ const getStatusBadge = (status: string) => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600 dark:text-gray-400">Amount:</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(invoice.totalAmount, invoice.currency)}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {formatCurrency(Math.abs(invoice.totalAmount || 0), invoice.currency)}
+                    {invoice.is_return && <span className="text-xs text-red-500 ml-1">(Return)</span>}
+                  </span>
                 </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Paid:</span>
+                  <span className={`font-medium ${(invoice.paid_amount || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
+                    {formatCurrency(invoice.paid_amount || 0, invoice.currency)}
+                  </span>
+                </div>
+                {(invoice.outstanding_amount || 0) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Outstanding:</span>
+                    <span className="font-medium text-red-600 dark:text-red-400">
+                      {formatCurrency(invoice.outstanding_amount || 0, invoice.currency)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600 dark:text-gray-400">Date:</span>
                   <span className="text-gray-900 dark:text-white">{invoice.date}</span>

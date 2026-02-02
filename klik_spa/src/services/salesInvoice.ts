@@ -217,3 +217,65 @@ export async function payUnpaidInvoice(invoiceName: string, modeOfPayment: strin
 
   return result.message;
 }
+
+export async function getInvoicePaymentStatus(invoiceName: string) {
+  try {
+    const response = await fetch(`/api/method/klik_pos.api.sales_invoice.get_invoice_payment_status?invoice_name=${encodeURIComponent(invoiceName)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include'
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to get invoice payment status');
+    }
+
+    return {
+      success: true,
+      data: data.message
+    };
+  } catch (error) {
+    console.error('Error getting invoice payment status:', error);
+    return {
+      success: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      error: (error as any).message || 'Failed to get invoice payment status'
+    };
+  }
+}
+
+export async function updateInvoiceOutstanding(invoiceName: string) {
+  const csrfToken = window.csrf_token;
+
+  try {
+    const response = await fetch('/api/method/klik_pos.api.sales_invoice.update_invoice_outstanding', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Frappe-CSRF-Token': csrfToken
+      },
+      body: JSON.stringify({ invoice_name: invoiceName }),
+      credentials: 'include'
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.message || result.message.success === false) {
+      const errorMessage = result.message?.error || 'Failed to update invoice outstanding';
+      throw new Error(errorMessage);
+    }
+
+    return result.message;
+  } catch (error) {
+    console.error('Error updating invoice outstanding:', error);
+    return {
+      success: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      error: (error as any).message || 'Failed to update invoice outstanding'
+    };
+  }
+}

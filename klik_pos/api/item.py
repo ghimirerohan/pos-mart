@@ -3418,3 +3418,205 @@ def get_item_purchase_history(item_code: str, limit: int = 5):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), f"Error fetching purchase history for {item_code}")
 		return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def set_item_disabled(item_code: str, disabled: int):
+	"""
+	Set item disabled status (make inactive/active).
+	
+	Only Administrator can use this function.
+	When disabled=1, item will not appear in Purchase, Sales, or Item list for everyone.
+	
+	Args:
+		item_code: The item code
+		disabled: 1 to make inactive, 0 to make active
+		
+	Returns:
+		dict with status and disabled value
+	"""
+	# Only Administrator can toggle disabled status
+	if frappe.session.user != "Administrator":
+		frappe.throw(_("Only Administrator can make items inactive/active"), frappe.PermissionError)
+	
+	try:
+		disabled = int(disabled)
+		if disabled not in (0, 1):
+			frappe.throw(_("disabled must be 0 or 1"))
+		
+		if not frappe.db.exists("Item", item_code):
+			frappe.throw(_("Item {0} not found").format(item_code))
+		
+		frappe.db.set_value("Item", item_code, "disabled", disabled, update_modified=True)
+		frappe.db.commit()
+		
+		action = "disabled" if disabled == 1 else "enabled"
+		frappe.logger().info(f"Item {item_code} {action} by Administrator")
+		
+		return {
+			"status": "success",
+			"disabled": disabled,
+			"message": f"Item has been {'made inactive' if disabled else 're-enabled'} successfully"
+		}
+		
+	except frappe.PermissionError:
+		raise
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"Error setting item disabled for {item_code}")
+		return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def get_inactive_items(
+	limit: int = 500,
+	offset: int = 0,
+	search: str | None = None,
+):
+	"""
+	Get inactive/disabled items - only accessible by Administrator.
+	
+	This returns items that have been disabled and won't appear in normal lists.
+	
+	Args:
+		limit: Number of items to return (default 500)
+		offset: Starting position for pagination (default 0)
+		search: Search term to filter items by name, item_code, or barcode
+		
+	Returns:
+		dict with items, total_count, and has_more flag
+	"""
+	# Only Administrator can view inactive items
+	if frappe.session.user != "Administrator":
+		frappe.throw(_("Only Administrator can view inactive items"), frappe.PermissionError)
+	
+	try:
+		limit = int(limit) if limit else 500
+		offset = int(offset) if offset else 0
+	except (ValueError, TypeError):
+		limit = 500
+		offset = 0
+	
+	limit = min(limit, 1000)
+	
+	pos_doc, warehouse, price_list, _ = _get_pos_context()
+	
+	try:
+		# Build query for disabled items only
+		select_fields = "i.name, i.item_name, i.description, i.item_group, i.image, i.stock_uom"
+		
+		base_query = [
+			f"SELECT DISTINCT {select_fields}",
+			"FROM `tabItem` i",
+			"WHERE i.disabled = 1",  # Only disabled items
+			"AND i.is_stock_item = 1",
+		]
+		count_query = [
+			"SELECT COUNT(DISTINCT i.name) as total",
+			"FROM `tabItem` i",
+			"WHERE i.disabled = 1",
+			"AND i.is_stock_item = 1",
+		]
+		
+		params_list: list[object] = []
+		count_params: list[object] = []
+		
+		# Search filter
+		if search and search.strip():
+			search_term = f"%{search.strip()}%"
+			search_condition = """
+				AND (
+					i.name LIKE %s
+					OR i.item_name LIKE %s
+					OR i.description LIKE %s
+					OR EXISTS (
+						SELECT 1 FROM `tabItem Barcode` ib
+						WHERE ib.parent = i.name AND ib.barcode LIKE %s
+					)
+				)
+			"""
+			base_query.append(search_condition)
+			count_query.append(search_condition)
+			params_list.extend([search_term, search_term, search_term, search_term])
+			count_params.extend([search_term, search_term, search_term, search_term])
+		
+		# Get total count
+		count_sql = "\n".join(count_query)
+		total_result = frappe.db.sql(count_sql, tuple(count_params), as_dict=True)
+		total_count = total_result[0]["total"] if total_result else 0
+		
+		# Add ordering and pagination
+		base_query.append("ORDER BY i.modified DESC")
+		base_query.append("LIMIT %s OFFSET %s")
+		params_list.extend([limit, offset])
+		
+		# Execute query
+		items_sql = "\n".join(base_query)
+		items_result = frappe.db.sql(items_sql, tuple(params_list), as_dict=True)
+		
+		# Build response items with prices and stock
+		result_items = []
+		for item in items_result:
+			item_code = item["name"]
+			
+			# Get barcode
+			barcode = frappe.db.get_value(
+				"Item Barcode",
+				{"parent": item_code},
+				"barcode"
+			) or ""
+			
+			# Get stock balance
+			balance = 0
+			if warehouse:
+				try:
+					balance = get_stock_balance(item_code, warehouse) or 0
+				except Exception:
+					balance = 0
+			
+			# Get prices
+			selling_price = 0
+			buying_price = 0
+			try:
+				if price_list:
+					selling_price = frappe.db.get_value(
+						"Item Price",
+						{"item_code": item_code, "price_list": price_list, "selling": 1},
+						"price_list_rate"
+					) or 0
+				buying_price = frappe.db.get_value(
+					"Item Price",
+					{"item_code": item_code, "buying": 1},
+					"price_list_rate",
+					order_by="modified desc"
+				) or 0
+			except Exception:
+				pass
+			
+			result_items.append({
+				"id": item_code,
+				"name": item["item_name"] or item_code,
+				"description": item.get("description") or "",
+				"category": item.get("item_group") or "",
+				"image": item.get("image") or "",
+				"price": float(selling_price),
+				"buying_price": float(buying_price),
+				"available": float(balance),
+				"uom": item.get("stock_uom") or "Nos",
+				"barcode": barcode,
+				"disabled": 1,
+				"currency_symbol": "SAR",
+			})
+		
+		has_more = (offset + len(result_items)) < total_count
+		
+		return {
+			"items": result_items,
+			"total_count": total_count,
+			"has_more": has_more,
+		}
+		
+	except frappe.PermissionError:
+		raise
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Error fetching inactive items")
+		return {"items": [], "total_count": 0, "has_more": False, "error": str(e)}

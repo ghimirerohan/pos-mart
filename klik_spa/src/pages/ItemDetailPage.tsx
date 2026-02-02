@@ -16,8 +16,11 @@ import {
   Loader2,
   X,
   Printer,
-  Download
+  Download,
+  Ban,
+  CheckCircle
 } from "lucide-react"
+import { useAuth } from "../hooks/useAuth"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodePrintDialog from "../components/BarcodePrintDialog"
 import { toast } from "react-toastify"
@@ -36,6 +39,7 @@ interface ItemDetails {
   shelf_life_in_days: number | null
   available_qty: number
   warehouse: string
+  disabled: number
 }
 
 interface EditForm {
@@ -105,6 +109,7 @@ const itemGroups = ["Products", "Services", "Raw Materials", "Consumables", "Sub
 export default function ItemDetailPage() {
   const navigate = useNavigate()
   const { itemCode } = useParams<{ itemCode: string }>()
+  const { user } = useAuth()
   
   const [item, setItem] = useState<ItemDetails | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -125,6 +130,15 @@ export default function ItemDetailPage() {
   const [newImage, setNewImage] = useState<string | null>(null)
   const [isOptimizingImage, setIsOptimizingImage] = useState(false)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
+  
+  // Inactive/Disabled state (Administrator only)
+  const [showInactiveConfirm, setShowInactiveConfirm] = useState(false)
+  const [showActiveConfirm, setShowActiveConfirm] = useState(false)
+  const [isTogglingDisabled, setIsTogglingDisabled] = useState(false)
+  
+  // Check if current user is Administrator
+  const isAdministrator = user?.name === 'Administrator'
+  const isItemDisabled = item?.disabled === 1
 
   // Fetch item details
   const fetchItemDetails = useCallback(async () => {
@@ -205,7 +219,8 @@ export default function ItemDetailPage() {
           has_expiry_date: itemDoc.has_expiry_date || 0,
           shelf_life_in_days: itemDoc.shelf_life_in_days || null,
           available_qty: availableQty,
-          warehouse: warehouse
+          warehouse: warehouse,
+          disabled: itemDoc.disabled || 0
         }
         
         setItem(itemDetails)
@@ -527,6 +542,64 @@ export default function ItemDetailPage() {
     toast.success('Item details exported to CSV')
   }
 
+  // Make item inactive (Administrator only)
+  const handleMakeInactive = async () => {
+    if (!itemCode || !isAdministrator) return
+    
+    setIsTogglingDisabled(true)
+    try {
+      const response = await fetch('/api/method/klik_pos.api.item.set_item_disabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_code: itemCode, disabled: 1 }),
+        credentials: 'include'
+      })
+      const data = await response.json()
+      
+      if (data.message?.status === 'success' || data.message?.disabled === 1) {
+        setItem(prev => prev ? { ...prev, disabled: 1 } : null)
+        toast.success('Item has been made inactive. It will not appear in Purchase, Sales, or Item list.')
+        setShowInactiveConfirm(false)
+      } else {
+        throw new Error(data.exc || data.message?.message || 'Failed to make item inactive')
+      }
+    } catch (err: any) {
+      console.error('Error making item inactive:', err)
+      toast.error(err.message || 'Failed to make item inactive')
+    } finally {
+      setIsTogglingDisabled(false)
+    }
+  }
+
+  // Make item active again (Administrator only)
+  const handleMakeActive = async () => {
+    if (!itemCode || !isAdministrator) return
+    
+    setIsTogglingDisabled(true)
+    try {
+      const response = await fetch('/api/method/klik_pos.api.item.set_item_disabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_code: itemCode, disabled: 0 }),
+        credentials: 'include'
+      })
+      const data = await response.json()
+      
+      if (data.message?.status === 'success' || data.message?.disabled === 0) {
+        setItem(prev => prev ? { ...prev, disabled: 0 } : null)
+        toast.success('Item has been re-enabled. It will now appear in Purchase, Sales, and Item list.')
+        setShowActiveConfirm(false)
+      } else {
+        throw new Error(data.exc || data.message?.message || 'Failed to re-enable item')
+      }
+    } catch (err: any) {
+      console.error('Error re-enabling item:', err)
+      toast.error(err.message || 'Failed to re-enable item')
+    } finally {
+      setIsTogglingDisabled(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20 flex items-center justify-center">
@@ -573,6 +646,11 @@ export default function ItemDetailPage() {
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 {isEditing ? 'Edit Item' : 'Item Details'}
               </h1>
+              {isItemDisabled && (
+                <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
+                  Inactive
+                </span>
+              )}
             </div>
           </div>
           
@@ -623,10 +701,109 @@ export default function ItemDetailPage() {
                 <Edit2 size={18} />
                 <span>Edit</span>
               </button>
+              
+              {/* Make Inactive / Make Active Button - Administrator only */}
+              {isAdministrator && (
+                isItemDisabled ? (
+                  <button
+                    onClick={() => setShowActiveConfirm(true)}
+                    disabled={isTogglingDisabled}
+                    className="flex items-center space-x-1 px-3 py-2 border border-green-600 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors disabled:opacity-50"
+                    title="Make item active again"
+                  >
+                    {isTogglingDisabled ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <CheckCircle size={18} />
+                    )}
+                    <span className="hidden sm:inline">Make Active</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowInactiveConfirm(true)}
+                    className="flex items-center space-x-1 px-3 py-2 border border-amber-500 text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                    title="Make item inactive (hidden from Purchase, Sales, Item list)"
+                  >
+                    <Ban size={18} />
+                    <span className="hidden sm:inline">Make Inactive</span>
+                  </button>
+                )
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal: Make Inactive */}
+      {showInactiveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+                <Ban size={24} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Make item inactive?
+              </h2>
+            </div>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              This item will be hidden from <strong>Purchase</strong>, <strong>Sales</strong>, and <strong>Item list</strong> for everyone. 
+              Only Administrators can see and re-enable it from the inactive items list.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowInactiveConfirm(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMakeInactive}
+                disabled={isTogglingDisabled}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {isTogglingDisabled && <Loader2 size={16} className="animate-spin" />}
+                <span>{isTogglingDisabled ? 'Processing...' : 'Make Inactive'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Make Active */}
+      {showActiveConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-full">
+                <CheckCircle size={24} className="text-green-600 dark:text-green-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Re-enable this item?
+              </h2>
+            </div>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              This item will appear again in <strong>Purchase</strong>, <strong>Sales</strong>, and <strong>Item list</strong> for everyone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowActiveConfirm(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMakeActive}
+                disabled={isTogglingDisabled}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {isTogglingDisabled && <Loader2 size={16} className="animate-spin" />}
+                <span>{isTogglingDisabled ? 'Processing...' : 'Make Active'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Barcode Print Dialog */}
       {item.barcode && (

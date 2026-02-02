@@ -112,6 +112,13 @@ export function useSalesInvoices(searchTerm: string = "", skipOpeningEntryFilter
           payment_methods: invoice.payment_methods || [],
           amountPaid: Number(invoice.base_rounded_total) || 0,
           changeGiven: Number(invoice.change_amount) || 0,
+          // Add actual paid and outstanding amounts from ERPNext
+          paid_amount: Number(invoice.paid_amount) || 0,
+          outstanding_amount: Number(invoice.outstanding_amount) || 0,
+          grand_total: Number(invoice.grand_total) || Number(invoice.base_grand_total) || 0,
+          // Return invoice fields
+          is_return: invoice.is_return === 1 || invoice.is_return === true,
+          return_against: invoice.return_against || null,
           status:
             (status as
               | "Draft"

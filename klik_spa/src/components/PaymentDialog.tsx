@@ -190,6 +190,9 @@ export default function PaymentDialog({
   // Credit sale checkbox state
   const [isCreditSale, setIsCreditSale] = useState(false);
 
+  // Partial payment checkbox state
+  const [isPartialPayment, setIsPartialPayment] = useState(false);
+
   // Hooks
   const { posDetails, loading: posLoading } = usePOSDetails();
   const { modes, isLoading, error } = usePaymentModes(typeof posDetails?.name === 'string' ? posDetails.name : '');
@@ -869,20 +872,38 @@ export default function PaymentDialog({
       return;
     }
 
+    // Validate partial payment
+    if (isPartialPayment) {
+      if (!posDetails?.custom_allow_credit_sales) {
+        toast.error("Partial payments require 'Allow Credit Sales' to be enabled in POS Profile.");
+        return;
+      }
+      
+      if (totalPaidAmount <= 0) {
+        toast.error("Please enter a payment amount for partial payment");
+        return;
+      }
+      
+      if (totalPaidAmount >= calculations.grandTotal) {
+        toast.error("For partial payment, the amount paid must be less than the total. If paying full amount, uncheck 'Partial Payment'.");
+        return;
+      }
+    }
+
     // For B2B, we don't need payment validation
-    // For B2C, validate payment completion (unless Credit Sale is checked)
-    if (isB2C && !isCreditSale) {
+    // For B2C, validate payment completion (unless Credit Sale or Partial Payment is checked)
+    if (isB2C && !isCreditSale && !isPartialPayment) {
       const activePaymentMethods = Object.entries(paymentAmounts)
         .filter(([, amount]) => amount > 0)
         .map(([method, amount]) => ({ method, amount }));
 
       if (activePaymentMethods.length === 0) {
-        toast.error("Please enter payment amounts or select Credit Sale");
+        toast.error("Please enter payment amounts, select Credit Sale, or enable Partial Payment");
         return;
       }
 
       if (outstandingAmount > 0) {
-        toast.error("Please complete the payment before proceeding");
+        toast.error("Please complete the payment before proceeding, or enable Partial Payment for partial amounts");
         return;
       }
     }
@@ -963,6 +984,8 @@ export default function PaymentDialog({
       businessType: posDetails?.business_type,
       deliveryPersonnel: deliveryPersonnel || null,
       isCreditSale: isCreditSale, // Send flag to backend
+      isPartialPayment: isPartialPayment, // Send partial payment flag to backend
+      partialPaymentAmount: isPartialPayment ? totalPaidAmount : 0, // Amount paid for partial payment
     };
 
     try {
@@ -971,9 +994,16 @@ export default function PaymentDialog({
       setSubmittedInvoice(response);
       setInvoiceData(response.invoice);
 
-      const successMessage = isB2B
+      let successMessage = isB2B
         ? "Invoice submitted successfully!"
         : "Payment completed successfully!";
+      
+      if (isPartialPayment && outstandingAmount > 0) {
+        successMessage = `Partial payment of ${formatCurrency(totalPaidAmount)} completed! Outstanding: ${formatCurrency(outstandingAmount)}`;
+      } else if (isCreditSale) {
+        successMessage = "Credit sale completed! Invoice marked as unpaid.";
+      }
+      
       toast.success(successMessage);
 
       // Delete original draft invoice if it exists (from Edit → Go to Cart workflow)
@@ -1112,6 +1142,10 @@ export default function PaymentDialog({
       return isB2B ? "Submit Invoice (Credit Sale)" : "Complete Sale (Credit)";
     }
 
+    if (isPartialPayment && outstandingAmount > 0) {
+      return `Complete Payment (Partial - ${formatCurrency(outstandingAmount)} remaining)`;
+    }
+
     if (isB2B) {
       if (totalPaidAmount === 0) {
         return "Submit Invoice (Pay Later)";
@@ -1131,7 +1165,13 @@ export default function PaymentDialog({
     // If Credit Sale checkbox is checked, always allow submission
     if (isCreditSale) return false;
     
-    // For B2C, check if payment is complete
+    // If Partial Payment checkbox is checked, allow submission if some payment is made
+    if (isPartialPayment) {
+      // Must have at least some payment for partial payment
+      return totalPaidAmount <= 0;
+    }
+    
+    // For B2C, check if payment is complete (unless partial payment is enabled)
     if (isB2C) return outstandingAmount > 0;
     // For B2B, no payment validation needed
     return false;
@@ -1165,16 +1205,47 @@ export default function PaymentDialog({
             {invoiceSubmitted ? (
               <div className="space-y-4">
                 {/* Action Buttons for Mobile */}
-                <div className="flex items-center justify-center space-x-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                  <div className="text-green-600 dark:text-green-400 text-center">
+                <div className={`flex items-center justify-center space-x-3 p-4 rounded-lg border ${
+                  submittedInvoice?.invoice?.is_partial_payment || (isPartialPayment && outstandingAmount > 0)
+                    ? "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
+                    : submittedInvoice?.invoice?.is_credit_sale || isCreditSale
+                    ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+                    : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                }`}>
+                  <div className={`text-center ${
+                    submittedInvoice?.invoice?.is_partial_payment || (isPartialPayment && outstandingAmount > 0)
+                      ? "text-orange-600 dark:text-orange-400"
+                      : submittedInvoice?.invoice?.is_credit_sale || isCreditSale
+                      ? "text-blue-600 dark:text-blue-400"
+                      : "text-green-600 dark:text-green-400"
+                  }`}>
                     <p className="font-semibold">
-                      {isB2B
+                      {submittedInvoice?.invoice?.is_partial_payment || (isPartialPayment && outstandingAmount > 0)
+                        ? "Partial Payment Completed!"
+                        : submittedInvoice?.invoice?.is_credit_sale || isCreditSale
+                        ? "Credit Sale Completed!"
+                        : isB2B
                         ? "Invoice Submitted Successfully!"
                         : "Payment Completed Successfully!"}
                     </p>
                     <p className="text-sm opacity-75">
                       Total: {formatCurrency(calculations.grandTotal)}
                     </p>
+                    {(submittedInvoice?.invoice?.is_partial_payment || (isPartialPayment && outstandingAmount > 0)) && (
+                      <>
+                        <p className="text-sm mt-1">
+                          Paid: {formatCurrency(submittedInvoice?.invoice?.paid_amount || totalPaidAmount)}
+                        </p>
+                        <p className="text-sm font-bold mt-1">
+                          Outstanding: {formatCurrency(submittedInvoice?.invoice?.outstanding_amount || outstandingAmount)}
+                        </p>
+                      </>
+                    )}
+                    {(submittedInvoice?.invoice?.is_credit_sale || isCreditSale) && (
+                      <p className="text-sm font-bold mt-1">
+                        Status: Unpaid
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1286,9 +1357,10 @@ export default function PaymentDialog({
               </div>
             ) : (
               <>
-                {/* Credit Sale Checkbox - Only show if credit sales are enabled */}
+                {/* Credit Sale and Partial Payment Checkboxes - Only show if credit sales are enabled */}
                 {posDetails?.custom_allow_credit_sales && (
                   <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    {/* Credit Sale Checkbox */}
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1298,9 +1370,10 @@ export default function PaymentDialog({
                           // Clear payment amounts when credit sale is checked
                           if (e.target.checked) {
                             setPaymentAmounts({});
+                            setIsPartialPayment(false);
                           }
                         }}
-                        disabled={invoiceSubmitted || isProcessingPayment}
+                        disabled={invoiceSubmitted || isProcessingPayment || isPartialPayment}
                         className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
                       />
                       <div>
@@ -1312,6 +1385,48 @@ export default function PaymentDialog({
                         </p>
                       </div>
                     </label>
+
+                    {/* Partial Payment Checkbox - Only show in B2C mode or combined mode */}
+                    {(isB2C || isCombined) && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                        <label className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isPartialPayment}
+                            onChange={(e) => {
+                              setIsPartialPayment(e.target.checked);
+                              if (e.target.checked) {
+                                setIsCreditSale(false);
+                              }
+                            }}
+                            disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
+                            className="w-5 h-5 text-orange-600 border-gray-300 rounded focus:ring-orange-500 focus:ring-2"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              Partial Payment
+                            </span>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Accept partial payment, invoice will be "Partly Paid"
+                            </p>
+                          </div>
+                        </label>
+                        
+                        {/* Show remaining balance info when partial payment is enabled */}
+                        {isPartialPayment && totalPaidAmount > 0 && outstandingAmount > 0 && (
+                          <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-orange-700 dark:text-orange-300 font-medium">
+                                Remaining Balance:
+                              </span>
+                              <span className="text-orange-800 dark:text-orange-200 font-bold">
+                                {formatCurrency(outstandingAmount)}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2049,9 +2164,10 @@ export default function PaymentDialog({
             ) : (
               // Original payment content
               <div className="space-y-6">
-                {/* Credit Sale Checkbox - Only show if credit sales are enabled */}
+                {/* Credit Sale and Partial Payment Checkboxes */}
                 {posDetails?.custom_allow_credit_sales && (
                   <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    {/* Credit Sale Checkbox */}
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2061,9 +2177,10 @@ export default function PaymentDialog({
                           // Clear payment amounts when credit sale is checked
                           if (e.target.checked) {
                             setPaymentAmounts({});
+                            setIsPartialPayment(false); // Disable partial payment when credit sale is selected
                           }
                         }}
-                        disabled={invoiceSubmitted || isProcessingPayment}
+                        disabled={invoiceSubmitted || isProcessingPayment || isPartialPayment}
                         className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
                       />
                       <div>
@@ -2075,6 +2192,51 @@ export default function PaymentDialog({
                         </p>
                       </div>
                     </label>
+
+                    {/* Partial Payment Checkbox - Only show in B2C mode or combined mode */}
+                    {(isB2C || isCombined) && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                        <label className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isPartialPayment}
+                            onChange={(e) => {
+                              setIsPartialPayment(e.target.checked);
+                              if (e.target.checked) {
+                                setIsCreditSale(false); // Disable credit sale when partial payment is selected
+                              }
+                            }}
+                            disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
+                            className="w-5 h-5 text-orange-600 border-gray-300 rounded focus:ring-orange-500 focus:ring-2"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              Partial Payment
+                            </span>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Accept partial payment now, invoice will show as "Partly Paid" with outstanding balance
+                            </p>
+                          </div>
+                        </label>
+                        
+                        {/* Show remaining balance info when partial payment is enabled */}
+                        {isPartialPayment && totalPaidAmount > 0 && outstandingAmount > 0 && (
+                          <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-orange-700 dark:text-orange-300 font-medium">
+                                Remaining Balance:
+                              </span>
+                              <span className="text-orange-800 dark:text-orange-200 font-bold">
+                                {formatCurrency(outstandingAmount)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                              Customer can pay the remaining amount later
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2390,7 +2552,17 @@ export default function PaymentDialog({
                   <p className="text-xs text-gray-500 dark:text-gray-500">
                     {currentDate}
                   </p>
-                  {isB2B && (
+                  {isCreditSale && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mt-1">
+                      Credit Sale - Unpaid
+                    </p>
+                  )}
+                  {isPartialPayment && totalPaidAmount > 0 && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
+                      Partial Payment - Outstanding: {formatCurrency(outstandingAmount)}
+                    </p>
+                  )}
+                  {isB2B && !isCreditSale && !isPartialPayment && (
                     <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
                       Payment Pending
                     </p>
@@ -2565,20 +2737,83 @@ export default function PaymentDialog({
                       </div>
                     )}
 
-                  {/* B2B Outstanding Amount Display */}
-                  {isB2B && (
+                  {/* Outstanding Amount Display - for B2B, Credit Sale, or Partial Payment */}
+                  {(isB2B || isCreditSale || (isPartialPayment && outstandingAmount > 0)) && (
                     <div className="border-t border-gray-200 dark:border-gray-600 pt-2 mt-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-orange-600 dark:text-orange-400 font-medium">
-                          Outstanding Amount:
-                        </span>
-                        <span className="text-orange-600 dark:text-orange-400 font-bold">
-                          {formatCurrency(calculations.grandTotal)}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Payment to be collected separately
-                      </p>
+                      {/* Credit Sale Display */}
+                      {isCreditSale && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-600 dark:text-blue-400 font-medium">
+                              Status:
+                            </span>
+                            <span className="text-blue-600 dark:text-blue-400 font-bold">
+                              Credit Sale (Unpaid)
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm mt-1">
+                            <span className="text-blue-600 dark:text-blue-400 font-medium">
+                              Outstanding Amount:
+                            </span>
+                            <span className="text-blue-600 dark:text-blue-400 font-bold">
+                              {formatCurrency(calculations.grandTotal)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Payment to be collected later
+                          </p>
+                        </>
+                      )}
+                      
+                      {/* Partial Payment Display */}
+                      {isPartialPayment && outstandingAmount > 0 && !isCreditSale && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-orange-600 dark:text-orange-400 font-medium">
+                              Status:
+                            </span>
+                            <span className="text-orange-600 dark:text-orange-400 font-bold">
+                              Partial Payment
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm mt-1">
+                            <span className="text-green-600 dark:text-green-400 font-medium">
+                              Amount Paid:
+                            </span>
+                            <span className="text-green-600 dark:text-green-400 font-bold">
+                              {formatCurrency(totalPaidAmount)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm mt-1">
+                            <span className="text-orange-600 dark:text-orange-400 font-medium">
+                              Remaining Balance:
+                            </span>
+                            <span className="text-orange-600 dark:text-orange-400 font-bold">
+                              {formatCurrency(outstandingAmount)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Customer can pay remaining amount later
+                          </p>
+                        </>
+                      )}
+                      
+                      {/* B2B Default Display (when not credit sale or partial payment) */}
+                      {isB2B && !isCreditSale && !isPartialPayment && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-orange-600 dark:text-orange-400 font-medium">
+                              Outstanding Amount:
+                            </span>
+                            <span className="text-orange-600 dark:text-orange-400 font-bold">
+                              {formatCurrency(calculations.grandTotal)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Payment to be collected separately
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
 
