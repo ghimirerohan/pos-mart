@@ -6,6 +6,7 @@ interface UserInfo {
   email: string;
   roles: string[];
   is_admin_user: boolean;
+  is_administrator: boolean;  // True only for Administrator role (for restricted features)
   admin_roles: string[];
   pos_profile: string | null;
   pos_profile_name: string | null;

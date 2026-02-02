@@ -104,10 +104,10 @@ def _extract_opening_info(opening_doc):
 
 
 def _check_admin_privileges():
-	"""Check if current user has administrative privileges."""
+	"""Check if current user is Administrator (for cashier selection and full visibility)."""
 	user_roles = frappe.get_roles(frappe.session.user)
-	admin_roles = {"Administrator", "Sales Manager", "System Manager"}
-	return bool(admin_roles & set(user_roles))
+	# Only Administrator role can see all cashiers and select different cashiers
+	return "Administrator" in user_roles
 
 
 def _fetch_sales_data(pos_profile, opening_entry_name, opening_date, is_admin):
@@ -285,16 +285,24 @@ def get_payment_transactions(cashier_filter=None):
 
 
 def _get_user_filter(is_admin, cashier_filter):
-	"""Determine user filter based on admin status and filter selection."""
-	if not is_admin:
-		# Non-admin users can only see their own transactions
-		return frappe.session.user
+	"""
+	Determine user filter based on admin status and filter selection.
 	
-	# Admin can filter by cashier or see all
+	Returns:
+		- None: For non-admin users (will use opening_entry filter instead)
+		- None: For admin with 'all' or no filter (see all transactions)
+		- user_id: For admin with specific cashier filter
+	"""
+	if not is_admin:
+		# Non-admin users: Return None to signal that opening_entry filter should be used
+		# This ensures they only see transactions from their own POS session
+		return None
+	
+	# Admin can filter by specific cashier or see all
 	if cashier_filter and cashier_filter != "all":
 		return cashier_filter
 	
-	return None  # None means all users
+	return None  # None for admin means all users
 
 
 def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_date, is_admin, user_filter):
@@ -438,11 +446,19 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 
 def _fetch_sales_invoice_payments(pos_profile, opening_entry_name, opening_date, is_admin, user_filter):
 	"""Fetch payments from Sales Invoice Payment child table."""
-	user_condition = ""
 	params = []
 	
-	if is_admin and not user_filter:
-		# Admin sees all for the day
+	if is_admin and user_filter:
+		# Admin filtering by specific cashier
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
+	elif is_admin:
+		# Admin sees all for the day (no specific cashier filter)
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -451,17 +467,8 @@ def _fetch_sales_invoice_payments(pos_profile, opening_entry_name, opening_date,
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
-	elif user_filter:
-		# Filter by specific user
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
 	else:
-		# Non-admin sees only their opening entry
+		# Non-admin: ALWAYS filter by their own opening entry (most accurate)
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1
@@ -496,22 +503,30 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 	Fetch Payment Entries for credit payments and partial payments.
 	These are payments made against previous invoices.
 	"""
-	user_condition = ""
-	params = [opening_date]
-	
-	if user_filter:
-		user_condition = "AND pe.owner = %s"
-		params.append(user_filter)
-	
 	# Check if custom_pos_opening_entry field exists on Payment Entry
 	pe_meta = frappe.get_meta("Payment Entry")
 	has_pos_opening_field = pe_meta.has_field("custom_pos_opening_entry")
 	
-	if has_pos_opening_field and not is_admin:
-		pos_condition = "AND pe.custom_pos_opening_entry = %s"
-		params.append(opening_entry_name)
+	params = [opening_date]
+	user_condition = ""
+	pos_condition = ""
+	
+	if is_admin and user_filter:
+		# Admin filtering by specific cashier
+		user_condition = "AND pe.owner = %s"
+		params.append(user_filter)
+	elif is_admin:
+		# Admin sees all for the day (no additional filter)
+		pass
 	else:
-		pos_condition = ""
+		# Non-admin: Filter by their opening entry if field exists, otherwise by owner
+		if has_pos_opening_field:
+			pos_condition = "AND pe.custom_pos_opening_entry = %s"
+			params.append(opening_entry_name)
+		else:
+			# Fallback to owner filter if custom field doesn't exist
+			user_condition = "AND pe.owner = %s"
+			params.append(frappe.session.user)
 	
 	query = f"""
 		SELECT
@@ -549,10 +564,21 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 	Fetch unpaid/partly paid invoices created today (credits extended).
 	These represent money NOT received - outflow from cash perspective.
 	"""
-	user_condition = ""
 	params = []
 	
-	if is_admin and not user_filter:
+	if is_admin and user_filter:
+		# Admin filtering by specific cashier
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.is_return = 0
+			AND si.outstanding_amount > 0
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
+	elif is_admin:
+		# Admin sees all for the day
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -563,17 +589,8 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
-	elif user_filter:
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.is_return = 0
-			AND si.outstanding_amount > 0
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
 	else:
+		# Non-admin: ALWAYS filter by their own opening entry
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1
@@ -708,7 +725,17 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 	"""Build summary-level invoice statistics."""
 	params = []
 	
-	if is_admin and not user_filter:
+	if is_admin and user_filter:
+		# Admin filtering by specific cashier
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
+	elif is_admin:
+		# Admin sees all for the day
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -717,15 +744,8 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
-	elif user_filter:
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
 	else:
+		# Non-admin: ALWAYS filter by their own opening entry
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1

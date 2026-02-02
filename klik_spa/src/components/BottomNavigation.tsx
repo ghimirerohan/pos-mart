@@ -6,7 +6,8 @@ export default function BottomNavigation() {
   const navigate = useNavigate()
   const location = useLocation()
   const { userInfo } = useUserInfo()
-  const isAdminUser = userInfo?.is_admin_user || false
+  // Only Administrator role can see Purchase module (not Sales Manager or System Manager)
+  const isAdministrator = userInfo?.is_administrator || false
 
   // Base menu items (always visible)
   const baseMenuItems = [
@@ -18,14 +19,14 @@ export default function BottomNavigation() {
     { icon: FileText, path: "/closing_shift", label: "Closing" },
   ]
 
-  // Admin-only menu items (Purchase module)
+  // Administrator-only menu items (Purchase module)
   const adminMenuItems = [
     { icon: PackagePlus, path: "/purchase", label: "Purchase" },
     { icon: ShoppingBag, path: "/purchase-invoice", label: "Purch Inv" },
   ]
 
-  // Combine menu items based on user role
-  const menuItems = isAdminUser
+  // Combine menu items based on user role - only Administrator sees Purchase
+  const menuItems = isAdministrator
     ? [
         baseMenuItems[0], // POS
         ...adminMenuItems, // Purchase, Purchase Invoice

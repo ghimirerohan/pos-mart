@@ -25,7 +25,8 @@ import { clearAllCache } from "../utils/clearCache";
 export default function ClosingShiftPage() {
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 1024px)");
-  const [selectedCashier, setSelectedCashier] = useState("all");
+  // Don't pass any initial filter - backend will determine based on user role
+  const [selectedCashier, setSelectedCashier] = useState<string | undefined>(undefined);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closingAmounts, setClosingAmounts] = useState<Record<string, number>>({});
   const [selectedPaymentMode, setSelectedPaymentMode] = useState<string | null>(null);
@@ -33,7 +34,8 @@ export default function ClosingShiftPage() {
   const { createClosingEntry, isCreating } = useCreatePOSClosingEntry();
   const { posDetails } = usePOSDetails();
 
-  // Use the new payment transactions hook
+  // Use the new payment transactions hook - don't pass cashier filter initially
+  // Backend will use opening_entry for non-admin, all for admin
   const {
     paymentSummary,
     transactions,

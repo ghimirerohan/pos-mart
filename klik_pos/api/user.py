@@ -43,9 +43,12 @@ def get_current_user_info():
 		user = frappe.session.user
 		user_roles = frappe.get_roles(user)
 
-		# Check if user has administrative privileges
+		# Check if user has administrative privileges (for general admin features)
 		admin_roles = ["Administrator", "Sales Manager", "System Manager"]
 		is_admin_user = any(role in admin_roles for role in user_roles)
+		
+		# Check if user is specifically Administrator (for restricted features like cashier selection, purchase module)
+		is_administrator = "Administrator" in user_roles
 
 		# Get user details
 		user_doc = frappe.get_doc("User", user)
@@ -65,6 +68,7 @@ def get_current_user_info():
 				"email": user_doc.email,
 				"roles": user_roles,
 				"is_admin_user": is_admin_user,
+				"is_administrator": is_administrator,
 				"admin_roles": admin_roles,
 				"pos_profile": pos_profile.name if pos_profile else None,
 				"pos_profile_name": pos_profile.name if pos_profile else None,
