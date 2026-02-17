@@ -582,7 +582,7 @@ def export_pdf(filters=None):
 	frappe.local.response.type = "pdf"
 
 
-def invalidate_date_wise_inventory_cache():
+def invalidate_date_wise_inventory_cache(doc=None, event=None):
 	"""Called on Stock Ledger Entry on_submit / on_cancel to clear Date Wise Inventory cache."""
 	try:
 		frappe.cache().delete_keys(CACHE_PREFIX)
