@@ -22,14 +22,17 @@ import {
   Truck,
   PackagePlus,
   ChevronDown,
+  Plus,
 } from "lucide-react"
 import BottomNavigation from "./BottomNavigation"
+import QuickAddPurchaseItemModal from "./QuickAddPurchaseItemModal"
 
 export default function PurchasePOSLayout() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [localSearchQuery, setLocalSearchQuery] = useState("")
   const [showScanner, setShowScanner] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
 
   // Debounce timer ref for search
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -38,6 +41,7 @@ export default function PurchasePOSLayout() {
   const { 
     cartItems, 
     addToCart, 
+    addToCartWithQuantity,
     updateQuantity, 
     removeItem, 
     clearCart,
@@ -268,6 +272,15 @@ export default function PurchasePOSLayout() {
                   <List size={18} />
                 </button>
               </div>
+
+              {/* Quick Add New Item */}
+              <button
+                onClick={() => setShowQuickAdd(true)}
+                className="p-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                title="Quick Add & Purchase New Item"
+              >
+                <Plus size={20} />
+              </button>
             </div>
 
             {/* Category Tabs */}
@@ -368,6 +381,17 @@ export default function PurchasePOSLayout() {
           }}
         />
       )}
+
+      {/* Quick Add & Purchase Item Modal */}
+      <QuickAddPurchaseItemModal
+        isOpen={showQuickAdd}
+        onClose={() => setShowQuickAdd(false)}
+        onItemCreated={(item, qty) => {
+          addToCartWithQuantity(item, qty)
+        }}
+        refetchProducts={async () => { await refetch() }}
+        currencySymbol={currency_symbol}
+      />
 
       {/* Bottom Navigation for mobile */}
       <div className="lg:hidden">

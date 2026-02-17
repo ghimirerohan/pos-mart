@@ -88,6 +88,14 @@ doc_events = {
 			"klik_pos.api.pos_entry.validate_opening_entry",
 		],
 	},
+	"Stock Ledger Entry": {
+		"on_submit": [
+			"klik_pos.api.date_wise_inventory.invalidate_date_wise_inventory_cache",
+		],
+		"on_cancel": [
+			"klik_pos.api.date_wise_inventory.invalidate_date_wise_inventory_cache",
+		],
+	},
 }
 
 override_doctype_class = {
@@ -160,7 +168,7 @@ doctype_js.update({"Company": "public/js/company.js"})
 # ------------
 
 # before_install = "klik_pos.install.before_install"
-# after_install = "klik_pos.install.after_install"
+after_install = "klik_pos.install.after_install"
 
 # Uninstallation
 # ------------

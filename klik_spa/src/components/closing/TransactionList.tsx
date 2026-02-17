@@ -67,10 +67,10 @@ export default function TransactionList({
       const query = searchQuery.toLowerCase();
       result = result.filter(
         (t) =>
-          t.reference.toLowerCase().includes(query) ||
-          t.customer.toLowerCase().includes(query) ||
-          t.cashier.toLowerCase().includes(query) ||
-          t.payment_mode.toLowerCase().includes(query)
+          (t.reference || "").toLowerCase().includes(query) ||
+          (t.customer || "").toLowerCase().includes(query) ||
+          (t.cashier || "").toLowerCase().includes(query) ||
+          (t.payment_mode || "").toLowerCase().includes(query)
       );
     }
 

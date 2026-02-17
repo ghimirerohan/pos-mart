@@ -50,6 +50,10 @@ def get_current_user_info():
 		# Check if user is specifically Administrator (for restricted features like cashier selection, purchase module)
 		is_administrator = "Administrator" in user_roles
 
+		# Check if user can access Date Wise Inventory (POS menu)
+		from klik_pos.api.date_wise_inventory import DATE_WISE_INVENTORY_ROLE
+		can_access_date_wise_inventory = DATE_WISE_INVENTORY_ROLE in user_roles
+
 		# Get user details
 		user_doc = frappe.get_doc("User", user)
 
@@ -70,6 +74,7 @@ def get_current_user_info():
 				"is_admin_user": is_admin_user,
 				"is_administrator": is_administrator,
 				"admin_roles": admin_roles,
+				"can_access_date_wise_inventory": can_access_date_wise_inventory,
 				"pos_profile": pos_profile.name if pos_profile else None,
 				"pos_profile_name": pos_profile.name if pos_profile else None,
 			},

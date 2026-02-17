@@ -124,7 +124,7 @@ export default function ClosingShiftPage() {
 
   // Get payment icon
   const getPaymentIcon = (modeName: string) => {
-    const statName = modeName.toLowerCase();
+    const statName = (modeName || "").toLowerCase();
     if (statName.includes("cash")) return "💵";
     if (
       statName.includes("qr") ||

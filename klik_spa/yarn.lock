@@ -1297,6 +1297,11 @@ balanced-match@^1.0.0:
   resolved "https://registry.npmjs.org/balanced-match/-/balanced-match-1.0.2.tgz"
   integrity sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==
 
+bikram-sambat-js@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/bikram-sambat-js/-/bikram-sambat-js-1.0.3.tgz#3d40a2a913ae274842d73b2a0655b8b287571a65"
+  integrity sha512-UwpyT8SucWzsKSHUHsJsyqbAYEsc+93qJBBWNZ6MPJfAEhUZYpw8eeX/Htd2z6QjJcalz52Qn5qSZznqACRShg==
+
 brace-expansion@^1.1.7:
   version "1.1.12"
   resolved "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.12.tgz"
@@ -2222,6 +2227,19 @@ ndarray@^1.0.19:
   dependencies:
     iota-array "^1.0.0"
     is-buffer "^1.0.2"
+
+nepali-datepicker-reactjs@^1.1.9:
+  version "1.1.9"
+  resolved "https://registry.yarnpkg.com/nepali-datepicker-reactjs/-/nepali-datepicker-reactjs-1.1.9.tgz#fef20c9d8ea082a87e690b366ff8cef8db21c39a"
+  integrity sha512-NDqOAaHKNtE5tjNaK4WyQWMVeo/HBmzcaCC54UZDZmiDh9gK0XiWGBqRE4a8zh8xrEHC8ICPh+Y4E95K1Tkcag==
+  dependencies:
+    bikram-sambat-js "^1.0.3"
+    nepali-number "^1.0.3"
+
+nepali-number@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/nepali-number/-/nepali-number-1.0.3.tgz#3d0079f77f0a85dfb86f54a0a716fd346a276ff3"
+  integrity sha512-Vb6aMQM/xtE7KiiEhemgDcACxIMaDn18Ub/imWXB6JlhDwc2qVDnGW+sR0gDLPQmyiyk06bkKze1oK88FxWIjw==
 
 node-releases@^2.0.19:
   version "2.0.19"

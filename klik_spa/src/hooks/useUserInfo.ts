@@ -8,6 +8,7 @@ interface UserInfo {
   is_admin_user: boolean;
   is_administrator: boolean;  // True only for Administrator role (for restricted features)
   admin_roles: string[];
+  can_access_date_wise_inventory?: boolean;
   pos_profile: string | null;
   pos_profile_name: string | null;
 }

@@ -1,4 +1,4 @@
-import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus, ShoppingBag } from "lucide-react"
+import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus, ShoppingBag, ClipboardList } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useUserInfo } from "../hooks/useUserInfo"
 
@@ -8,6 +8,9 @@ export default function BottomNavigation() {
   const { userInfo } = useUserInfo()
   // Only Administrator role can see Purchase module (not Sales Manager or System Manager)
   const isAdministrator = userInfo?.is_administrator || false
+  const canAccessDateWiseInventory = userInfo?.can_access_date_wise_inventory || false
+  // Show Date Wise Inventory to Administrator or users with Date Wise Inventory Manager role
+  const showDateWiseInventory = isAdministrator || canAccessDateWiseInventory
 
   // Base menu items (always visible)
   const baseMenuItems = [
@@ -25,14 +28,20 @@ export default function BottomNavigation() {
     { icon: ShoppingBag, path: "/purchase-invoice", label: "Purch Inv" },
   ]
 
-  // Combine menu items based on user role - only Administrator sees Purchase
+  // Date Wise Inventory (Administrator or role "Date Wise Inventory Manager")
+  const dateWiseInventoryItem = showDateWiseInventory
+    ? [{ icon: ClipboardList, path: "/date-wise-inventory", label: "Inventory" }]
+    : []
+
+  // Combine menu items based on user role
   const menuItems = isAdministrator
     ? [
         baseMenuItems[0], // POS
         ...adminMenuItems, // Purchase, Purchase Invoice
+        ...dateWiseInventoryItem,
         ...baseMenuItems.slice(1), // Rest of menu items
       ]
-    : baseMenuItems
+    : [...baseMenuItems.slice(0, 1), ...dateWiseInventoryItem, ...baseMenuItems.slice(1)]
 
   const isActive = (path: string) => {
     if (path === "/pos") {
@@ -41,6 +50,9 @@ export default function BottomNavigation() {
     // Exact match for /purchase to avoid matching /purchase-invoice
     if (path === "/purchase") {
       return location.pathname === "/purchase"
+    }
+    if (path === "/date-wise-inventory") {
+      return location.pathname === "/date-wise-inventory"
     }
     return location.pathname.startsWith(path)
   }

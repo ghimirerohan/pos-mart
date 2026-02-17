@@ -20,7 +20,7 @@ export default function PaymentModeCard({
 
   // Get icon based on payment mode name
   const getPaymentIcon = () => {
-    const modeLower = mode.name.toLowerCase();
+    const modeLower = (mode.name || "").toLowerCase();
     if (modeLower.includes("cash")) return "💵";
     if (
       modeLower.includes("qr") ||

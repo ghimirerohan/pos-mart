@@ -22,6 +22,7 @@ import PurchaseInvoiceViewPage from "../pages/PurchaseInvoiceViewPage";
 import CustomerDetailsPage from "../pages/CustomerPageDetails";
 import ItemsPage from "../pages/ItemsPage";
 import ItemDetailPage from "../pages/ItemDetailPage";
+import DateWiseInventoryPage from "../pages/DateWiseInventoryPage";
 
 const router = createBrowserRouter([
   {
@@ -51,6 +52,10 @@ const router = createBrowserRouter([
       {
         path: "closing_shift",
         element: <ProtectedRoute element={<ClosingShiftPage />} />,
+      },
+      {
+        path: "date-wise-inventory",
+        element: <ProtectedRoute element={<DateWiseInventoryPage />} />,
       },
       {
         path: "invoice",
