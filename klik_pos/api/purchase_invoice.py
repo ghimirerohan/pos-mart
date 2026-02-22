@@ -164,12 +164,13 @@ def _batch_fetch_user_names(user_ids):
 	if not user_ids:
 		return {}
 
-	user_query = """
+	placeholders = ",".join(["%s"] * len(user_ids))
+	user_query = f"""
 		SELECT name, full_name
 		FROM `tabUser`
-		WHERE name IN ({})
-	""".format(",".join([f"'{uid}'" for uid in user_ids]))
-	user_results = frappe.db.sql(user_query, as_dict=True)
+		WHERE name IN ({placeholders})
+	"""
+	user_results = frappe.db.sql(user_query, tuple(user_ids), as_dict=True)
 	return {user.name: user.full_name or user.name for user in user_results}
 
 
@@ -179,15 +180,16 @@ def _batch_fetch_payment_methods(invoice_names):
 		return {}
 
 	# For Purchase Invoices, payments are tracked via Payment Entry references
-	payment_query = """
+	placeholders = ",".join(["%s"] * len(invoice_names))
+	payment_query = f"""
 		SELECT per.reference_name as parent, pe.mode_of_payment, per.allocated_amount as amount
 		FROM `tabPayment Entry Reference` per
 		JOIN `tabPayment Entry` pe ON pe.name = per.parent
 		WHERE per.reference_doctype = 'Purchase Invoice'
-		AND per.reference_name IN ({})
+		AND per.reference_name IN ({placeholders})
 		AND pe.docstatus = 1
-	""".format(",".join([f"'{name}'" for name in invoice_names]))
-	payment_results = frappe.db.sql(payment_query, as_dict=True)
+	"""
+	payment_results = frappe.db.sql(payment_query, tuple(invoice_names), as_dict=True)
 
 	# Group by parent invoice
 	payment_methods_map = {}
@@ -206,12 +208,13 @@ def _batch_fetch_items(invoice_names):
 	if not invoice_names:
 		return {}
 
-	items_query = """
+	placeholders = ",".join(["%s"] * len(invoice_names))
+	items_query = f"""
 		SELECT parent, item_code, item_name, qty, rate, amount, description
 		FROM `tabPurchase Invoice Item`
-		WHERE parent IN ({})
-	""".format(",".join([f"'{name}'" for name in invoice_names]))
-	items_results = frappe.db.sql(items_query, as_dict=True)
+		WHERE parent IN ({placeholders})
+	"""
+	items_results = frappe.db.sql(items_query, tuple(invoice_names), as_dict=True)
 
 	# Group by parent invoice
 	items_map = {}
@@ -305,19 +308,19 @@ def _calculate_return_quantities(invoice, items):
 	if not item_codes:
 		return
 
-	returns_query = """
+	item_placeholders = ",".join(["%s"] * len(item_codes))
+	returns_query = f"""
 		SELECT pii.item_code, COALESCE(SUM(ABS(pii.qty)), 0) as total_returned_qty
 		FROM `tabPurchase Invoice` pi
 		JOIN `tabPurchase Invoice Item` pii ON pi.name = pii.parent
 		WHERE pi.is_return = 1
 		  AND pi.return_against = %s
-		  AND pii.item_code IN ({})
+		  AND pii.item_code IN ({item_placeholders})
 		  AND pi.docstatus = 1
 		  AND pi.supplier = %s
 		GROUP BY pii.item_code
-	""".format(",".join([f"'{code}'" for code in item_codes]))
-
-	returns_data = frappe.db.sql(returns_query, (invoice.name, invoice.supplier), as_dict=True)
+	"""
+	returns_data = frappe.db.sql(returns_query, (invoice.name, *item_codes, invoice.supplier), as_dict=True)
 	returned_qty_map = {row.item_code: row.total_returned_qty for row in returns_data}
 
 	# Update items with return data
@@ -432,19 +435,19 @@ def _get_invoice_items_with_returns(invoice_id, supplier):
 	returned_qty_map = {}
 
 	if item_codes:
-		returns_query = """
+		item_placeholders = ",".join(["%s"] * len(item_codes))
+		returns_query = f"""
 			SELECT pii.item_code, COALESCE(SUM(ABS(pii.qty)), 0) as total_returned_qty
 			FROM `tabPurchase Invoice` pi
 			JOIN `tabPurchase Invoice Item` pii ON pi.name = pii.parent
 			WHERE pi.is_return = 1
 			  AND pi.return_against = %s
-			  AND pii.item_code IN ({})
+			  AND pii.item_code IN ({item_placeholders})
 			  AND pi.docstatus = 1
 			  AND pi.supplier = %s
 			GROUP BY pii.item_code
-		""".format(",".join([f"'{code}'" for code in item_codes]))
-
-		returns_data = frappe.db.sql(returns_query, (invoice_id, supplier), as_dict=True)
+		"""
+		returns_data = frappe.db.sql(returns_query, (invoice_id, *item_codes, supplier), as_dict=True)
 		returned_qty_map = {row.item_code: row.total_returned_qty for row in returns_data}
 
 	# Build items list with return data

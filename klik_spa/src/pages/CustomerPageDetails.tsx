@@ -36,6 +36,8 @@ import { isToday, isThisWeek, isThisMonth, isThisYear } from "../utils/time";
 import AddCustomerModal from "../components/AddCustomerModal";
 import BottomNavigation from "../components/BottomNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { useCustomerStatistics } from "../hooks/useCustomerStatistics";
+import ReceiveOutstandingModal from "../components/ReceiveOutstandingModal";
 
 export default function CustomerDetailsPage() {
   const navigate = useNavigate();
@@ -59,11 +61,15 @@ export default function CustomerDetailsPage() {
   const [showEditDraftDialog, setShowEditDraftDialog] = useState(false);
   const [draftInvoiceToEdit, setDraftInvoiceToEdit] = useState<SalesInvoice | null>(null);
 
+  // Receive Outstanding modal
+  const [showReceiveOutstandingModal, setShowReceiveOutstandingModal] = useState(false);
+
   const { id: customerId } = useParams();
   // @ts-expect-error just ignore
   const { customer, isLoadingC, errorC } = useCustomerDetails(customerId);
-  const { invoices, isLoading, error, hasMore, totalLoaded, loadMore } = useCustomerInvoices(customer?.name || "");
+  const { invoices, isLoading, error, hasMore, totalLoaded, loadMore, refetch: refetchInvoices } = useCustomerInvoices(customer?.name || "");
   const { posDetails } = usePOSDetails();
+  const { statistics, refetch: refetchStatistics } = useCustomerStatistics(customer?.name ?? null);
 
 
   const filterInvoiceByDate = (invoiceDateStr: string) => {
@@ -264,14 +270,15 @@ export default function CustomerDetailsPage() {
     setSelectedCustomer(null);
   };
 
-  // Calculate customer metrics
+  // Calculate customer metrics (outstanding from backend when available for Receive button and modal)
   const customerMetrics = useMemo(() => {
     const totalInvoices = customerInvoices.length;
     const totalRevenue = customerInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-    const outstandingAmount = customerInvoices
-      .filter(inv => inv.status === "Unpaid" || inv.status === "Overdue")
-      .reduce((sum, inv) => sum + inv.totalAmount, 0);
+    const outstandingFromInvoices = customerInvoices
+      .filter(inv => inv.amountDue > 0)
+      .reduce((sum, inv) => sum + inv.amountDue, 0);
     const avgOrderValue = totalInvoices > 0 ? totalRevenue / totalInvoices : 0;
+    const outstandingAmount = (statistics?.total_outstanding ?? outstandingFromInvoices);
 
     return {
       totalInvoices,
@@ -279,7 +286,7 @@ export default function CustomerDetailsPage() {
       outstandingAmount,
       avgOrderValue
     };
-  }, [customerInvoices]);
+  }, [customerInvoices, statistics?.total_outstanding]);
 
   // Loading state
   if (isLoadingC) {
@@ -447,6 +454,15 @@ export default function CustomerDetailsPage() {
                 </div>
                 <AlertCircle className={`w-6 h-6 ${customerMetrics.outstandingAmount > 0 ? 'text-red-600' : 'text-gray-400'}`} />
               </div>
+              {customerMetrics.outstandingAmount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowReceiveOutstandingModal(true)}
+                  className="mt-2 w-full py-2 text-sm font-medium text-beveren-600 dark:text-beveren-400 border border-beveren-600 dark:border-beveren-400 rounded-lg hover:bg-beveren-50 dark:hover:bg-beveren-900/20"
+                >
+                  Receive Outstanding
+                </button>
+              )}
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
@@ -552,6 +568,11 @@ export default function CustomerDetailsPage() {
                           <div className="text-sm font-medium text-gray-900 dark:text-white">
                             {formatCurrency(invoice.totalAmount, invoice.currency)}
                           </div>
+                          {invoice.amountDue > 0 && invoice.amountDue < invoice.totalAmount && (
+                            <div className="text-xs text-red-600 dark:text-red-400">
+                              Due: {formatCurrency(invoice.amountDue, invoice.currency)}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className={getStatusBadge(invoice.status)}>{invoice.status}</span>
@@ -665,6 +686,20 @@ export default function CustomerDetailsPage() {
           invoice={draftInvoiceToEdit}
           onGoToCart={handleGoToCart}
           onSubmitDirect={handleSubmitDirect}
+        />
+
+        <ReceiveOutstandingModal
+          isOpen={showReceiveOutstandingModal}
+          onClose={() => setShowReceiveOutstandingModal(false)}
+          onSuccess={() => {
+            refetchStatistics();
+            refetchInvoices();
+          }}
+          customer={customer?.name ?? ""}
+          customerName={customer?.customer_name ?? customer?.name ?? ""}
+          company={posDetails?.company ?? ""}
+          outstanding={customerMetrics.outstandingAmount}
+          currency={posDetails?.currency || "USD"}
         />
       </div>
     );
@@ -809,6 +844,15 @@ export default function CustomerDetailsPage() {
                     <p className="text-2xl font-bold text-gray-900 dark:text-white">
                       {formatCurrency(customerMetrics.outstandingAmount, posDetails?.currency || 'USD')}
                     </p>
+                    {customerMetrics.outstandingAmount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowReceiveOutstandingModal(true)}
+                        className="mt-2 px-3 py-1.5 text-sm font-medium text-beveren-600 dark:text-beveren-400 border border-beveren-600 dark:border-beveren-400 rounded-lg hover:bg-beveren-50 dark:hover:bg-beveren-900/20"
+                      >
+                        Receive Outstanding
+                      </button>
+                    )}
                   </div>
                   <AlertCircle className={`w-8 h-8 ${customerMetrics.outstandingAmount > 0 ? 'text-red-600' : 'text-gray-400'}`} />
                 </div>
@@ -943,6 +987,11 @@ export default function CustomerDetailsPage() {
                                 -{formatCurrency(invoice.giftCardDiscount, invoice.currency)} gift card
                               </div>
                             )}
+                            {invoice.amountDue > 0 && invoice.amountDue < invoice.totalAmount && (
+                              <div className="text-xs text-red-600 dark:text-red-400">
+                                Due: {formatCurrency(invoice.amountDue, invoice.currency)}
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={getStatusBadge(invoice.status)}>{invoice.status}</span>
@@ -1063,6 +1112,21 @@ export default function CustomerDetailsPage() {
           invoice={draftInvoiceToEdit}
           onGoToCart={handleGoToCart}
           onSubmitDirect={handleSubmitDirect}
+        />
+
+        {/* Receive Outstanding Modal */}
+        <ReceiveOutstandingModal
+          isOpen={showReceiveOutstandingModal}
+          onClose={() => setShowReceiveOutstandingModal(false)}
+          onSuccess={() => {
+            refetchStatistics();
+            refetchInvoices();
+          }}
+          customer={customer?.name ?? ""}
+          customerName={customer?.customer_name ?? customer?.name ?? ""}
+          company={posDetails?.company ?? ""}
+          outstanding={customerMetrics.outstandingAmount}
+          currency={posDetails?.currency || "USD"}
         />
       </div>
     </div>

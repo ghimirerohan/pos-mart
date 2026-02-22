@@ -221,9 +221,10 @@ def get_customers(limit: int = 100, start: int = 0, search: str = ""):
 					"address": address,
 					"default_currency": doc.default_currency,
 					"company_currency": company_currency,
-					"custom_total_orders": customer_stats.get("total_orders", 0),
-					"custom_total_spent": customer_stats.get("total_spent", 0),
-					"custom_last_visit": customer_stats.get("last_visit"),
+				"custom_total_orders": customer_stats.get("total_orders", 0),
+				"custom_total_spent": customer_stats.get("total_spent", 0),
+				"custom_total_outstanding": customer_stats.get("total_outstanding", 0),
+				"custom_last_visit": customer_stats.get("last_visit"),
 					# "exchange_rate": get_currency_exchange_rate(company_currency, doc.default_currency)
 				}
 			)

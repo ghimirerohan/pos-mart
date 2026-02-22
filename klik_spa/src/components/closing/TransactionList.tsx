@@ -38,6 +38,7 @@ export default function TransactionList({
     { id: "all", label: "All", color: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200" },
     { id: "in", label: "Money In", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
     { id: "sales", label: "Sales", color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" },
+    { id: "partial_payment", label: "Partial Payments", color: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400" },
     { id: "credit_payment", label: "Credit Payments", color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" },
     { id: "out", label: "Money Out", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
     { id: "return", label: "Returns", color: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },

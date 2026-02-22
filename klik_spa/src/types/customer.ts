@@ -29,6 +29,7 @@ export interface Customer {
   loyaltyPoints: number
   totalSpent: number
   totalOrders: number
+  outstandingAmount: number
   preferredPaymentMethod: 'Cash' | 'Bank Card' | 'Bank Payment' | 'Credit'
   notes?: string
   tags: string[]

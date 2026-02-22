@@ -2,47 +2,32 @@ import { Receipt, Grid3X3, BarChart3, Users, MonitorX, Package, ShoppingBag, Pac
 import { useNavigate, useLocation } from "react-router-dom"
 import { useUserInfo } from "../hooks/useUserInfo"
 
-// Inside your component
 export default function RetailSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
   const { userInfo } = useUserInfo()
-  // Only Administrator role can see Purchase module (not Sales Manager or System Manager)
   const isAdministrator = userInfo?.is_administrator || false
-  const canAccessDateWiseInventory = userInfo?.can_access_date_wise_inventory || false
-  // Show Date Wise Inventory to Administrator or users with Date Wise Inventory Manager role
-  const showDateWiseInventory = isAdministrator || canAccessDateWiseInventory
 
-  // Base menu items (always visible)
-  const baseMenuItems = [
+  const userMenuItems = [
     { icon: Grid3X3, path: "/pos", label: "POS" },
     { icon: Receipt, path: "/invoice", label: "Invoice" },
-    { icon: Package, path: "/items", label: "Items" },
-    { icon: Users, path: "/customers", label: "Customers" },
     { icon: BarChart3, path: "/dashboard", label: "Dashboard" },
     { icon: MonitorX, path: "/closing_shift", label: "Closing Shift" },
   ]
 
-  // Administrator-only menu items (Purchase module)
-  const adminMenuItems = [
-    { icon: PackagePlus, path: "/purchase", label: "Purchase" },
-    { icon: ShoppingBag, path: "/purchase-invoice", label: "Purchase Invoice" },
-  ]
-
-  // Date Wise Inventory (Administrator or role "Date Wise Inventory Manager")
-  const dateWiseInventoryItem = showDateWiseInventory
-    ? [{ icon: ClipboardList, path: "/date-wise-inventory", label: "Date Wise Inventory" }]
-    : []
-
-  // Combine menu items based on user role
   const menuItems = isAdministrator
     ? [
-        baseMenuItems[0], // POS
-        ...adminMenuItems, // Purchase, Purchase Invoice
-        ...dateWiseInventoryItem,
-        ...baseMenuItems.slice(1), // Rest of menu items
+        { icon: Grid3X3, path: "/pos", label: "POS" },
+        { icon: PackagePlus, path: "/purchase", label: "Purchase" },
+        { icon: ShoppingBag, path: "/purchase-invoice", label: "Purchase Invoice" },
+        { icon: ClipboardList, path: "/date-wise-inventory", label: "Date Wise Inventory" },
+        { icon: Receipt, path: "/invoice", label: "Invoice" },
+        { icon: Package, path: "/items", label: "Items" },
+        { icon: Users, path: "/customers", label: "Customers" },
+        { icon: BarChart3, path: "/dashboard", label: "Dashboard" },
+        { icon: MonitorX, path: "/closing_shift", label: "Closing Shift" },
       ]
-    : [...baseMenuItems.slice(0, 1), ...dateWiseInventoryItem, ...baseMenuItems.slice(1)]
+    : userMenuItems
 
   const isActive = (path: string) => {
     if (path === "/pos") {
@@ -66,8 +51,8 @@ export default function RetailSidebar() {
           onClick={() => navigate("/")}
         >
           <img
-            src="/assets/klik_pos/klik_spa/beveren-logo-180.png"
-            alt="KLiK PoS"
+            src="/assets/klik_pos/klik_spa/logo.jpeg"
+            alt="R-POS"
             className="w-12 h-12 rounded-full object-cover"
           />
         </div>

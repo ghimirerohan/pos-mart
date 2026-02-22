@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 export type TransactionType = "in" | "out";
 export type TransactionSource = 
   | "sales" 
+  | "partial_payment"
   | "credit_payment" 
-  | "partial_payment" 
   | "return" 
   | "credit_given";
 
@@ -31,24 +31,25 @@ export interface PaymentTransaction {
 
 export interface PaymentModeInBreakdown {
   sales: number;
-  credit_payments: number;
   partial_payments: number;
+  credit_payments: number;
   total: number;
 }
 
 export interface PaymentModeOutBreakdown {
   returns: number;
-  credit_given: number;
   total: number;
 }
 
 export interface PaymentModeSummary {
   name: string;
+  type: "payment_mode" | "credit";
   opening: number;
   in: PaymentModeInBreakdown;
   out: PaymentModeOutBreakdown;
   net: number;
   transactions: number;
+  total?: number;
 }
 
 export interface InvoiceSummary {
@@ -77,6 +78,7 @@ export interface PaymentTransactionsResponse {
   transactions?: PaymentTransaction[];
   invoice_summary?: InvoiceSummary;
   cashiers?: Cashier[];
+  total_credit_given?: number;
   error?: string;
 }
 
@@ -92,6 +94,7 @@ interface UsePaymentTransactionsReturn {
   openingEntry: string | null;
   date: string | null;
   time: string | null;
+  totalCreditGiven: number;
   refetch: (cashierFilter?: string) => Promise<void>;
 }
 
@@ -109,6 +112,7 @@ export function usePaymentTransactions(
   const [openingEntry, setOpeningEntry] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
+  const [totalCreditGiven, setTotalCreditGiven] = useState<number>(0);
 
   const fetchTransactions = useCallback(async (cashierFilter?: string) => {
     setIsLoading(true);
@@ -153,6 +157,7 @@ export function usePaymentTransactions(
       setOpeningEntry(result.opening_entry || null);
       setDate(result.date || null);
       setTime(result.time || null);
+      setTotalCreditGiven(result.total_credit_given || 0);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("Error fetching payment transactions:", err);
@@ -189,6 +194,7 @@ export function usePaymentTransactions(
     openingEntry,
     date,
     time,
+    totalCreditGiven,
     refetch,
   };
 }
@@ -219,26 +225,34 @@ export function filterTransactionsByPaymentMode(
 }
 
 export function calculateTotalIn(summary: Record<string, PaymentModeSummary>): number {
-  return Object.values(summary).reduce((total, mode) => total + mode.in.total, 0);
+  return Object.values(summary)
+    .filter((mode) => mode.type === "payment_mode")
+    .reduce((total, mode) => total + mode.in.total, 0);
 }
 
 export function calculateTotalOut(summary: Record<string, PaymentModeSummary>): number {
-  return Object.values(summary).reduce((total, mode) => total + mode.out.total, 0);
+  return Object.values(summary)
+    .filter((mode) => mode.type === "payment_mode")
+    .reduce((total, mode) => total + mode.out.total, 0);
 }
 
 export function calculateTotalNet(summary: Record<string, PaymentModeSummary>): number {
-  return Object.values(summary).reduce((total, mode) => total + mode.net, 0);
+  return Object.values(summary)
+    .filter((mode) => mode.type === "payment_mode")
+    .reduce((total, mode) => total + mode.net, 0);
 }
 
 export function calculateTotalOpening(summary: Record<string, PaymentModeSummary>): number {
-  return Object.values(summary).reduce((total, mode) => total + mode.opening, 0);
+  return Object.values(summary)
+    .filter((mode) => mode.type === "payment_mode")
+    .reduce((total, mode) => total + mode.opening, 0);
 }
 
 export function getSourceLabel(source: TransactionSource): string {
   const labels: Record<TransactionSource, string> = {
     sales: "Sales",
-    credit_payment: "Credit Payment",
     partial_payment: "Partial Payment",
+    credit_payment: "Credit Payment",
     return: "Return",
     credit_given: "Credit Given",
   };
@@ -248,8 +262,8 @@ export function getSourceLabel(source: TransactionSource): string {
 export function getSourceColor(source: TransactionSource): string {
   const colors: Record<TransactionSource, string> = {
     sales: "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400",
+    partial_payment: "bg-teal-100 text-teal-800 dark:bg-teal-900/20 dark:text-teal-400",
     credit_payment: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400",
-    partial_payment: "bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400",
     return: "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400",
     credit_given: "bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400",
   };

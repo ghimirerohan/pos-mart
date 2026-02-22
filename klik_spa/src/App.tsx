@@ -9,6 +9,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { setupGlobalErrorHandling } from "./utils/apiUtils";
 import RetailSidebar from "./components/RetailSidebar";
+import { UserInfoProvider } from "./hooks/useUserInfo";
 
 const queryClient = new QueryClient();
 
@@ -21,15 +22,17 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ThemeProvider>
-          <I18nProvider>
-            <ProductProvider>
-              <RetailSidebar />
-              <Outlet />
-              <ToastContainer position="top-center" autoClose={3000} aria-label="Notification" />
-            </ProductProvider>
-          </I18nProvider>
-        </ThemeProvider>
+        <UserInfoProvider>
+          <ThemeProvider>
+            <I18nProvider>
+              <ProductProvider>
+                <RetailSidebar />
+                <Outlet />
+                <ToastContainer position="top-center" autoClose={3000} aria-label="Notification" />
+              </ProductProvider>
+            </I18nProvider>
+          </ThemeProvider>
+        </UserInfoProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

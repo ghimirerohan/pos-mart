@@ -379,7 +379,7 @@ export default function PaymentDialog({
       customer_name: sharingData.name || 'there',
       invoice_total: formatCurrency(calculations.grandTotal),
       invoice_number: invoiceData?.name || '',
-      company_name: 'KLiK PoS',
+      company_name: 'R-POS',
       date: new Date().toLocaleDateString(),
     };
 
@@ -405,7 +405,7 @@ export default function PaymentDialog({
       vehicle: 'Delivery Vehicle',
       invoice_total: formatCurrency(calculations.grandTotal),
       invoice_number: invoiceData?.name || '',
-      company_name: 'KLiK PoS',
+      company_name: 'R-POS',
       date: new Date().toLocaleDateString(),
     };
 
@@ -1006,19 +1006,25 @@ export default function PaymentDialog({
       
       toast.success(successMessage);
 
+      // Show any backend warnings as informational toasts (not errors)
+      if (response._warnings && response._warnings.length > 0) {
+        for (const warning of response._warnings) {
+          const cleanWarning = warning.replace(/<[^>]*>/g, '').trim();
+          if (cleanWarning) {
+            toast.warn(cleanWarning, { autoClose: 6000 });
+          }
+        }
+      }
+
       // Delete original draft invoice if it exists (from Edit → Go to Cart workflow)
       const originalDraftInvoiceId = getOriginalDraftInvoiceId();
-      // console.log("Checking for original draft invoice to delete:", originalDraftInvoiceId);
 
       if (originalDraftInvoiceId) {
         try {
           // const deleteResult = await deleteDraftInvoice(originalDraftInvoiceId);
         } catch (deleteError) {
           console.error("Failed to delete original draft invoice:", deleteError);
-          // Don't show error to user as the main invoice was created successfully
         }
-      } else {
-        console.log();
       }
 
       // Clear draft invoice cache since payment is completed
@@ -1907,7 +1913,7 @@ export default function PaymentDialog({
 
                       <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                          Subject: Your Invoice from KLiK PoS
+                          Subject: Your Invoice from R-POS
                         </p>
                         <div className="text-sm text-gray-900 dark:text-white">
                           <div
@@ -2127,7 +2133,7 @@ export default function PaymentDialog({
                         <div className="text-sm text-gray-900 dark:text-white">
                           <p>Hi {sharingData.name || "Customer"}!</p>
                           <p className="mt-1">
-                            Thank you for your purchase at KLiK PoS.
+                            Thank you for your purchase at R-POS.
                           </p>
                           <p className="mt-1">
                             Invoice Total:{" "}
@@ -2143,7 +2149,7 @@ export default function PaymentDialog({
                           await sendSMSMessage({
                             mobile_no: sharingData.phone,
                             customer_name: sharingData.name,
-                            message: `Thank you for your purchase at KLiK PoS.\nInvoice Total: ${formatCurrency(calculations.grandTotal)}\nThank you!`
+                            message: `Thank you for your purchase at R-POS.\nInvoice Total: ${formatCurrency(calculations.grandTotal)}\nThank you!`
                           });
                           toast.success("SMS sent successfully!");
                           setSharingMode(null);
@@ -2544,7 +2550,7 @@ export default function PaymentDialog({
               <>
                 <div className="text-center mb-4">
                   <h4 className="font-bold text-lg text-gray-900 dark:text-white">
-                    KLiK PoS
+                    R-POS
                   </h4>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     {isB2B ? "Sales Invoice" : "Sales Invoice"}

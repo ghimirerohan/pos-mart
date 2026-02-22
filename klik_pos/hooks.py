@@ -57,11 +57,13 @@ fixtures = [
 					"Sales Invoice-custom_delivery",
 					"Sales Invoice-custom_column_break_hnemi",
 					"Sales Invoice-custom_delivery_personnel",
-					"Sales Invoice-custom_delivery_personnel_name",
-				),
-			]
-		],
-	},
+				"Sales Invoice-custom_delivery_personnel_name",
+				"Payment Entry-custom_pos_opening_entry",
+				"Payment Entry-custom_pos_payment_type",
+			),
+		]
+	],
+},
 ]
 
 add_to_apps_screen = [

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { useAuth } from "./useAuth";
 
 interface UserInfo {
   user: string;
@@ -6,26 +7,29 @@ interface UserInfo {
   email: string;
   roles: string[];
   is_admin_user: boolean;
-  is_administrator: boolean;  // True only for Administrator role (for restricted features)
+  is_administrator: boolean;
   admin_roles: string[];
   can_access_date_wise_inventory?: boolean;
   pos_profile: string | null;
   pos_profile_name: string | null;
 }
 
-interface UseUserInfoReturn {
+interface UserInfoContextType {
   userInfo: UserInfo | null;
   isLoading: boolean;
   error: string | null;
   refetch: () => void;
 }
 
-export function useUserInfo(): UseUserInfoReturn {
+const UserInfoContext = createContext<UserInfoContextType | undefined>(undefined);
+
+export function UserInfoProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUserInfo = async () => {
+  const fetchUserInfo = useCallback(async () => {
     setIsLoading(true);
 
     try {
@@ -46,8 +50,6 @@ export function useUserInfo(): UseUserInfoReturn {
         throw new Error(data.message?.error || "Failed to fetch user info");
       }
 
-      // const totalFrontendTime = performance.now() - frontendStartTime;
-
       //eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("Error loading user info:", err);
@@ -55,16 +57,28 @@ export function useUserInfo(): UseUserInfoReturn {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchUserInfo();
   }, []);
 
-  return {
-    userInfo,
-    isLoading,
-    error,
-    refetch: fetchUserInfo,
-  };
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchUserInfo();
+    } else {
+      setUserInfo(null);
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, fetchUserInfo]);
+
+  return (
+    <UserInfoContext.Provider value={{ userInfo, isLoading, error, refetch: fetchUserInfo }}>
+      {children}
+    </UserInfoContext.Provider>
+  );
+}
+
+export function useUserInfo(): UserInfoContextType {
+  const context = useContext(UserInfoContext);
+  if (context === undefined) {
+    throw new Error("useUserInfo must be used within a UserInfoProvider");
+  }
+  return context;
 }

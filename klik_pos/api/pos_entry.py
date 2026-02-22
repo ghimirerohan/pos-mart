@@ -164,18 +164,23 @@ def _parse_request_data():
 	if isinstance(data, str):
 		data = json.loads(data)
 
-	# Normalize closing_balance format
+	# Normalize closing_balance format and exclude Credit (not a real Mode of Payment)
 	closing_balance_raw = data.get("closing_balance", {})
 	closing_balance = {}
 
 	if isinstance(closing_balance_raw, list):
 		for item in closing_balance_raw:
 			if isinstance(item, dict) and "mode_of_payment" in item and "closing_amount" in item:
-				closing_balance[item["mode_of_payment"]] = item["closing_amount"]
+				if item["mode_of_payment"] != "Credit":
+					closing_balance[item["mode_of_payment"]] = item["closing_amount"]
 	elif isinstance(closing_balance_raw, dict):
-		closing_balance = closing_balance_raw
+		closing_balance = {k: v for k, v in closing_balance_raw.items() if k != "Credit"}
 
 	data["closing_balance"] = closing_balance
+
+	# Parse total_credit_given
+	data["total_credit_given"] = float(data.get("total_credit_given", 0) or 0)
+
 	return data
 
 
@@ -262,13 +267,12 @@ def _calculate_payment_reconciliation(opening_entry, data):
 	returns_out_map = {row.mode_of_payment: float(row.total_amount or 0) for row in returns_out_data}
 
 	# Aggregate Payment Entries (credit payments received) - IN
-	# Check if custom_pos_opening_entry field exists on Payment Entry
+	# Match entries linked to the opening entry OR by the same user without a link
 	pe_meta = frappe.get_meta("Payment Entry")
 	has_pos_opening_field = pe_meta.has_field("custom_pos_opening_entry")
 	
 	payment_entries_in_map = {}
 	if has_pos_opening_field:
-		# Use POS Opening Entry link if available
 		pe_data = frappe.db.sql(
 			"""
 			SELECT pe.mode_of_payment,
@@ -276,17 +280,17 @@ def _calculate_payment_reconciliation(opening_entry, data):
 			       COUNT(DISTINCT pe.name) as transactions
 			FROM `tabPayment Entry` pe
 			WHERE pe.docstatus = 1
-			  AND pe.posting_date = %s
 			  AND pe.party_type = 'Customer'
 			  AND pe.payment_type = 'Receive'
-			  AND pe.custom_pos_opening_entry = %s
+			  AND (pe.custom_pos_opening_entry = %s
+			       OR (pe.owner = %s AND pe.posting_date = %s
+			           AND (pe.custom_pos_opening_entry IS NULL OR pe.custom_pos_opening_entry = '')))
 			GROUP BY pe.mode_of_payment
 			""",
-			(opening_date, opening_entry_name),
+			(opening_entry_name, frappe.session.user, opening_date),
 			as_dict=True,
 		)
 	else:
-		# Fall back to date-based filtering for the current user
 		pe_data = frappe.db.sql(
 			"""
 			SELECT pe.mode_of_payment,
@@ -306,7 +310,7 @@ def _calculate_payment_reconciliation(opening_entry, data):
 	
 	payment_entries_in_map = {row.mode_of_payment: float(row.total_amount or 0) for row in pe_data}
 
-	# Build reconciliation entries
+	# Build reconciliation entries (only real payment modes, not "Credit")
 	closing_balance = data.get("closing_balance", {})
 	reconciliation = []
 
@@ -316,15 +320,14 @@ def _calculate_payment_reconciliation(opening_entry, data):
 	all_modes.update(returns_out_map.keys())
 	all_modes.update(payment_entries_in_map.keys())
 	all_modes.update(closing_balance.keys())
+	all_modes.discard("Credit")
 
-	# Process all modes
 	for mode in all_modes:
 		opening_amount = float(opening_balance_map.get(mode, 0))
 		sales_in = float(sales_in_map.get(mode, 0))
 		returns_out = float(returns_out_map.get(mode, 0))
 		pe_in = float(payment_entries_in_map.get(mode, 0))
 		
-		# Calculate expected amount: opening + sales_in + payment_entries_in - returns_out
 		expected_amount = opening_amount + sales_in + pe_in - returns_out
 		
 		closing_amount = float(closing_balance.get(mode, 0))
@@ -467,10 +470,14 @@ def _create_and_submit_closing_doc(opening_entry, data, payment_data, user):
 			},
 		)
 
+	# Set total credit given for this session
+	doc.custom_total_credit_given = float(data.get("total_credit_given", 0) or 0)
+
 	# Populate sales invoices linked to this opening entry
 	_populate_sales_invoices_to_closing_entry(doc, opening_entry.name)
 
-	# Submit and link back to opening entry
+	# Insert first, then submit to avoid silent failures
+	doc.insert()
 	doc.submit()
 	frappe.db.set_value("POS Opening Entry", opening_entry.name, "pos_closing_entry", doc.name)
 

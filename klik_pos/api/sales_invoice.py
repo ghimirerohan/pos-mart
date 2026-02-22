@@ -4,7 +4,7 @@ import erpnext
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, getdate
 
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
@@ -12,6 +12,39 @@ from klik_pos.klik_pos.utils import get_current_pos_profile
 _cached_company_data = {}
 _cached_customer_data = {}
 _cached_item_accounts = {}
+
+
+def _patch_expired_batch_bypass(doc):
+	"""Replace validate_serialized_batch on *doc* to skip the expired-batch
+	check while keeping all other serial/batch validations."""
+	from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
+
+	doc._orig_validate_serialized_batch = doc.validate_serialized_batch
+
+	def _validate_without_expiry_check():
+		for d in doc.get("items"):
+			if hasattr(d, "serial_no") and hasattr(d, "batch_no") and d.serial_no and d.batch_no:
+				serial_nos = frappe.get_all(
+					"Serial No",
+					fields=["batch_no", "name", "warehouse"],
+					filters={"name": ("in", get_serial_nos(d.serial_no))},
+				)
+				for row in serial_nos:
+					if row.warehouse and row.batch_no != d.batch_no:
+						frappe.throw(
+							_("Row #{0}: Serial No {1} does not belong to Batch {2}").format(
+								d.idx, row.name, d.batch_no
+							)
+						)
+
+	doc.validate_serialized_batch = _validate_without_expiry_check
+
+
+def _unpatch_expired_batch_bypass(doc):
+	"""Restore original validate_serialized_batch."""
+	orig = getattr(doc, "_orig_validate_serialized_batch", None)
+	if orig:
+		doc.validate_serialized_batch = orig
 
 
 def get_current_pos_opening_entry():
@@ -203,12 +236,13 @@ def _batch_fetch_cashier_names(user_ids):
 	if not user_ids:
 		return {}
 
-	cashier_query = """
+	placeholders = ",".join(["%s"] * len(user_ids))
+	cashier_query = f"""
 		SELECT name, full_name
 		FROM `tabUser`
-		WHERE name IN ({})
-	""".format(",".join([f"'{uid}'" for uid in user_ids]))
-	cashier_results = frappe.db.sql(cashier_query, as_dict=True)
+		WHERE name IN ({placeholders})
+	"""
+	cashier_results = frappe.db.sql(cashier_query, tuple(user_ids), as_dict=True)
 	return {user.name: user.full_name or user.name for user in cashier_results}
 
 
@@ -218,12 +252,13 @@ def _batch_fetch_payment_methods(invoice_names):
 		return {}
 
 	# First, fetch from Sales Invoice Payment child table (for POS invoices paid at checkout)
-	payment_query = """
+	placeholders = ",".join(["%s"] * len(invoice_names))
+	payment_query = f"""
 		SELECT parent, mode_of_payment, amount
 		FROM `tabSales Invoice Payment`
-		WHERE parent IN ({})
-	""".format(",".join([f"'{name}'" for name in invoice_names]))
-	payment_results = frappe.db.sql(payment_query, as_dict=True)
+		WHERE parent IN ({placeholders})
+	"""
+	payment_results = frappe.db.sql(payment_query, tuple(invoice_names), as_dict=True)
 
 	# Group by parent invoice
 	payment_methods_map = {}
@@ -240,15 +275,16 @@ def _batch_fetch_payment_methods(invoice_names):
 
 	if invoices_without_child_payments:
 		# Fetch payment methods from Payment Entry references for these invoices
-		pe_query = """
+		pe_placeholders = ",".join(["%s"] * len(invoices_without_child_payments))
+		pe_query = f"""
 			SELECT per.reference_name as parent, pe.mode_of_payment, per.allocated_amount as amount
 			FROM `tabPayment Entry Reference` per
 			JOIN `tabPayment Entry` pe ON pe.name = per.parent
 			WHERE per.reference_doctype = 'Sales Invoice'
-			AND per.reference_name IN ({})
+			AND per.reference_name IN ({pe_placeholders})
 			AND pe.docstatus = 1
-		""".format(",".join([f"'{name}'" for name in invoices_without_child_payments]))
-		pe_results = frappe.db.sql(pe_query, as_dict=True)
+		"""
+		pe_results = frappe.db.sql(pe_query, tuple(invoices_without_child_payments), as_dict=True)
 
 		for payment in pe_results:
 			if payment.parent not in payment_methods_map:
@@ -265,12 +301,13 @@ def _batch_fetch_items(invoice_names):
 	if not invoice_names:
 		return {}
 
-	items_query = """
+	placeholders = ",".join(["%s"] * len(invoice_names))
+	items_query = f"""
 		SELECT parent, item_code, qty, rate, amount
 		FROM `tabSales Invoice Item`
-		WHERE parent IN ({})
-	""".format(",".join([f"'{name}'" for name in invoice_names]))
-	items_results = frappe.db.sql(items_query, as_dict=True)
+		WHERE parent IN ({placeholders})
+	"""
+	items_results = frappe.db.sql(items_query, tuple(invoice_names), as_dict=True)
 
 	# Group by parent invoice
 	items_map = {}
@@ -351,19 +388,19 @@ def _calculate_return_quantities(invoice, items):
 	if not item_codes:
 		return
 
-	returns_query = """
+	item_placeholders = ",".join(["%s"] * len(item_codes))
+	returns_query = f"""
 		SELECT sii.item_code, COALESCE(SUM(ABS(sii.qty)), 0) as total_returned_qty
 		FROM `tabSales Invoice` si
 		JOIN `tabSales Invoice Item` sii ON si.name = sii.parent
 		WHERE si.is_return = 1
 		  AND si.return_against = %s
-		  AND sii.item_code IN ({})
+		  AND sii.item_code IN ({item_placeholders})
 		  AND si.docstatus = 1
 		  AND si.customer = %s
 		GROUP BY sii.item_code
-	""".format(",".join([f"'{code}'" for code in item_codes]))
-
-	returns_data = frappe.db.sql(returns_query, (invoice.name, invoice.customer), as_dict=True)
+	"""
+	returns_data = frappe.db.sql(returns_query, (invoice.name, *item_codes, invoice.customer), as_dict=True)
 	returned_qty_map = {row.item_code: row.total_returned_qty for row in returns_data}
 
 	# Update items with return data
@@ -478,19 +515,19 @@ def _get_invoice_items_with_returns(invoice_id, customer):
 	returned_qty_map = {}
 
 	if item_codes:
-		returns_query = """
+		item_placeholders = ",".join(["%s"] * len(item_codes))
+		returns_query = f"""
 			SELECT sii.item_code, COALESCE(SUM(ABS(sii.qty)), 0) as total_returned_qty
 			FROM `tabSales Invoice` si
 			JOIN `tabSales Invoice Item` sii ON si.name = sii.parent
 			WHERE si.is_return = 1
 			  AND si.return_against = %s
-			  AND sii.item_code IN ({})
+			  AND sii.item_code IN ({item_placeholders})
 			  AND si.docstatus = 1
 			  AND si.customer = %s
 			GROUP BY sii.item_code
-		""".format(",".join([f"'{code}'" for code in item_codes]))
-
-		returns_data = frappe.db.sql(returns_query, (invoice_id, customer), as_dict=True)
+		"""
+		returns_data = frappe.db.sql(returns_query, (invoice_id, *item_codes, customer), as_dict=True)
 		returned_qty_map = {row.item_code: row.total_returned_qty for row in returns_data}
 
 	# Build items list with return data
@@ -618,6 +655,9 @@ def create_and_submit_invoice(data):
 		except Exception as e:
 			frappe.throw(f"Error validating customer: {str(e)}")
 
+		# Pre-validate stock availability before building the invoice
+		_validate_stock_availability(items)
+
 		# Build invoice document
 		# For credit sale: don't include payment entries - let ERPNext handle it naturally (outstanding = grand_total)
 		# For partial payment: don't include payment entries in child table - we'll create a separate Payment Entry
@@ -711,53 +751,69 @@ def create_and_submit_invoice(data):
 				frappe.log_error(f"Error setting customer_name: {str(e)}")
 				frappe.throw(f"Error setting customer name: {str(e)}")
 		
-		# Save and submit in one transaction
+		# Save and submit atomically — if submit fails we must NOT leave an
+		# orphaned draft in the database.  Using a DB savepoint lets us roll
+		# back the save when submit raises (e.g. negative-stock validation).
+		#
+		# Bypass expired-batch check for entire save+submit cycle since POS
+		# cashiers may need to sell items with stale/incorrect expiry dates.
+		_patch_expired_batch_bypass(doc)
 		try:
+			frappe.db.savepoint("before_invoice_save")
 			doc.save(ignore_permissions=True)
 		except Exception as save_error:
+			frappe.db.rollback(save_point="before_invoice_save")
+			_unpatch_expired_batch_bypass(doc)
 			frappe.log_error(frappe.get_traceback(), f"Error saving invoice: {str(save_error)}")
 			frappe.throw(f"Error saving invoice: {str(save_error)}")
-		
+
 		try:
 			doc.submit()
 		except Exception as submit_error:
-			frappe.log_error(frappe.get_traceback(), f"Error submitting invoice {doc.name}: {str(submit_error)}")
-			# Try to get more detailed error message
+			frappe.db.rollback(save_point="before_invoice_save")
+			_unpatch_expired_batch_bypass(doc)
+			frappe.log_error(frappe.get_traceback(), f"Error submitting invoice: {str(submit_error)}")
 			error_msg = str(submit_error)
 			if hasattr(submit_error, 'message'):
 				error_msg = submit_error.message
 			frappe.throw(f"Error submitting invoice: {error_msg}")
+		_unpatch_expired_batch_bypass(doc)
+
+		_ensure_gl_entries(doc)
 
 		payment_entry = None
 		should_create_payment_entry = False
 
-		# Handle partial payment - create Payment Entry immediately after invoice submission
+		# Handle partial payment - create Payment Entries for each payment mode
 		if is_partial_payment and amount_paid > 0 and mode_of_payment:
 			try:
-				# For partial payments, create a Payment Entry for the partial amount
-				# Get the first payment method from the list
-				if isinstance(mode_of_payment, list) and len(mode_of_payment) > 0:
-					first_payment = mode_of_payment[0]
-					payment_method = first_payment.get("method")
-					payment_amount = flt(first_payment.get("amount", amount_paid))
-				else:
-					payment_method = mode_of_payment
-					payment_amount = amount_paid
-				
-				if payment_amount > 0:
-					# Create Payment Entry for partial payment
-					payment_entry = create_partial_payment_entry(doc, payment_method, payment_amount)
+				payment_modes = []
+				if isinstance(mode_of_payment, list):
+					for pm in mode_of_payment:
+						pm_amount = flt(pm.get("amount", 0))
+						if pm_amount > 0:
+							payment_modes.append((pm.get("method"), pm_amount))
+				elif amount_paid > 0:
+					payment_modes.append((mode_of_payment, amount_paid))
+
+				remaining_outstanding = flt(doc.outstanding_amount)
+				for pm_method, pm_amount in payment_modes:
+					alloc = min(flt(pm_amount), remaining_outstanding)
+					if alloc <= 0:
+						break
+					pe = create_partial_payment_entry(doc, pm_method, alloc)
 					frappe.logger().info(
-						f"Created partial payment entry {payment_entry.name} for {payment_amount} "
+						f"Created partial payment entry {pe.name} for {alloc} ({pm_method}) "
 						f"against invoice {doc.name}"
 					)
-					
-					# Reload the invoice to get updated paid_amount and outstanding_amount
+					remaining_outstanding -= alloc
 					doc.reload()
+
+				payment_entry = pe if payment_modes else None
 			except Exception as e:
 				frappe.log_error(frappe.get_traceback(), f"Partial Payment Entry Error for {doc.name}")
 				frappe.logger().error(f"Failed to create partial payment entry: {e}")
-				# Don't fail the whole transaction - invoice is created, payment can be made later
+				doc.reload()
 		
 		# Handle B2B payment entries (existing logic)
 		elif business_type == "B2B":
@@ -809,12 +865,17 @@ def create_and_submit_invoice(data):
 
 	except Exception as e:
 		error_traceback = frappe.get_traceback()
-		frappe.log_error(error_traceback, "Submit Invoice Error")
-		# Return more detailed error message
 		error_message = str(e)
 		if hasattr(e, 'message'):
 			error_message = e.message
-		return {"success": False, "message": error_message, "error": error_message, "traceback": error_traceback}
+		# Roll back the ENTIRE transaction so no orphaned draft invoices,
+		# Serial and Batch Bundles, or other side-effects are committed.
+		frappe.db.rollback()
+		# Log *after* rollback so the error log itself gets committed in
+		# its own implicit transaction.
+		frappe.log_error(error_traceback, "Submit Invoice Error")
+		frappe.db.commit()
+		return {"success": False, "message": error_message, "error": error_message}
 
 
 @frappe.whitelist()
@@ -978,6 +1039,25 @@ def build_sales_invoice_doc(
 	return doc
 
 
+def _ensure_gl_entries(doc):
+	"""
+	Verify that GL/PLE entries exist after invoice submit.
+	If missing (e.g. due to a hook error or race condition), recreate them.
+	"""
+	if doc.docstatus != 1:
+		return
+	try:
+		ple_exists = frappe.db.exists(
+			"Payment Ledger Entry",
+			{"against_voucher_no": doc.name, "delinked": 0},
+		)
+		if not ple_exists:
+			doc.make_gl_entries()
+			frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"_ensure_gl_entries failed for {doc.name}")
+
+
 def _get_active_pos_profile():
 	"""Get the active POS profile from current session or fallback to default."""
 	selected_pos_profile_name = None
@@ -1085,7 +1165,7 @@ def _populate_invoice_items(doc, items, pos_profile):
 
 	# Add each item to the invoice
 	for item in items:
-		item_data = _prepare_item_data(item, item_data_map, pos_profile)
+		item_data = _prepare_item_data(item, item_data_map, pos_profile, doc)
 		doc.append("items", item_data)
 
 
@@ -1094,13 +1174,13 @@ def _batch_fetch_item_data(item_codes):
 	if not item_codes:
 		return {}
 
-	item_query = """
+	placeholders = ",".join(["%s"] * len(item_codes))
+	item_query = f"""
 		SELECT name, has_batch_no, has_serial_no
 		FROM `tabItem`
-		WHERE name IN ({})
-	""".format(",".join([f"'{code}'" for code in item_codes]))
-
-	item_results = frappe.db.sql(item_query, as_dict=True)
+		WHERE name IN ({placeholders})
+	"""
+	item_results = frappe.db.sql(item_query, tuple(item_codes), as_dict=True)
 	return {item.name: item for item in item_results}
 
 
@@ -1123,7 +1203,7 @@ def _precache_item_accounts(item_codes, company):
 		_cached_item_accounts[f"{item_code}_expense"] = expense_account
 
 
-def _prepare_item_data(item, item_data_map, pos_profile):
+def _prepare_item_data(item, item_data_map, pos_profile, doc):
 	"""Prepare item data dictionary for invoice line."""
 	item_code = item.get("id")
 
@@ -1145,10 +1225,76 @@ def _prepare_item_data(item, item_data_map, pos_profile):
 
 	# Add optional fields
 	_add_uom_to_item(item_data, item)
-	_add_batch_to_item(item_data, item, item_data_map.get(item_code, {}))
-	_add_serial_to_item(item_data, item)
+	_add_batch_to_item(item_data, item, item_data_map.get(item_code, {}), doc, pos_profile)
+	_add_serial_to_item(item_data, item, item_data_map.get(item_code, {}), doc, pos_profile)
 
 	return item_data
+
+
+def _validate_stock_availability(items):
+	"""Check real-time stock — item-level AND batch-level — before invoice creation.
+
+	For batch-tracked items, total warehouse stock might look sufficient (e.g. 17)
+	while no single batch actually holds enough (e.g. split across depleted batches).
+	We validate both levels so the user gets a clear error before any document is
+	saved or submitted.
+	"""
+	from erpnext.stock.utils import get_stock_balance
+
+	pos_profile = _get_active_pos_profile()
+	warehouse = pos_profile.warehouse
+	allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
+	if allow_negative:
+		return
+
+	insufficient = []
+	for item in items:
+		item_code = item.get("id")
+		qty_requested = flt(item.get("quantity"))
+		if qty_requested <= 0:
+			continue
+
+		item_fields = frappe.db.get_value(
+			"Item", item_code, ["is_stock_item", "has_batch_no", "item_name"], as_dict=True
+		)
+		if not item_fields or not item_fields.is_stock_item:
+			continue
+
+		item_name = item_fields.item_name or item_code
+
+		available = get_stock_balance(item_code, warehouse) or 0
+		if available < qty_requested:
+			insufficient.append(
+				f"{item_name}: requested {qty_requested}, available {available} in {warehouse}"
+			)
+			continue
+
+		if item_fields.has_batch_no:
+			batch_value = item.get("batchNumber")
+			if batch_value:
+				batch_no = _resolve_batch_no(batch_value, item_code)
+				if batch_no:
+					batch_avail = _get_batch_qty(batch_no, warehouse)
+					if batch_avail < qty_requested:
+						insufficient.append(
+							f"{item_name} (batch {batch_no}): requested {qty_requested}, "
+							f"batch has {batch_avail} in {warehouse}"
+						)
+			else:
+				best = _pick_batch_for_item(item_code, warehouse=warehouse, qty_needed=qty_requested)
+				if not best:
+					insufficient.append(
+						f"{item_name}: no single batch has {qty_requested} units in {warehouse} "
+						f"(total stock: {available})"
+					)
+
+	if insufficient:
+		details = "<br>".join(insufficient)
+		frappe.throw(
+			_("Insufficient stock for the following items:<br>{0}<br><br>"
+			  "Please reduce the quantity or restock before selling.").format(details),
+			title=_("Insufficient Stock"),
+		)
 
 
 def _validate_item_accounts(item_code, income_account, expense_account):
@@ -1172,22 +1318,215 @@ def _add_uom_to_item(item_data, item):
 		item_data["uom"] = selected_uom
 
 
-def _add_batch_to_item(item_data, item, item_db_data):
-	"""Add batch information if item has batch tracking."""
-	has_batch_no = item_db_data.get("has_batch_no", 0)
-	batch_number = item.get("batchNumber")
+def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
+	"""Ensure batch-tracked items get a Serial and Batch Bundle before submit.
 
-	if has_batch_no and batch_number:
-		item_data["use_serial_batch_fields"] = 1
-		item_data["batch_no"] = batch_number
+	ERPNext's auto-create (via SerialBatchBundle on SLE submit) only works when
+	batches have positive available stock.  When the only batch has zero or
+	negative stock the auto-create silently returns nothing and the SLE
+	validation throws "Serial No / Batch No are mandatory".
+
+	We therefore always create the bundle ourselves so the SLE already has it.
+	"""
+	if not item_db_data.get("has_batch_no", 0):
+		return
+
+	item_code = item_data["item_code"]
+	batch_value = item.get("batchNumber")
+
+	if batch_value:
+		batch_no = _resolve_batch_no(batch_value, item_code)
+		if not batch_no:
+			frappe.throw(
+				_("Invalid or unknown Batch for item {0}: {1}").format(item_code, batch_value)
+			)
+	else:
+		qty_needed = flt(item_data.get("qty"), 9)
+		batch_no = _pick_batch_for_item(item_code, warehouse=pos_profile.warehouse, qty_needed=qty_needed)
+
+	if not batch_no:
+		allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
+		if not allow_negative:
+			item_name = frappe.db.get_value("Item", item_code, "item_name") or item_code
+			frappe.throw(
+				_("No batch with sufficient stock found for {0} in warehouse {1}. "
+				  "Please restock or adjust the quantity.").format(item_name, pos_profile.warehouse),
+				title=_("Insufficient Batch Stock"),
+			)
+		return
+
+	qty = flt(item_data.get("qty"), 9)
+	bundle_name = _create_outward_bundle(
+		item_code=item_code,
+		warehouse=pos_profile.warehouse,
+		batch_no=batch_no,
+		qty=qty,
+		doc=doc,
+	)
+	item_data["use_serial_batch_fields"] = 1
+	item_data["batch_no"] = batch_no
+	if bundle_name:
+		item_data["serial_and_batch_bundle"] = bundle_name
 
 
-def _add_serial_to_item(item_data, item):
-	"""Add serial number if provided."""
+def _add_serial_to_item(item_data, item, item_db_data, doc, pos_profile):
+	"""Ensure serial-tracked items get a Serial and Batch Bundle before submit."""
+	if not item_db_data.get("has_serial_no", 0):
+		return
 	serial_number = item.get("serialNumber")
-	if serial_number:
-		item_data["use_serial_batch_fields"] = 1
-		item_data["serial_no"] = serial_number
+	if not serial_number:
+		return
+	if item_data.get("serial_and_batch_bundle"):
+		return
+
+	from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
+	serial_nos = get_serial_nos(serial_number)
+	if not serial_nos:
+		return
+
+	qty = flt(item_data.get("qty"), 9)
+	bundle_name = _create_outward_bundle(
+		item_code=item_data["item_code"],
+		warehouse=pos_profile.warehouse,
+		qty=qty,
+		doc=doc,
+		serial_nos=serial_nos,
+	)
+	item_data["use_serial_batch_fields"] = 1
+	item_data["serial_no"] = serial_number
+	if bundle_name:
+		item_data["serial_and_batch_bundle"] = bundle_name
+
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_batch_no(batch_value, item_code):
+	"""Resolve frontend batch value (batch_id or Batch name) to Batch doctype name."""
+	if not batch_value or not item_code:
+		return None
+	if frappe.db.exists("Batch", batch_value):
+		return batch_value
+	return frappe.db.get_value(
+		"Batch",
+		{"batch_id": batch_value, "item": item_code},
+		"name",
+	)
+
+
+def _get_batch_qty(batch_no, warehouse):
+	"""Get batch qty accounting for both old-style (SLE.batch_no) and
+	new-style (Serial and Batch Bundle) stock tracking."""
+	# Old-style: batch_no stored directly on the Stock Ledger Entry
+	old_qty = frappe.db.sql(
+		"""SELECT COALESCE(SUM(actual_qty), 0)
+		   FROM `tabStock Ledger Entry`
+		   WHERE batch_no = %s AND warehouse = %s AND is_cancelled = 0""",
+		(batch_no, warehouse),
+	)[0][0] or 0
+
+	# New-style: batch tracked via Serial and Batch Bundle entries
+	new_qty = frappe.db.sql(
+		"""SELECT COALESCE(SUM(sbe.qty), 0)
+		   FROM `tabSerial and Batch Entry` sbe
+		   JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+		   WHERE sbe.batch_no = %s
+		     AND sbe.warehouse = %s
+		     AND sbb.docstatus = 1
+		     AND sbb.is_cancelled = 0""",
+		(batch_no, warehouse),
+	)[0][0] or 0
+
+	return flt(old_qty + new_qty)
+
+
+def _pick_batch_for_item(item_code, warehouse=None, qty_needed=0):
+	"""Return the best batch for *item_code* that has sufficient stock.
+
+	Prioritises non-expired batches (FEFO).  Falls back to expired batches
+	only when no non-expired batch can satisfy the request.
+
+	Handles both old-style (SLE.batch_no) and new-style (Serial and Batch
+	Bundle) stock tracking.
+	"""
+	if not warehouse:
+		pos_profile = _get_active_pos_profile()
+		warehouse = pos_profile.warehouse
+
+	today = frappe.utils.nowdate()
+
+	batches = frappe.db.sql(
+		"""SELECT name, expiry_date FROM `tabBatch`
+		   WHERE item = %s AND disabled = 0
+		   ORDER BY expiry_date ASC, creation ASC""",
+		item_code,
+		as_dict=True,
+	)
+
+	best_valid = None
+	best_valid_qty = 0
+	best_expired = None
+	best_expired_qty = 0
+
+	for b in batches:
+		available = _get_batch_qty(b.name, warehouse)
+		if available <= 0:
+			continue
+
+		is_expired = b.expiry_date and getdate(b.expiry_date) < getdate(today)
+
+		if not is_expired:
+			if available >= qty_needed and qty_needed > 0:
+				return b.name
+			if available > best_valid_qty:
+				best_valid_qty = available
+				best_valid = b.name
+		else:
+			if available >= qty_needed and qty_needed > 0 and not best_expired:
+				best_expired = b.name
+				best_expired_qty = available
+			elif available > best_expired_qty:
+				best_expired_qty = available
+				best_expired = b.name
+
+	return best_valid or best_expired
+
+
+def _create_outward_bundle(item_code, warehouse, qty, doc, batch_no=None, serial_nos=None):
+	"""Create a draft Serial and Batch Bundle for an outward (sales) transaction.
+
+	By explicitly passing ``batches`` / ``serial_nos`` we bypass
+	``get_available_batches`` which only returns batches with positive stock.
+	"""
+	from erpnext.stock.serial_batch_bundle import SerialBatchCreation
+
+	kwargs = {
+		"item_code": item_code,
+		"warehouse": warehouse,
+		"qty": qty,
+		"type_of_transaction": "Outward",
+		"voucher_type": "Sales Invoice",
+		"voucher_no": doc.name or "",
+		"posting_date": doc.posting_date or frappe.utils.nowdate(),
+		"posting_time": getattr(doc, "posting_time", None) or frappe.utils.nowtime(),
+		"company": doc.company,
+		"do_not_submit": True,
+	}
+	if batch_no:
+		kwargs["batches"] = frappe._dict({batch_no: qty})
+	if serial_nos:
+		kwargs["serial_nos"] = serial_nos
+
+	try:
+		bundle_doc = SerialBatchCreation(kwargs).make_serial_and_batch_bundle()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "Serial Batch Bundle Creation Error")
+		return None
+
+	if bundle_doc and bundle_doc.get("name"):
+		return bundle_doc.name
+	return None
 
 
 def _populate_tax_details(doc):
@@ -1704,75 +2043,81 @@ def make_regional_gl_entries(gl_entries, doc):
 
 def create_payment_entry(sales_invoice, mode_of_payment, amount_paid):
 	"""
-	Create Payment Entry for B2B Sales Invoice
+	Create Payment Entry for B2B Sales Invoice.
+	Uses Administrator context to bypass permission issues for non-admin POS users.
 	"""
+	from frappe.utils import getdate, nowdate
+
+	original_user = frappe.session.user
+	opening_entry = get_current_pos_opening_entry() or ""
+
+	frappe.set_user("Administrator")
 	try:
-		# Get company and customer details
 		company = sales_invoice.company
 		customer = sales_invoice.customer
-
-		# Create Payment Entry
-		payment_entry = frappe.new_doc("Payment Entry")
-		payment_entry.payment_type = "Receive"
-		payment_entry.party_type = "Customer"
-		payment_entry.party = customer
-		payment_entry.company = company
-		payment_entry.posting_date = frappe.utils.nowdate()
-
-		# Set paid amount
-		payment_entry.paid_amount = amount_paid
-		payment_entry.received_amount = amount_paid
-		payment_entry.source_exchange_rate = 1
-		payment_entry.target_exchange_rate = 1
-
 		company_doc = frappe.get_doc("Company", company)
 
-		payment_entry.party_account = get_customer_receivable_account(customer, company)
-
-		# Handle multiple payment methods
 		if isinstance(mode_of_payment, list) and len(mode_of_payment) > 0:
 			first_payment = mode_of_payment[0]
-			mode_of_payment_doc = frappe.get_doc("Mode of Payment", first_payment["method"])
-
-			for account in mode_of_payment_doc.accounts:
-				if account.company == company:
-					payment_entry.paid_to = account.default_account
-					break
-
-			if not payment_entry.paid_to:
-				payment_entry.paid_to = company_doc.default_cash_account
-
-			payment_entry.mode_of_payment = first_payment["method"]
-
-			payment_entry.append(
-				"references",
-				{
-					"reference_doctype": "Sales Invoice",
-					"reference_name": sales_invoice.name,
-					"allocated_amount": amount_paid,
-				},
-			)
-
+			mop_name = first_payment["method"]
 		else:
-			payment_entry.paid_to = company_doc.default_cash_account
-			payment_entry.mode_of_payment = "Cash"
+			mop_name = "Cash"
 
-			payment_entry.append(
-				"references",
-				{
-					"reference_doctype": "Sales Invoice",
-					"reference_name": sales_invoice.name,
-					"allocated_amount": amount_paid,
-				},
-			)
+		mode_of_payment_doc = frappe.get_doc("Mode of Payment", mop_name)
+		paid_to_account = None
+		for account in mode_of_payment_doc.accounts:
+			if account.company == company:
+				paid_to_account = account.default_account
+				break
+		if not paid_to_account:
+			paid_to_account = company_doc.default_cash_account
 
-		payment_entry.paid_from_account_currency = sales_invoice.currency
-		payment_entry.paid_to_account_currency = sales_invoice.currency
+		pe_data = {
+			"doctype": "Payment Entry",
+			"payment_type": "Receive",
+			"party_type": "Customer",
+			"party": customer,
+			"company": company,
+			"posting_date": nowdate(),
+			"paid_amount": amount_paid,
+			"received_amount": amount_paid,
+			"source_exchange_rate": 1,
+			"target_exchange_rate": 1,
+			"party_account": get_customer_receivable_account(customer, company),
+			"paid_to": paid_to_account,
+			"mode_of_payment": mop_name,
+			"paid_from_account_currency": sales_invoice.currency,
+			"paid_to_account_currency": sales_invoice.currency,
+			"references": [{
+				"reference_doctype": "Sales Invoice",
+				"reference_name": sales_invoice.name,
+				"allocated_amount": amount_paid,
+			}],
+		}
 
-		payment_entry.save()
-		payment_entry.submit()
+		paid_to_type = frappe.get_cached_value("Account", paid_to_account, "account_type")
+		if paid_to_type == "Bank":
+			pe_data["reference_no"] = f"POS-B2B-{nowdate()}-{sales_invoice.name}"
+			pe_data["reference_date"] = getdate(nowdate())
 
-		return payment_entry
+		pe_meta = frappe.get_meta("Payment Entry")
+		if pe_meta.has_field("custom_pos_opening_entry") and opening_entry:
+			pe_data["custom_pos_opening_entry"] = opening_entry
+		if pe_meta.has_field("custom_pos_payment_type"):
+			pe_data["custom_pos_payment_type"] = "Partial Payment"
+
+		pe = frappe.get_doc(pe_data)
+		pe.set_missing_values()
+		pe.set_missing_ref_details(force=True)
+		pe.insert(ignore_permissions=True)
+		pe.submit()
+
+		frappe.db.set_value("Payment Entry", pe.name, {
+			"owner": original_user,
+			"modified_by": original_user,
+		}, update_modified=False)
+
+		return pe
 
 	except Exception as e:
 		frappe.log_error(
@@ -1780,94 +2125,92 @@ def create_payment_entry(sales_invoice, mode_of_payment, amount_paid):
 			f"Error creating payment entry for invoice {sales_invoice.name}",
 		)
 		frappe.throw(f"Failed to create payment entry: {e!s}")
+	finally:
+		frappe.set_user(original_user)
 
 
 def create_partial_payment_entry(sales_invoice, mode_of_payment, payment_amount):
 	"""
 	Create Payment Entry for partial payment on a Sales Invoice.
-	This is used for partial payments where customer pays some amount now and the rest later.
-	
-	Args:
-		sales_invoice: The Sales Invoice document
-		mode_of_payment: Mode of Payment name (e.g., "Cash", "Card")
-		payment_amount: The partial amount being paid
-	
-	Returns:
-		The created and submitted Payment Entry document
+	Uses Administrator context to bypass permission issues for non-admin POS users,
+	then re-attributes ownership to the actual cashier.
 	"""
+	from frappe.utils import getdate, nowdate
+
+	original_user = frappe.session.user
+	opening_entry = get_current_pos_opening_entry() or ""
+
+	frappe.set_user("Administrator")
 	try:
 		company = sales_invoice.company
 		customer = sales_invoice.customer
 		company_doc = frappe.get_doc("Company", company)
-		
-		# Create Payment Entry
-		payment_entry = frappe.new_doc("Payment Entry")
-		payment_entry.payment_type = "Receive"
-		payment_entry.party_type = "Customer"
-		payment_entry.party = customer
-		payment_entry.company = company
-		payment_entry.posting_date = frappe.utils.nowdate()
-		
-		# Set amounts
-		payment_entry.paid_amount = flt(payment_amount)
-		payment_entry.received_amount = flt(payment_amount)
-		payment_entry.source_exchange_rate = 1
-		payment_entry.target_exchange_rate = 1
-		
-		# Set accounts
-		payment_entry.party_account = get_customer_receivable_account(customer, company)
-		
-		# Get Mode of Payment account
+
 		mode_of_payment_doc = frappe.get_doc("Mode of Payment", mode_of_payment)
 		paid_to_account = None
 		for account in mode_of_payment_doc.accounts:
 			if account.company == company:
 				paid_to_account = account.default_account
 				break
-		
 		if not paid_to_account:
 			paid_to_account = company_doc.default_cash_account
-		
-		payment_entry.paid_to = paid_to_account
-		payment_entry.mode_of_payment = mode_of_payment
-		
-		# Set currencies
-		payment_entry.paid_from_account_currency = sales_invoice.currency
-		payment_entry.paid_to_account_currency = sales_invoice.currency
-		
-		# Link to the invoice with the partial amount
-		payment_entry.append(
-			"references",
-			{
+
+		pe_data = {
+			"doctype": "Payment Entry",
+			"payment_type": "Receive",
+			"party_type": "Customer",
+			"party": customer,
+			"company": company,
+			"posting_date": nowdate(),
+			"paid_amount": flt(payment_amount),
+			"received_amount": flt(payment_amount),
+			"source_exchange_rate": 1,
+			"target_exchange_rate": 1,
+			"party_account": get_customer_receivable_account(customer, company),
+			"paid_to": paid_to_account,
+			"mode_of_payment": mode_of_payment,
+			"paid_from_account_currency": sales_invoice.currency,
+			"paid_to_account_currency": sales_invoice.currency,
+			"remarks": f"Partial payment for Sales Invoice {sales_invoice.name}",
+			"references": [{
 				"reference_doctype": "Sales Invoice",
 				"reference_name": sales_invoice.name,
 				"allocated_amount": flt(payment_amount),
-			},
-		)
-		
-		# Link to current POS Opening Entry if available
-		current_opening_entry = get_current_pos_opening_entry()
-		if current_opening_entry:
-			# Check if custom field exists on Payment Entry
-			payment_entry_meta = frappe.get_meta("Payment Entry")
-			if payment_entry_meta.has_field("custom_pos_opening_entry"):
-				payment_entry.custom_pos_opening_entry = current_opening_entry
-		
-		# Add remarks for partial payment
-		payment_entry.remarks = f"Partial payment for Sales Invoice {sales_invoice.name}"
-		
-		# Save and submit
-		payment_entry.save(ignore_permissions=True)
-		payment_entry.submit()
-		
-		return payment_entry
-		
+			}],
+		}
+
+		paid_to_type = frappe.get_cached_value("Account", paid_to_account, "account_type")
+		if paid_to_type == "Bank":
+			pe_data["reference_no"] = f"POS-PP-{nowdate()}-{sales_invoice.name}"
+			pe_data["reference_date"] = getdate(nowdate())
+
+		pe_meta = frappe.get_meta("Payment Entry")
+		if pe_meta.has_field("custom_pos_opening_entry") and opening_entry:
+			pe_data["custom_pos_opening_entry"] = opening_entry
+		if pe_meta.has_field("custom_pos_payment_type"):
+			pe_data["custom_pos_payment_type"] = "Partial Payment"
+
+		pe = frappe.get_doc(pe_data)
+		pe.set_missing_values()
+		pe.set_missing_ref_details(force=True)
+		pe.insert(ignore_permissions=True)
+		pe.submit()
+
+		frappe.db.set_value("Payment Entry", pe.name, {
+			"owner": original_user,
+			"modified_by": original_user,
+		}, update_modified=False)
+
+		return pe
+
 	except Exception as e:
 		frappe.log_error(
 			frappe.get_traceback(),
 			f"Error creating partial payment entry for invoice {sales_invoice.name}",
 		)
 		raise e
+	finally:
+		frappe.set_user(original_user)
 
 
 def get_customer_receivable_account(customer, company):
@@ -2380,8 +2723,9 @@ def get_customer_invoices_for_return(customer, start_date=None, end_date=None, s
 			_invoice_item_pairs = [(item.parent, item.item_code) for item in all_items]
 
 			if item_codes:
-				# Create a more efficient query to get all returned quantities
-				returns_query = """
+				inv_placeholders = ",".join(["%s"] * len(invoice_names))
+				item_placeholders = ",".join(["%s"] * len(item_codes))
+				returns_query = f"""
 					SELECT
 						rsi.return_against as original_invoice,
 						sii.item_code,
@@ -2389,17 +2733,13 @@ def get_customer_invoices_for_return(customer, start_date=None, end_date=None, s
 					FROM `tabSales Invoice` rsi
 					JOIN `tabSales Invoice Item` sii ON rsi.name = sii.parent
 					WHERE rsi.is_return = 1
-					  AND rsi.return_against IN ({})
-					  AND sii.item_code IN ({})
+					  AND rsi.return_against IN ({inv_placeholders})
+					  AND sii.item_code IN ({item_placeholders})
 					  AND rsi.docstatus = 1
 					  AND rsi.customer = %s
 					GROUP BY rsi.return_against, sii.item_code
-				""".format(
-					",".join([f"'{name}'" for name in invoice_names]),
-					",".join([f"'{code}'" for code in item_codes]),
-				)
-
-				returns_data = frappe.db.sql(returns_query, (customer,), as_dict=True)
+				"""
+				returns_data = frappe.db.sql(returns_query, (*invoice_names, *item_codes, customer), as_dict=True)
 				returned_qty_map = {
 					(row.original_invoice, row.item_code): row.total_returned_qty for row in returns_data
 				}
@@ -2717,7 +3057,11 @@ def submit_draft_invoice(invoice_id):
 				"error": f"Cannot submit invoice {invoice_id}. Only Draft invoices can be submitted. Current status: {invoice_doc.status}",
 			}
 
-		invoice_doc.submit()
+		_patch_expired_batch_bypass(invoice_doc)
+		try:
+			invoice_doc.submit()
+		finally:
+			_unpatch_expired_batch_bypass(invoice_doc)
 
 		return {
 			"success": True,

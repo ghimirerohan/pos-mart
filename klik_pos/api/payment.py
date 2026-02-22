@@ -263,6 +263,10 @@ def get_payment_transactions(cashier_filter=None):
 		# Get list of cashiers for admin filter dropdown
 		cashiers = _get_cashiers_list(opening_info["profile"], opening_info["date"]) if is_admin else []
 		
+		# Extract total_credit_given from the Credit entry in summary
+		credit_entry = payment_summary.get("Credit", {})
+		total_credit_given = credit_entry.get("total", 0.0) if credit_entry.get("type") == "credit" else 0.0
+		
 		return {
 			"success": True,
 			"pos_profile": opening_info["profile"],
@@ -274,6 +278,7 @@ def get_payment_transactions(cashier_filter=None):
 			"transactions": transactions_data["transactions"],
 			"invoice_summary": invoice_summary,
 			"cashiers": cashiers,
+			"total_credit_given": total_credit_given,
 		}
 
 	except Exception as e:
@@ -287,22 +292,26 @@ def get_payment_transactions(cashier_filter=None):
 def _get_user_filter(is_admin, cashier_filter):
 	"""
 	Determine user filter based on admin status and filter selection.
-	
+
+	By default **all** users (including admins) are scoped to their own
+	POS Opening Entry so the Closing Shift shows only the current
+	session's transactions.  Admins can explicitly select "All Cashiers"
+	to see the aggregated day-view.
+
 	Returns:
-		- None: For non-admin users (will use opening_entry filter instead)
-		- None: For admin with 'all' or no filter (see all transactions)
-		- user_id: For admin with specific cashier filter
+		- "opening_entry": scope to the current user's opening entry (default)
+		- "all":           admin explicitly requested all cashiers
+		- <user_id>:       admin filtering a specific cashier
 	"""
 	if not is_admin:
-		# Non-admin users: Return None to signal that opening_entry filter should be used
-		# This ensures they only see transactions from their own POS session
-		return None
-	
-	# Admin can filter by specific cashier or see all
-	if cashier_filter and cashier_filter != "all":
+		return "opening_entry"
+
+	if cashier_filter == "all":
+		return "all"
+	if cashier_filter and cashier_filter not in ("my_session",):
 		return cashier_filter
-	
-	return None  # None for admin means all users
+
+	return "opening_entry"
 
 
 def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_date, is_admin, user_filter):
@@ -313,8 +322,7 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 		{
 			"in": {
 				"sales": [...],           # Today's sales payments
-				"credit_payments": [...], # Previous credits paid today
-				"partial_payments": [...] # Partial payments received
+				"credit_payments": [...], # Payments received for outstanding amounts
 			},
 			"out": {
 				"returns": [...],         # Return refunds
@@ -326,8 +334,8 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 	transactions = {
 		"in": {
 			"sales": [],
+			"partial_payments": [],
 			"credit_payments": [],
-			"partial_payments": []
 		},
 		"out": {
 			"returns": [],
@@ -373,12 +381,28 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 		pos_profile, opening_entry_name, opening_date, is_admin, user_filter
 	)
 	
+	# Deduplicate: a PE with multiple references produces multiple rows from the JOIN.
+	# Keep one transaction per PE, collecting linked invoices.
+	# Classification uses custom_pos_payment_type set at creation time:
+	# - "Partial Payment" → POS checkout partial payments
+	# - "Credit Payment" → outstanding collections via Receive Outstanding
+	# Legacy PEs without the field fall back to session-based heuristic.
+	seen_pe = {}
 	for pe in payment_entries:
-		# Determine if this is a credit payment or partial payment
-		source = "credit_payment"
-		if pe.reference_posting_date and str(pe.reference_posting_date) == str(opening_date):
-			source = "partial_payment"
+		if pe.name in seen_pe:
+			existing = seen_pe[pe.name]
+			if pe.reference_name and pe.reference_name not in existing["_invoices"]:
+				existing["_invoices"].append(pe.reference_name)
+			continue
 		
+		explicit_type = (pe.get("custom_pos_payment_type") or "").strip()
+		if explicit_type == "Credit Payment":
+			source = "credit_payment"
+		elif explicit_type == "Partial Payment":
+			source = "partial_payment"
+		else:
+			source = "partial_payment" if bool(pe.get("custom_pos_opening_entry")) else "credit_payment"
+
 		txn = {
 			"id": pe.name or "",
 			"type": "in" if pe.payment_type == "Receive" else "out",
@@ -397,14 +421,15 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 			"cashier_id": pe.owner or "",
 			"is_return": False,
 			"status": "Submitted" if pe.docstatus == 1 else "Draft",
+			"_invoices": [pe.reference_name] if pe.reference_name else [],
 		}
-		
-		if pe.payment_type == "Receive":
-			if source == "partial_payment":
-				transactions["in"]["partial_payments"].append(txn)
-			else:
-				transactions["in"]["credit_payments"].append(txn)
-		
+		seen_pe[pe.name] = txn
+	
+	for txn in seen_pe.values():
+		txn.pop("_invoices", None)
+		if txn["type"] == "in":
+			bucket = "partial_payments" if txn["source"] == "partial_payment" else "credit_payments"
+			transactions["in"][bucket].append(txn)
 		transactions["transactions"].append(txn)
 	
 	# 3. Track credits given (unpaid invoices created today) - these are "OUT" as money not received
@@ -447,18 +472,8 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 def _fetch_sales_invoice_payments(pos_profile, opening_entry_name, opening_date, is_admin, user_filter):
 	"""Fetch payments from Sales Invoice Payment child table."""
 	params = []
-	
-	if is_admin and user_filter:
-		# Admin filtering by specific cashier
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
-	elif is_admin:
-		# Admin sees all for the day (no specific cashier filter)
+
+	if user_filter == "all":
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -467,8 +482,15 @@ def _fetch_sales_invoice_payments(pos_profile, opening_entry_name, opening_date,
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
+	elif user_filter and user_filter not in ("opening_entry",):
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
 	else:
-		# Non-admin: ALWAYS filter by their own opening entry (most accurate)
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1
@@ -502,32 +524,43 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 	"""
 	Fetch Payment Entries for credit payments and partial payments.
 	These are payments made against previous invoices.
+	
+	For "My Session" (opening_entry filter), matches entries linked to the opening
+	entry OR entries by the same user without a link (created outside the POS app).
 	"""
-	# Check if custom_pos_opening_entry field exists on Payment Entry
 	pe_meta = frappe.get_meta("Payment Entry")
 	has_pos_opening_field = pe_meta.has_field("custom_pos_opening_entry")
-	
-	params = [opening_date]
-	user_condition = ""
-	pos_condition = ""
-	
-	if is_admin and user_filter:
-		# Admin filtering by specific cashier
-		user_condition = "AND pe.owner = %s"
+
+	params = []
+	scope_condition = ""
+
+	if user_filter == "all":
+		params.append(opening_date)
+		scope_condition = "AND pe.posting_date = %s"
+	elif user_filter and user_filter not in ("opening_entry",):
+		params.append(opening_date)
+		scope_condition = "AND pe.posting_date = %s AND pe.owner = %s"
 		params.append(user_filter)
-	elif is_admin:
-		# Admin sees all for the day (no additional filter)
-		pass
 	else:
-		# Non-admin: Filter by their opening entry if field exists, otherwise by owner
 		if has_pos_opening_field:
-			pos_condition = "AND pe.custom_pos_opening_entry = %s"
+			scope_condition = (
+				"AND ("
+				"  pe.custom_pos_opening_entry = %s"
+				"  OR (pe.owner = %s AND pe.posting_date = %s"
+				"      AND (pe.custom_pos_opening_entry IS NULL OR pe.custom_pos_opening_entry = ''))"
+				")"
+			)
 			params.append(opening_entry_name)
+			params.append(frappe.session.user)
+			params.append(opening_date)
 		else:
-			# Fallback to owner filter if custom field doesn't exist
-			user_condition = "AND pe.owner = %s"
+			params.append(opening_date)
+			scope_condition = "AND pe.posting_date = %s AND pe.owner = %s"
 			params.append(frappe.session.user)
 	
+	pos_opening_col = "pe.custom_pos_opening_entry," if has_pos_opening_field else "NULL as custom_pos_opening_entry,"
+	payment_type_col = "pe.custom_pos_payment_type," if pe_meta.has_field("custom_pos_payment_type") else "NULL as custom_pos_payment_type,"
+
 	query = f"""
 		SELECT
 			pe.name,
@@ -539,6 +572,8 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 			pe.payment_type,
 			pe.owner,
 			pe.docstatus,
+			{pos_opening_col}
+			{payment_type_col}
 			TIME(pe.creation) as creation_time,
 			per.reference_name,
 			si.posting_date as reference_posting_date,
@@ -548,11 +583,9 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 		LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name AND per.reference_doctype = 'Sales Invoice'
 		LEFT JOIN `tabUser` u ON pe.owner = u.name
 		WHERE pe.docstatus = 1
-			AND pe.posting_date = %s
 			AND pe.party_type = 'Customer'
 			AND pe.payment_type = 'Receive'
-			{user_condition}
-			{pos_condition}
+			{scope_condition}
 		ORDER BY pe.posting_date DESC, pe.creation DESC
 	"""
 	
@@ -565,20 +598,8 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 	These represent money NOT received - outflow from cash perspective.
 	"""
 	params = []
-	
-	if is_admin and user_filter:
-		# Admin filtering by specific cashier
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.is_return = 0
-			AND si.outstanding_amount > 0
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
-	elif is_admin:
-		# Admin sees all for the day
+
+	if user_filter == "all":
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -589,8 +610,17 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
+	elif user_filter and user_filter not in ("opening_entry",):
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.is_return = 0
+			AND si.outstanding_amount > 0
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
 	else:
-		# Non-admin: ALWAYS filter by their own opening entry
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1
@@ -623,29 +653,31 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 def _build_comprehensive_payment_summary(opening_modes, transactions_data):
 	"""
 	Build comprehensive payment summary with IN/OUT/NET breakdown for each payment mode.
+	
+	Real payment modes (Cash, QR, etc.) get full Opening/In/Out/Net breakdown.
+	Credit is tracked separately as a flat total (sum of outstanding amounts).
 	"""
-	# Initialize summary with opening amounts
 	summary = {}
 	
 	for mode in opening_modes:
 		mop = mode.mode_of_payment
 		summary[mop] = {
 			"name": mop,
+			"type": "payment_mode",
 			"opening": float(mode.opening_amount or 0.0),
-			"in": {
-				"sales": 0.0,
-				"credit_payments": 0.0,
-				"partial_payments": 0.0,
-				"total": 0.0
-			},
-			"out": {
-				"returns": 0.0,
-				"credit_given": 0.0,
-				"total": 0.0
-			},
-			"net": float(mode.opening_amount or 0.0),
-			"transactions": 0
-		}
+		"in": {
+			"sales": 0.0,
+			"partial_payments": 0.0,
+			"credit_payments": 0.0,
+			"total": 0.0
+		},
+		"out": {
+			"returns": 0.0,
+			"total": 0.0
+		},
+		"net": float(mode.opening_amount or 0.0),
+		"transactions": 0
+	}
 	
 	# Aggregate IN transactions
 	for txn in transactions_data["in"]["sales"]:
@@ -655,13 +687,6 @@ def _build_comprehensive_payment_summary(opening_modes, transactions_data):
 		summary[mop]["in"]["sales"] += txn["amount"]
 		summary[mop]["transactions"] += 1
 	
-	for txn in transactions_data["in"]["credit_payments"]:
-		mop = txn["payment_mode"]
-		if mop not in summary:
-			summary[mop] = _create_empty_mode_summary(mop)
-		summary[mop]["in"]["credit_payments"] += txn["amount"]
-		summary[mop]["transactions"] += 1
-	
 	for txn in transactions_data["in"]["partial_payments"]:
 		mop = txn["payment_mode"]
 		if mop not in summary:
@@ -669,7 +694,14 @@ def _build_comprehensive_payment_summary(opening_modes, transactions_data):
 		summary[mop]["in"]["partial_payments"] += txn["amount"]
 		summary[mop]["transactions"] += 1
 	
-	# Aggregate OUT transactions
+	for txn in transactions_data["in"]["credit_payments"]:
+		mop = txn["payment_mode"]
+		if mop not in summary:
+			summary[mop] = _create_empty_mode_summary(mop)
+		summary[mop]["in"]["credit_payments"] += txn["amount"]
+		summary[mop]["transactions"] += 1
+	
+	# Aggregate OUT transactions (returns only for real payment modes)
 	for txn in transactions_data["out"]["returns"]:
 		mop = txn["payment_mode"]
 		if mop not in summary:
@@ -677,25 +709,25 @@ def _build_comprehensive_payment_summary(opening_modes, transactions_data):
 		summary[mop]["out"]["returns"] += txn["amount"]
 		summary[mop]["transactions"] += 1
 	
-	# Credits given don't affect cash payment modes, track separately
-	total_credit_given = sum(txn["amount"] for txn in transactions_data["out"]["credit_given"])
-	if "Credit" not in summary:
-		summary["Credit"] = _create_empty_mode_summary("Credit")
-	summary["Credit"]["out"]["credit_given"] = total_credit_given
-	summary["Credit"]["transactions"] += len(transactions_data["out"]["credit_given"])
-	
-	# Calculate totals and net for each mode
+	# Calculate totals and net for each real payment mode
 	for mop, data in summary.items():
 		data["in"]["total"] = (
 			data["in"]["sales"] +
-			data["in"]["credit_payments"] +
-			data["in"]["partial_payments"]
+			data["in"]["partial_payments"] +
+			data["in"]["credit_payments"]
 		)
-		data["out"]["total"] = (
-			data["out"]["returns"] +
-			data["out"]["credit_given"]
-		)
+		data["out"]["total"] = data["out"]["returns"]
 		data["net"] = data["opening"] + data["in"]["total"] - data["out"]["total"]
+	
+	# Credit is separate: flat total of outstanding amounts from this session
+	total_credit_given = sum(txn["amount"] for txn in transactions_data["out"]["credit_given"])
+	credit_count = len(transactions_data["out"]["credit_given"])
+	summary["Credit"] = {
+		"name": "Credit",
+		"type": "credit",
+		"total": total_credit_given,
+		"transactions": credit_count,
+	}
 	
 	return summary
 
@@ -704,16 +736,16 @@ def _create_empty_mode_summary(mode_name):
 	"""Create an empty payment mode summary structure."""
 	return {
 		"name": mode_name,
+		"type": "payment_mode",
 		"opening": 0.0,
 		"in": {
 			"sales": 0.0,
-			"credit_payments": 0.0,
 			"partial_payments": 0.0,
+			"credit_payments": 0.0,
 			"total": 0.0
 		},
 		"out": {
 			"returns": 0.0,
-			"credit_given": 0.0,
 			"total": 0.0
 		},
 		"net": 0.0,
@@ -724,18 +756,8 @@ def _create_empty_mode_summary(mode_name):
 def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_admin, user_filter):
 	"""Build summary-level invoice statistics."""
 	params = []
-	
-	if is_admin and user_filter:
-		# Admin filtering by specific cashier
-		base_condition = """
-			si.pos_profile = %s
-			AND si.docstatus = 1
-			AND si.posting_date = %s
-			AND si.owner = %s
-		"""
-		params = [pos_profile, opening_date, user_filter]
-	elif is_admin:
-		# Admin sees all for the day
+
+	if user_filter == "all":
 		base_condition = """
 			si.pos_profile = %s
 			AND si.docstatus = 1
@@ -744,8 +766,15 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 			AND si.custom_pos_opening_entry != ''
 		"""
 		params = [pos_profile, opening_date]
+	elif user_filter and user_filter not in ("opening_entry",):
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date = %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, opening_date, user_filter]
 	else:
-		# Non-admin: ALWAYS filter by their own opening entry
 		base_condition = """
 			si.custom_pos_opening_entry = %s
 			AND si.docstatus = 1

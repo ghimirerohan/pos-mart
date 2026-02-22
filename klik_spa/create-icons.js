@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 async function createIcons() {
-	const inputFile = path.join(__dirname, "public", "beveren-logo-180.png");
+	const inputFile = path.join(__dirname, "public", "logo.jpeg");
 	const publicDir = path.join(__dirname, "public");
 
 	// Create different icon sizes

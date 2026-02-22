@@ -71,6 +71,7 @@ export async function addDraftInvoiceToCart(invoiceId: string): Promise<boolean>
       loyaltyPoints: 0,
       totalSpent: 0,
       totalOrders: 0,
+      outstandingAmount: 0,
       tags: [],
       createdAt: new Date().toISOString(),
     } : null;

@@ -40,14 +40,31 @@ export async function createSalesInvoice(data: any) {
 
   const result = await response.json();
 
-  // Log the full response for debugging
   if (!response.ok || !result.message || result.message.success === false) {
     console.error('Invoice creation error:', result);
     const errorMessage = extractErrorMessage(result, result.message?.message || result.message?.error || 'Failed to create invoice');
     throw new Error(errorMessage);
   }
 
-  return result.message;
+  // Collect non-fatal server warnings (e.g. negative-stock notices when
+  // Allow Negative Stock is enabled).  Attach them to the response so the
+  // caller can display them as informational toasts instead of error toasts.
+  const warnings: string[] = [];
+  if (result._server_messages) {
+    try {
+      const msgs: unknown[] = JSON.parse(result._server_messages);
+      for (const raw of msgs) {
+        if (typeof raw === 'string') {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed?.message) warnings.push(parsed.message);
+          } catch { warnings.push(raw); }
+        }
+      }
+    } catch { /* ignore unparseable */ }
+  }
+
+  return { ...result.message, _warnings: warnings };
 }
 
 export async function createSalesReturn(invoiceName: string) {

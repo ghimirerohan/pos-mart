@@ -153,6 +153,7 @@ def get_pos_details():
 		}
 	details = {
 		"name": pos.name,
+		"company": pos.company,
 		"business_type": business_type,
 		"print_format": print_format,
 		"currency": pos.currency,

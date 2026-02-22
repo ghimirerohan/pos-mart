@@ -1,11 +1,35 @@
 import frappe
 from erpnext.accounts.doctype.pricing_rule.pricing_rule import apply_pricing_rule
-from erpnext.stock.doctype.batch.batch import get_batch_qty
 from erpnext.stock.utils import get_stock_balance
 from frappe import _
+from frappe.utils import flt
 
 from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
+
+
+def _get_batch_qty_combined(batch_no, warehouse):
+	"""Get batch qty accounting for both old-style (SLE.batch_no) and
+	new-style (Serial and Batch Bundle) stock tracking."""
+	old_qty = frappe.db.sql(
+		"""SELECT COALESCE(SUM(actual_qty), 0)
+		   FROM `tabStock Ledger Entry`
+		   WHERE batch_no = %s AND warehouse = %s AND is_cancelled = 0""",
+		(batch_no, warehouse),
+	)[0][0] or 0
+
+	new_qty = frappe.db.sql(
+		"""SELECT COALESCE(SUM(sbe.qty), 0)
+		   FROM `tabSerial and Batch Entry` sbe
+		   JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sbe.parent
+		   WHERE sbe.batch_no = %s
+		     AND sbe.warehouse = %s
+		     AND sbb.docstatus = 1
+		     AND sbb.is_cancelled = 0""",
+		(batch_no, warehouse),
+	)[0][0] or 0
+
+	return flt(old_qty + new_qty)
 
 
 def _calculate_ean13_check_digit(barcode_12: str) -> str:
@@ -584,35 +608,56 @@ def _get_pos_context():
 
 
 def _fetch_batch_stock(item_codes: list, warehouse: str) -> dict:
-	"""Fetch stock balances for multiple items in optimized batch queries."""
+	"""Fetch stock balances for multiple items using Stock Ledger Entries.
+
+	Uses the same SLE-based source as ``fetch_item_balance`` /
+	``get_stock_balance`` so that the initial product load and subsequent
+	stock-refresh calls always agree on the numbers shown to the cashier.
+	"""
 	if not item_codes or not warehouse:
 		return {}
 
 	stock_map = {}
 
-	# Use SQL to get stock from Bin table in batch
 	try:
 		placeholders = ", ".join(["%s"] * len(item_codes))
+		now_date = frappe.utils.nowdate()
+		now_time = frappe.utils.nowtime()
+
 		sql = f"""
-			SELECT item_code, actual_qty
-			FROM `tabBin`
-			WHERE item_code IN ({placeholders})
-			AND warehouse = %s
+			SELECT sle.item_code, sle.qty_after_transaction
+			FROM `tabStock Ledger Entry` sle
+			INNER JOIN (
+				SELECT item_code, MAX(posting_datetime) AS max_pd
+				FROM `tabStock Ledger Entry`
+				WHERE item_code IN ({placeholders})
+				  AND warehouse = %s
+				  AND is_cancelled = 0
+				  AND posting_datetime <= CONCAT(%s, ' ', %s)
+				GROUP BY item_code
+			) latest
+			  ON sle.item_code = latest.item_code
+			 AND sle.posting_datetime = latest.max_pd
+			 AND sle.warehouse = %s
+			 AND sle.is_cancelled = 0
+			ORDER BY sle.item_code, sle.creation DESC
 		"""
-		params = [*item_codes, warehouse]
+		params = [*item_codes, warehouse, now_date, now_time, warehouse]
 		results = frappe.db.sql(sql, params, as_dict=True)
 
+		seen = set()
 		for row in results:
-			stock_map[row["item_code"]] = row["actual_qty"] or 0
+			ic = row["item_code"]
+			if ic not in seen:
+				stock_map[ic] = row["qty_after_transaction"] or 0
+				seen.add(ic)
 
-		# Items not in Bin have 0 stock
 		for item_code in item_codes:
 			if item_code not in stock_map:
 				stock_map[item_code] = 0
 
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), "Batch stock fetch error")
-		# Fallback to individual queries
+		frappe.log_error(frappe.get_traceback(), "Batch stock fetch error (SLE)")
 		for item_code in item_codes:
 			stock_map[item_code] = fetch_item_balance(item_code, warehouse)
 
@@ -1081,20 +1126,10 @@ def get_stock_updates():
 			items = frappe.get_all("Item", filters=filters, fields=["name"], order_by="modified desc")
 			item_codes = [item["name"] for item in items]
 
-		# Optimized: Use batch processing with smaller chunks
-		stock_updates = {}
+		stock_updates = _fetch_batch_stock(item_codes, warehouse)
 
-		chunk_size = 100
-		for i in range(0, len(item_codes), chunk_size):
-			chunk = item_codes[i : i + chunk_size]
-			for item_code in chunk:
-				try:
-					balance = get_stock_balance(item_code, warehouse) or 0
-					if not hide_unavailable or balance > 0:
-						stock_updates[item_code] = balance
-				except Exception:
-					if not hide_unavailable:
-						stock_updates[item_code] = 0
+		if hide_unavailable:
+			stock_updates = {k: v for k, v in stock_updates.items() if v > 0}
 
 		return stock_updates
 
@@ -1119,7 +1154,7 @@ def get_item_stock(item_code: str):
 
 @frappe.whitelist(allow_guest=True)
 def get_items_stock_batch(item_codes: str):
-	"""Get stock for multiple specific items - optimized batch update with early filtering."""
+	"""Get stock for multiple specific items - uses same SLE query as initial load."""
 	pos_doc = get_current_pos_profile()
 	warehouse = pos_doc.warehouse
 	hide_unavailable = getattr(pos_doc, "hide_unavailable_items", False)
@@ -1127,11 +1162,10 @@ def get_items_stock_batch(item_codes: str):
 	try:
 		item_codes_list = [code.strip() for code in item_codes.split(",") if code.strip()]
 
-		stock_updates = {}
-		for item_code in item_codes_list:
-			balance = fetch_item_balance(item_code, warehouse)
-			if not hide_unavailable or balance > 0:
-				stock_updates[item_code] = balance
+		stock_updates = _fetch_batch_stock(item_codes_list, warehouse)
+
+		if hide_unavailable:
+			stock_updates = {k: v for k, v in stock_updates.items() if v > 0}
 
 		return stock_updates
 	except Exception:
@@ -1214,7 +1248,7 @@ def get_batch_nos_with_qty(item_code):
 
 	batch_qty_data = []
 	for b in batches:
-		qty = get_batch_qty(batch_no=b.name, warehouse=warehouse)
+		qty = _get_batch_qty_combined(b.name, warehouse)
 		if qty > 0:
 			batch_qty_data.append({"batch_id": b.batch_id, "qty": qty})
 

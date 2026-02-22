@@ -1,6 +1,14 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { MonitorX, X, AlertCircle, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import {
+  MonitorX,
+  X,
+  AlertCircle,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  CreditCard,
+} from "lucide-react";
 
 import BottomNavigation from "../components/BottomNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -13,6 +21,7 @@ import {
   calculateTotalNet,
   calculateTotalOpening,
 } from "../hooks/usePaymentTransactions";
+import type { PaymentModeSummary } from "../hooks/usePaymentTransactions";
 import {
   PaymentModeCard,
   TransactionList,
@@ -25,17 +34,20 @@ import { clearAllCache } from "../utils/clearCache";
 export default function ClosingShiftPage() {
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 1024px)");
-  // Don't pass any initial filter - backend will determine based on user role
-  const [selectedCashier, setSelectedCashier] = useState<string | undefined>(undefined);
+  const [selectedCashier, setSelectedCashier] = useState<string | undefined>(
+    undefined
+  );
   const [showCloseModal, setShowCloseModal] = useState(false);
-  const [closingAmounts, setClosingAmounts] = useState<Record<string, number>>({});
-  const [selectedPaymentMode, setSelectedPaymentMode] = useState<string | null>(null);
+  const [closingAmounts, setClosingAmounts] = useState<Record<string, number>>(
+    {}
+  );
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<string | null>(
+    null
+  );
 
   const { createClosingEntry, isCreating } = useCreatePOSClosingEntry();
   const { posDetails } = usePOSDetails();
 
-  // Use the new payment transactions hook - don't pass cashier filter initially
-  // Backend will use opening_entry for non-admin, all for admin
   const {
     paymentSummary,
     transactions,
@@ -44,18 +56,24 @@ export default function ClosingShiftPage() {
     isAdmin,
     isLoading,
     error,
+    totalCreditGiven,
     refetch,
   } = usePaymentTransactions(selectedCashier);
 
   const hideExpectedAmount = posDetails?.custom_hide_expected_amount || false;
   const currency = posDetails?.currency || "USD";
 
-  // Get payment modes from summary
-  const paymentModes = useMemo(() => {
-    return Object.keys(paymentSummary);
+  // Separate real payment modes from credit
+  const realPaymentModes = useMemo(() => {
+    return Object.values(paymentSummary).filter(
+      (m) => m.type === "payment_mode"
+    );
   }, [paymentSummary]);
 
-  // Calculate grand totals
+  const paymentModeNames = useMemo(() => {
+    return realPaymentModes.map((m) => m.name);
+  }, [realPaymentModes]);
+
   const grandTotals = useMemo(() => {
     return {
       opening: calculateTotalOpening(paymentSummary),
@@ -65,13 +83,11 @@ export default function ClosingShiftPage() {
     };
   }, [paymentSummary]);
 
-  // Handle cashier filter change
   const handleCashierChange = (cashierId: string) => {
     setSelectedCashier(cashierId);
     refetch(cashierId);
   };
 
-  // Handle closing amount change
   const handleClosingAmountChange = (modeName: string, value: string) => {
     setClosingAmounts((prev) => ({
       ...prev,
@@ -79,29 +95,22 @@ export default function ClosingShiftPage() {
     }));
   };
 
-  // Handle view invoice
   const handleViewInvoice = (invoiceId: string) => {
     navigate(`/invoice/${invoiceId}`);
   };
 
-  // Handle final close
   const handleFinalClose = async () => {
     try {
-      // Convert closingAmounts object to array format expected by the service
-      const closingBalanceArray = Object.entries(closingAmounts).map(
-        ([mode_of_payment, closing_amount]) => ({
-          mode_of_payment,
-          closing_amount: closing_amount || 0,
-        })
-      );
+      const closingBalanceArray = realPaymentModes.map((mode) => ({
+        mode_of_payment: mode.name,
+        closing_amount: closingAmounts[mode.name] || 0,
+      }));
 
-      await createClosingEntry(closingBalanceArray);
+      await createClosingEntry(closingBalanceArray, totalCreditGiven);
       setShowCloseModal(false);
 
-      // Clear frontend caches
       clearAllCache();
 
-      // Clear backend cache
       try {
         await fetch("/api/method/klik_pos.api.cache.clear_backend_cache", {
           method: "POST",
@@ -115,14 +124,12 @@ export default function ClosingShiftPage() {
         console.warn("Failed to clear backend cache after close:", e);
       }
 
-      // Navigate to POS home for a fresh start
       navigate("/pos");
     } catch (err) {
       console.error("Error closing shift:", err);
     }
   };
 
-  // Get payment icon
   const getPaymentIcon = (modeName: string) => {
     const statName = (modeName || "").toLowerCase();
     if (statName.includes("cash")) return "💵";
@@ -137,7 +144,6 @@ export default function ClosingShiftPage() {
     return "💰";
   };
 
-  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -151,7 +157,6 @@ export default function ClosingShiftPage() {
     );
   }
 
-  // Error state
   if (error && !error.includes("No open POS Opening Entry found")) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -159,7 +164,9 @@ export default function ClosingShiftPage() {
           <h3 className="text-lg font-medium text-red-800 dark:text-red-200">
             Error loading data
           </h3>
-          <p className="mt-2 text-sm text-red-700 dark:text-red-300">{error}</p>
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300">
+            {error}
+          </p>
           <button
             onClick={() => window.location.reload()}
             className="mt-4 px-4 py-2 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded hover:bg-red-200 dark:hover:bg-red-800"
@@ -171,12 +178,41 @@ export default function ClosingShiftPage() {
     );
   }
 
-  const hasNoOpeningEntry = error && error.includes("No open POS Opening Entry found");
+  const hasNoOpeningEntry =
+    error && error.includes("No open POS Opening Entry found");
 
-  // Main content
+  const renderCreditCard = () => {
+    if (totalCreditGiven <= 0) return null;
+    const creditSummary = paymentSummary["Credit"] as
+      | PaymentModeSummary
+      | undefined;
+    const txnCount = creditSummary?.transactions || 0;
+
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-orange-200 dark:border-orange-800 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-2">
+            <CreditCard className="w-5 h-5 text-orange-500" />
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Credit Given
+            </h3>
+          </div>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {txnCount} invoice{txnCount !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+          {formatCurrency(totalCreditGiven, currency)}
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Total outstanding from unpaid/partially paid sales
+        </p>
+      </div>
+    );
+  };
+
   const renderContent = () => (
     <div className="space-y-6">
-      {/* Warning if no opening entry */}
       {hasNoOpeningEntry && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
           <div className="flex items-center">
@@ -237,14 +273,14 @@ export default function ClosingShiftPage() {
         </div>
       )}
 
-      {/* Payment Mode Cards */}
+      {/* Payment Mode Cards + Credit Card */}
       {!hideExpectedAmount && !hasNoOpeningEntry && (
         <div>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             Payment Breakdown
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.values(paymentSummary).map((mode) => (
+            {realPaymentModes.map((mode) => (
               <PaymentModeCard
                 key={mode.name}
                 mode={mode}
@@ -257,6 +293,7 @@ export default function ClosingShiftPage() {
                 isSelected={selectedPaymentMode === mode.name}
               />
             ))}
+            {renderCreditCard()}
           </div>
         </div>
       )}
@@ -265,7 +302,7 @@ export default function ClosingShiftPage() {
       <TransactionList
         transactions={transactions}
         currency={currency}
-        paymentModes={paymentModes}
+        paymentModes={paymentModeNames}
         onViewInvoice={handleViewInvoice}
       />
 
@@ -276,7 +313,6 @@ export default function ClosingShiftPage() {
     </div>
   );
 
-  // Close Shift Modal
   const renderCloseModal = () => (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
@@ -293,69 +329,87 @@ export default function ClosingShiftPage() {
         </div>
 
         <div className="space-y-4">
-          {Object.values(paymentSummary).map((stat) => {
-            return (
-              <div
-                key={stat.name}
-                className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg"
-              >
-                <div className="flex items-center space-x-3 flex-shrink-0">
-                  <div className="text-xl">{getPaymentIcon(stat.name)}</div>
-                  <div>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {stat.name}
-                    </span>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      Expected: {formatCurrency(stat.net, currency)}
-                    </div>
+          {/* Cash and QR input fields */}
+          {realPaymentModes.map((stat) => (
+            <div
+              key={stat.name}
+              className="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg"
+            >
+              <div className="flex items-center space-x-3 flex-shrink-0">
+                <div className="text-xl">{getPaymentIcon(stat.name)}</div>
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {stat.name}
+                  </span>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Expected: {formatCurrency(stat.net, currency)}
                   </div>
-                </div>
-
-                <div className="flex flex-col space-y-2">
-                  <div className="text-sm">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Opening:{" "}
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrency(stat.opening, currency)}
-                    </span>
-                  </div>
-
-                  <div className="flex-shrink-0">
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Actual amount"
-                      value={closingAmounts[stat.name] || ""}
-                      onChange={(e) =>
-                        handleClosingAmountChange(stat.name, e.target.value)
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                  </div>
-
-                  {/* Show difference if closing amount is entered */}
-                  {closingAmounts[stat.name] !== undefined &&
-                    closingAmounts[stat.name] !== null && (
-                      <div
-                        className={`text-xs font-medium ${
-                          closingAmounts[stat.name] - stat.net >= 0
-                            ? "text-green-600 dark:text-green-400"
-                            : "text-red-600 dark:text-red-400"
-                        }`}
-                      >
-                        Diff:{" "}
-                        {closingAmounts[stat.name] - stat.net >= 0 ? "+" : ""}
-                        {formatCurrency(
-                          closingAmounts[stat.name] - stat.net,
-                          currency
-                        )}
-                      </div>
-                    )}
                 </div>
               </div>
-            );
-          })}
+
+              <div className="flex flex-col space-y-2">
+                <div className="text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">
+                    Opening:{" "}
+                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {formatCurrency(stat.opening, currency)}
+                  </span>
+                </div>
+
+                <div className="flex-shrink-0">
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Actual amount"
+                    value={closingAmounts[stat.name] || ""}
+                    onChange={(e) =>
+                      handleClosingAmountChange(stat.name, e.target.value)
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+
+                {closingAmounts[stat.name] !== undefined &&
+                  closingAmounts[stat.name] !== null && (
+                    <div
+                      className={`text-xs font-medium ${
+                        closingAmounts[stat.name] - stat.net >= 0
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      Diff:{" "}
+                      {closingAmounts[stat.name] - stat.net >= 0 ? "+" : ""}
+                      {formatCurrency(
+                        closingAmounts[stat.name] - stat.net,
+                        currency
+                      )}
+                    </div>
+                  )}
+              </div>
+            </div>
+          ))}
+
+          {/* Credit - static display, no input */}
+          {totalCreditGiven > 0 && (
+            <div className="flex items-center justify-between gap-4 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+              <div className="flex items-center space-x-3">
+                <CreditCard className="w-5 h-5 text-orange-500" />
+                <div>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    Credit Given
+                  </span>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Outstanding from this session
+                  </div>
+                </div>
+              </div>
+              <div className="text-xl font-bold text-orange-600 dark:text-orange-400">
+                {formatCurrency(totalCreditGiven, currency)}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">
@@ -381,11 +435,9 @@ export default function ClosingShiftPage() {
     </div>
   );
 
-  // Mobile layout
   if (isMobile) {
     return (
       <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
-        {/* Mobile Header */}
         <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-3">
             <div className="flex items-center justify-between">
@@ -411,25 +463,20 @@ export default function ClosingShiftPage() {
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto pb-20 w-[98%] mx-auto px-2 py-4">
           {renderContent()}
         </div>
 
-        {/* Close Shift Modal */}
         {showCloseModal && renderCloseModal()}
 
-        {/* Bottom Navigation */}
         <BottomNavigation />
       </div>
     );
   }
 
-  // Desktop layout
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
-        {/* Header */}
         <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-4">
             <div className="flex items-center justify-between">
@@ -459,7 +506,6 @@ export default function ClosingShiftPage() {
           {renderContent()}
         </div>
 
-        {/* Close Shift Modal */}
         {showCloseModal && renderCloseModal()}
       </div>
     </div>

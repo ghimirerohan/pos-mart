@@ -140,19 +140,19 @@ export default function PaymentModeCard({
                     </span>
                   </div>
                 )}
-                {mode.in.credit_payments > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Credits Paid</span>
-                    <span className="text-gray-900 dark:text-white">
-                      +{formatCurrency(mode.in.credit_payments, currency)}
-                    </span>
-                  </div>
-                )}
                 {mode.in.partial_payments > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Partial Payments</span>
                     <span className="text-gray-900 dark:text-white">
                       +{formatCurrency(mode.in.partial_payments, currency)}
+                    </span>
+                  </div>
+                )}
+                {mode.in.credit_payments > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Credits Paid</span>
+                    <span className="text-gray-900 dark:text-white">
+                      +{formatCurrency(mode.in.credit_payments, currency)}
                     </span>
                   </div>
                 )}
@@ -172,14 +172,6 @@ export default function PaymentModeCard({
                     <span className="text-gray-600 dark:text-gray-400">Returns</span>
                     <span className="text-gray-900 dark:text-white">
                       -{formatCurrency(mode.out.returns, currency)}
-                    </span>
-                  </div>
-                )}
-                {mode.out.credit_given > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Credits Given</span>
-                    <span className="text-gray-900 dark:text-white">
-                      -{formatCurrency(mode.out.credit_given, currency)}
                     </span>
                   </div>
                 )}

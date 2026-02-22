@@ -277,9 +277,9 @@ export default function CustomersPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Orders & Spent
                       </th>
-                      {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Status
-                      </th> */}
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Outstanding
+                      </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Last Visit
                       </th>
@@ -337,12 +337,13 @@ export default function CustomersPage() {
                           </div>
                         </td>
 
-                        {/* <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(customer.status)}`}>
-                            {customer.status === 'vip' && <Crown size={12} className="mr-1" />}
-                            {customer.status.toUpperCase()}
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`text-sm font-medium ${customer.outstandingAmount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                            {customer.outstandingAmount > 0
+                              ? formatCurrency(customer.outstandingAmount, customer.defaultCurrency || customer.companyCurrency)
+                              : 'Settled'}
                           </span>
-                        </td> */}
+                        </td>
 
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                           {customer.lastVisit ? formatDate(customer.lastVisit) : 'Never'}
@@ -536,9 +537,9 @@ export default function CustomersPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Orders & Spent
                     </th>
-                    {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Status
-                    </th> */}
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Outstanding
+                    </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Last Visit
                     </th>
@@ -596,12 +597,13 @@ export default function CustomersPage() {
                         </div>
                       </td>
 
-                      {/* <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(customer.status)}`}>
-                          {customer.status === 'vip' && <Crown size={12} className="mr-1" />}
-                          {customer.status.toUpperCase()}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`text-sm font-medium ${customer.outstandingAmount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                          {customer.outstandingAmount > 0
+                            ? formatCurrency(customer.outstandingAmount, customer.defaultCurrency || customer.companyCurrency)
+                            : 'Settled'}
                         </span>
-                      </td> */}
+                      </td>
 
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {customer.lastVisit ? formatDate(customer.lastVisit) : 'Never'}

@@ -1,13 +1,15 @@
 import { useState } from "react";
 
-// HOOK: Create POS Closing Entry
 interface ClosingBalance {
   mode_of_payment: string;
   closing_amount: number;
 }
 
 interface UseCreateClosingReturn {
-  createClosingEntry: (closingBalance: ClosingBalance[]) => Promise<void>;
+  createClosingEntry: (
+    closingBalance: ClosingBalance[],
+    totalCreditGiven?: number
+  ) => Promise<void>;
   isCreating: boolean;
   error: string | null;
   success: boolean;
@@ -18,48 +20,59 @@ export function useCreatePOSClosingEntry(): UseCreateClosingReturn {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const createClosingEntry = async (closingBalance: ClosingBalance[]) => {
+  const createClosingEntry = async (
+    closingBalance: ClosingBalance[],
+    totalCreditGiven: number = 0
+  ) => {
     setIsCreating(true);
     setError(null);
     setSuccess(false);
     const csrfToken = window.csrf_token;
 
     try {
-      // console.log('Creating closing entry with:', closingBalance);
-
-      const res = await fetch("/api/method/klik_pos.api.pos_entry.create_closing_entry", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Frappe-CSRF-Token": csrfToken,
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({ closing_balance: closingBalance }),
-        credentials: "include",
-      });
-
-      console.log('Closing entry response:', {
-        status: res.status,
-        statusText: res.statusText,
-        ok: res.ok
-      });
+      const res = await fetch(
+        "/api/method/klik_pos.api.pos_entry.create_closing_entry",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Frappe-CSRF-Token": csrfToken,
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            closing_balance: closingBalance,
+            total_credit_given: totalCreditGiven,
+          }),
+          credentials: "include",
+        }
+      );
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        const errorData = await res.json().catch(() => null);
+        const serverMsg = errorData?._server_messages || errorData?.exc;
+        throw new Error(
+          serverMsg
+            ? typeof serverMsg === "string"
+              ? serverMsg
+              : JSON.stringify(serverMsg)
+            : `HTTP ${res.status}: ${res.statusText}`
+        );
       }
 
       const data = await res.json();
-      console.log('Closing entry data:', data);
 
       if (data.message) {
         setSuccess(true);
       } else {
-        throw new Error(data._server_messages || "Failed to create closing entry");
+        throw new Error(
+          data._server_messages || "Failed to create closing entry"
+        );
       }
-        //eslint-disable-next-line @typescript-eslint/no-explicit-any
+      //eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error("Error creating POS Closing Entry:", err);
       setError(err.message || "Unexpected error occurred");
+      throw err;
     } finally {
       setIsCreating(false);
     }

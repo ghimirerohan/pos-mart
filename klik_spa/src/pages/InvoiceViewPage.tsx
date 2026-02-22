@@ -847,6 +847,7 @@ export default function InvoiceViewPage() {
             loyaltyPoints: 0,
             totalOrders: 0,
             totalSpent: 0,
+            outstandingAmount: 0,
 
             address: {
               addressType: 'Billing',

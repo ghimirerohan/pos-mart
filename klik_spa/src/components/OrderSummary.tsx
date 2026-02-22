@@ -9,6 +9,7 @@ import {
   UserPlus,
   User,
   Building,
+  Banknote,
 } from "lucide-react";
 import type { CartItem, GiftCoupon } from "../../types";
 import type { Customer } from "../types/customer";
@@ -25,6 +26,7 @@ import { usePOSDetails } from "../hooks/usePOSProfile";
 import { useCustomerStatistics } from "../hooks/useCustomerStatistics";
 import { useCustomerPermission } from "../hooks/useCustomerPermission";
 import { useCartStore } from "../stores/cartStore";
+import ReceiveOutstandingModal from "./ReceiveOutstandingModal";
 
 
 interface OrderSummaryProps {
@@ -470,7 +472,8 @@ export default function OrderSummary({
   const { checkCustomerPermission } = useCustomerPermission();
 
   // Get customer statistics for the selected customer
-  const { statistics: customerStats } = useCustomerStatistics(selectedCustomer?.id || null);
+  const { statistics: customerStats, refetch: refetchCustomerStats } = useCustomerStatistics(selectedCustomer?.id || null);
+  const [showReceiveOutstandingModal, setShowReceiveOutstandingModal] = useState(false);
   const [prefilledCustomerName, setPrefilledCustomerName] = useState("");
   const [prefilledData, setPrefilledData] = useState<{
     name?: string;
@@ -693,6 +696,55 @@ export default function OrderSummary({
     return true;
   };
 
+  const [isValidatingStock, setIsValidatingStock] = useState(false);
+
+  const validateCartStockAndCheckout = async () => {
+    if (!validateCustomer()) return;
+    if (cartItems.length === 0) return;
+
+    setIsValidatingStock(true);
+    try {
+      const itemCodes = cartItems.map(item => item.item_code || item.id);
+      const response = await fetch(
+        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodes.join(','))}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const stockMap: Record<string, number> = data?.message || {};
+
+        const outOfStockItems: string[] = [];
+        for (const item of cartItems) {
+          const code = item.item_code || item.id;
+          const available = stockMap[code] ?? 0;
+          if (available < item.quantity) {
+            outOfStockItems.push(
+              `${item.name}: need ${item.quantity}, only ${available} available`
+            );
+          }
+        }
+
+        if (outOfStockItems.length > 0) {
+          toast.error(
+            `Insufficient stock:\n${outOfStockItems.join('\n')}`,
+            { autoClose: 6000 }
+          );
+
+          // Also refresh the displayed stock so the cards update
+          if (refreshStockOnly) {
+            await refreshStockOnly();
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Stock validation failed, proceeding to checkout:', err);
+    } finally {
+      setIsValidatingStock(false);
+    }
+
+    setShowPaymentDialog(true);
+  };
+
   const handleCustomerSelect = (customer: Customer) => {
 
     setSelectedCustomer(customer);
@@ -734,6 +786,7 @@ export default function OrderSummary({
             loyaltyPoints: erpCustomer.custom_loyalty_points || 0,
             totalSpent: erpCustomer.custom_total_spent || 0,
             totalOrders: erpCustomer.custom_total_orders || 0,
+            outstandingAmount: 0,
             preferredPaymentMethod: 'Cash',
             tags: erpCustomer.custom_tags?.split(',').filter(Boolean) || [],
             status: erpCustomer.custom_status || 'active',
@@ -767,6 +820,7 @@ export default function OrderSummary({
           loyaltyPoints: 0,
           totalSpent: 0,
           totalOrders: 0,
+          outstandingAmount: 0,
           preferredPaymentMethod: 'Cash',
           tags: [],
           status: 'active',
@@ -940,6 +994,7 @@ export default function OrderSummary({
             loyaltyPoints: 0,
             totalSpent: 0,
             totalOrders: 0,
+            outstandingAmount: 0,
             preferredPaymentMethod: "Cash" as const,
             notes: "",
             tags: [],
@@ -1255,10 +1310,19 @@ export default function OrderSummary({
                   <div className="flex items-center space-x-2">
                     {/* Outstanding Amount Badge */}
                     {(customerStats?.total_outstanding || 0) > 0 && (
-                      <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
-                        <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-                          Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
-                        </span>
+                      <div className="flex items-center space-x-1">
+                        <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
+                          <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                            Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setShowReceiveOutstandingModal(true)}
+                          className="p-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors"
+                          title="Receive Outstanding Payment"
+                        >
+                          <Banknote size={16} />
+                        </button>
                       </div>
                     )}
                     <button
@@ -1384,10 +1448,19 @@ export default function OrderSummary({
                 <div className="flex items-center space-x-2">
                   {/* Outstanding Amount Badge */}
                   {(customerStats?.total_outstanding || 0) > 0 && (
-                    <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
-                      <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-                        Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
-                      </span>
+                    <div className="flex items-center space-x-1">
+                      <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
+                        <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                          Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setShowReceiveOutstandingModal(true)}
+                        className="p-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors"
+                        title="Receive Outstanding Payment"
+                      >
+                        <Banknote size={16} />
+                      </button>
                     </div>
                   )}
                   <button
@@ -1808,16 +1881,13 @@ export default function OrderSummary({
 
           {/* Pay Button */}
           <button
-            onClick={() => {
-              if (!validateCustomer()) return;
-              setShowPaymentDialog(true);
-            }}
-            className={`w-full bg-beveren-600 text-white rounded-xl font-semibold hover:bg-beveren-700 transition-colors ${
+            onClick={validateCartStockAndCheckout}
+            disabled={isValidatingStock}
+            className={`w-full bg-beveren-600 text-white rounded-xl font-semibold hover:bg-beveren-700 transition-colors disabled:opacity-60 disabled:cursor-wait ${
               isMobile ? "py-3 text-base" : "py-2 text-sm"
             }`}
           >
-            Checkout {currency_symbol}
-            {total.toFixed(2)}
+            {isValidatingStock ? "Verifying stock..." : `Checkout ${currency_symbol}${total.toFixed(2)}`}
           </button>
         </div>
       )}
@@ -1856,6 +1926,22 @@ export default function OrderSummary({
           isMobile={isMobile}
           itemDiscounts={itemDiscounts}
           totalItemDiscount={totalItemDiscount}
+        />
+      )}
+
+      {/* Receive Outstanding Modal */}
+      {selectedCustomer && (
+        <ReceiveOutstandingModal
+          isOpen={showReceiveOutstandingModal}
+          onClose={() => setShowReceiveOutstandingModal(false)}
+          onSuccess={() => {
+            refetchCustomerStats();
+          }}
+          customer={selectedCustomer.id}
+          customerName={selectedCustomer.name}
+          company={posDetails?.company ?? ""}
+          outstanding={customerStats?.total_outstanding || 0}
+          currency={posDetails?.currency || "NPR"}
         />
       )}
     </div>

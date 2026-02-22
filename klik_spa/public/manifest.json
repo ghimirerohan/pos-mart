@@ -1,22 +1,37 @@
 {
-  "name": "KLiK PoS",
-  "short_name": "KLiK PoS",
-  "description": "Modern Point of Sale System - KLiK PoS",
-  "start_url": "/",
+  "name": "R-POS",
+  "short_name": "R-POS",
+  "description": "R-POS - Modern Point of Sale System",
+  "start_url": "/klik_pos",
+  "scope": "/klik_pos/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2E7D32",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "icons": [
     {
-      "src": "/icon-192x192.png",
+      "src": "/assets/klik_pos/klik_spa/icon-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/icon-512x512.png",
+      "src": "/assets/klik_pos/klik_spa/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/klik_pos/klik_spa/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/klik_pos/klik_spa/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "categories": ["business", "productivity"],

@@ -13,6 +13,7 @@ interface ERPCustomer {
   company_currency?: string;
   custom_total_orders?: number;
   custom_total_spent?: number;
+  custom_total_outstanding?: number;
   custom_last_visit?: string;
   contact?: {
     first_name?: string;
@@ -76,6 +77,7 @@ export function useCustomers(searchQuery?: string) {
           loyaltyPoints: 0,
           totalSpent: customer.custom_total_spent || 0,
           totalOrders: customer.custom_total_orders || 0,
+          outstandingAmount: customer.custom_total_outstanding || 0,
           preferredPaymentMethod: "Cash",
           notes: "",
           tags: [],
@@ -178,6 +180,7 @@ export function useCustomerDetails(customerId: string | null) {
           loyaltyPoints: 0,
           totalSpent: 0,
           totalOrders: 0,
+          outstandingAmount: 0,
           preferredPaymentMethod: apiCustomer.payment_method || "Cash",
           notes: "",
           tags: [],
