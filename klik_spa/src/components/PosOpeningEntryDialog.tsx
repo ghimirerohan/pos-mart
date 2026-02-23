@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, CreditCard, Banknote, Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { X, CreditCard, Banknote, Wallet, AlertCircle, CheckCircle2, LogOut, User } from 'lucide-react';
 import { formatCurrency } from '../utils/currency';
 import { useCreatePOSOpeningEntry } from '../services/opeiningEntry';
 import { usePaymentModes } from "../hooks/usePaymentModes"
 import { usePOSProfiles, usePOSDetails } from '../hooks/usePOSProfile';
 import { clearAllCache } from '../utils/clearCache';
+import { useAuth } from '../hooks/useAuth';
 
 interface PaymentMethod {
   mode_of_payment: string;
@@ -40,6 +41,9 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
   const [selectedProfile, setSelectedProfile] = useState<string>('');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [error, setError] = useState<string>('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const { user, logout } = useAuth();
 
   // Use your existing hooks
   const { createOpeningEntry, isCreating, error: createError, success } = useCreatePOSOpeningEntry();
@@ -194,6 +198,16 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
   // Calculate total opening amount
   const totalAmount = paymentMethods.reduce((sum, method) => sum + (method.opening_amount || 0), 0);
 
+  const handleCloseOrCancel = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogout = async () => {
+    setShowLogoutConfirm(false);
+    await logout();
+    window.location.href = '/klik_pos/login';
+  };
+
   // Handle successful creation
   useEffect(() => {
     if (success && step === 'creating') {
@@ -234,12 +248,31 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
         <div className="bg-beveren-600 text-white px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">POS Opening Entry</h2>
           <button
-            onClick={onClose}
+            onClick={handleCloseOrCancel}
             className="text-white hover:text-gray-200 transition-colors"
             disabled={isCreating}
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Logged-in User Info */}
+        <div className="px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-beveren-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
+              {user?.full_name
+                ? user.full_name.charAt(0).toUpperCase()
+                : <User className="w-4 h-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-gray-900 truncate">
+                {user?.full_name || 'Unknown User'}
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {user?.email || user?.name || ''}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Content */}
@@ -339,7 +372,7 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
               {/* Actions */}
               <div className="flex space-x-3 pt-4">
                 <button
-                  onClick={onClose}
+                  onClick={handleCloseOrCancel}
                   className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
                   disabled={!!profilesLoading || !!isCreating || !!isLoadingPaymentModes}
                 >
@@ -360,6 +393,18 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
                    isCreating ? 'Creating...' :
                    isLoadingPaymentModes ? 'Loading...' :
                    'Start POS Session'}
+                </button>
+              </div>
+
+              {/* Logout Button */}
+              <div className="pt-2">
+                <button
+                  onClick={handleCloseOrCancel}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors text-sm font-medium"
+                  disabled={!!isCreating}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Logout
                 </button>
               </div>
             </div>
@@ -400,6 +445,38 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Logout Confirmation Dialog */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black bg-opacity-40" onClick={() => setShowLogoutConfirm(false)} />
+          <div className="relative bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in fade-in zoom-in">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                <LogOut className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Logout</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Are you sure you want to logout? You will need to login again to start a POS session.
+              </p>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="flex-1 px-4 py-2.5 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="flex-1 px-4 py-2.5 text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors font-medium text-sm"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
