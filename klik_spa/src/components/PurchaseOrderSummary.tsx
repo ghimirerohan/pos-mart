@@ -367,23 +367,22 @@ export default function PurchaseOrderSummary({
 
                     {/* Product Info */}
                     <div className="flex-1 min-w-0 px-3">
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-1">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                          <h4 className="font-semibold text-gray-900 dark:text-white text-sm leading-snug line-clamp-2">
                             {item.name}
                           </h4>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 capitalize mt-0.5">
                             {item.category}
                           </p>
                         </div>
-                        {/* Purchase History Info Button */}
                         <PurchaseHistoryInfoButton
                           itemCode={item.item_code}
                           itemName={item.name}
-                          className="ml-2 flex-shrink-0"
+                          className="ml-1 flex-shrink-0"
                         />
                       </div>
-                      <div className="text-sm text-amber-600 dark:text-amber-400 font-semibold">
+                      <div className="text-sm text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                         {currency_symbol}
                         {item.purchase_price.toFixed(2)}
                       </div>

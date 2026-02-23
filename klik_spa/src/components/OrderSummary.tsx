@@ -1571,20 +1571,18 @@ export default function OrderSummary({
                     {/* Product Info */}
                     <div className="flex-1 min-w-0 px-3">
                       <h4
-                        className={`font-semibold text-gray-900 dark:text-white ${
-                          isMobile ? "text-base" : "text-sm"
-                        } truncate`}
+                        className={`font-semibold text-gray-900 dark:text-white leading-snug line-clamp-2 ${
+                          isMobile ? "text-sm" : "text-sm"
+                        }`}
                       >
                         {item.name}
                       </h4>
                       <p
-                        className={`text-gray-500 dark:text-gray-400 capitalize font-medium ${
-                          isMobile ? "text-sm" : "text-xs"
-                        }`}
+                        className="text-[11px] text-gray-400 dark:text-gray-500 capitalize mt-0.5"
                       >
                         {item.category}
                       </p>
-                      <div className={`${isMobile ? "text-base" : "text-sm"}`}>
+                      <div className={`mt-0.5 ${isMobile ? "text-sm" : "text-sm"}`}>
                         {discountedPrice < item.price ? (
                           <div className="flex items-center space-x-2">
                             <span className="text-gray-400 line-through text-xs">
@@ -1607,7 +1605,7 @@ export default function OrderSummary({
                     </div>
 
                     {/* Quantity Controls - Fixed Width Container */}
-                    <div className="flex-shrink-0 flex items-center ml-10 space-x-1 min-w-[70px] justify-center">
+                    <div className="flex-shrink-0 flex items-center ml-2 space-x-1 min-w-[70px] justify-center">
                       <button
                         onClick={() =>
                           onUpdateQuantity(item.id, item.quantity - 1)

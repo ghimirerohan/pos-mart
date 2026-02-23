@@ -7,6 +7,63 @@ interface Invoice {
   [key: string]: unknown;
 }
 
+export async function sendToThermalPrinter(
+  invoiceData: Invoice
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch("http://localhost:3000/print", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "bill",
+      data: { ...invoiceData },
+    }),
+  });
+  const result = await response.json();
+  return result;
+}
+
+export async function handlePrintWithThermal(
+  invoiceData: Invoice | null,
+  setIsPrinting: (v: boolean) => void,
+  skipConfirm = false
+) {
+  if (!invoiceData) {
+    toast.error("No invoice data available for printing");
+    return;
+  }
+
+  if (!skipConfirm) {
+    const confirmed = window.confirm("Print this invoice?");
+    if (!confirmed) return;
+  }
+
+  setIsPrinting(true);
+  try {
+    const result = await sendToThermalPrinter(invoiceData);
+    if (result.success) {
+      toast.success(result.message || "Printed successfully");
+    } else {
+      toast.error(result.message || "Printing failed");
+      const useBrowser = window.confirm(
+        "Thermal printer failed. Print using browser instead?"
+      );
+      if (useBrowser) {
+        handlePrintInvoice(invoiceData);
+      }
+    }
+  } catch {
+    toast.error("Could not reach the thermal printer");
+    const useBrowser = window.confirm(
+      "Thermal printer failed. Print using browser instead?"
+    );
+    if (useBrowser) {
+      handlePrintInvoice(invoiceData);
+    }
+  } finally {
+    setIsPrinting(false);
+  }
+}
+
 export function handlePrintInvoice(invoiceData: Invoice | null) {
   console.log('Print function called with:', invoiceData);
 

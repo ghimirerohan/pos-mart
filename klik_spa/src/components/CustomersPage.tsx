@@ -195,7 +195,7 @@ export default function CustomersPage() {
       <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Header */}
         <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3">
+          <div className="pl-14 pr-4 py-3">
             <div className="flex items-center justify-between">
               <h1 className="text-lg font-bold text-gray-900 dark:text-white">Customers</h1>
               <button
@@ -210,7 +210,7 @@ export default function CustomersPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto pb-20 w-[98%] mx-auto px-2 py-4">
+        <div className="flex-1 overflow-y-auto pb-4 w-[98%] mx-auto px-2 py-4">
           <div className="mx-auto w-full">
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 mt-3">

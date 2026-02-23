@@ -198,7 +198,7 @@ export default function PurchasePOSLayout() {
 
   if (loading && menuItems.length === 0) {
     return (
-      <div className="flex h-screen bg-amber-50 dark:bg-gray-900 pb-16 lg:pb-8">
+      <div className="flex h-screen bg-amber-50 dark:bg-gray-900 lg:pb-8">
         <LoadingSpinner />
         {/* Bottom Navigation for mobile */}
         <div className="lg:hidden">
@@ -209,12 +209,12 @@ export default function PurchasePOSLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 pb-16 lg:pb-8">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 lg:pb-8">
       {/* Left Panel - Products */}
       <div className="flex-1 overflow-hidden lg:ml-20">
         <div className="flex flex-col h-full">
           {/* Purchase Mode Banner */}
-          <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white pl-14 pr-6 py-3 flex items-center justify-between lg:pl-6">
             <div className="flex items-center gap-3">
               <PackagePlus size={24} />
               <div>

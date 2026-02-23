@@ -391,8 +391,8 @@ export default function DateWiseInventoryPage() {
     "w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-sm";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 dark:from-gray-900 dark:to-gray-800 pb-20 lg:pb-8">
-      <div className={`p-4 ${isMobile ? "pt-6" : "pt-8"} max-w-7xl mx-auto lg:pl-24`}>
+    <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 dark:from-gray-900 dark:to-gray-800 pb-4 lg:pb-8">
+      <div className={`p-4 ${isMobile ? "pt-6 pl-14" : "pt-8"} max-w-7xl mx-auto lg:pl-24`}>
         <div className="flex items-center gap-2 mb-6">
           <ClipboardList className="w-8 h-8 text-beveren-600" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Date Wise Inventory</h1>

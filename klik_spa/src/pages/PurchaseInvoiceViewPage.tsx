@@ -265,7 +265,7 @@ export default function PurchaseInvoiceViewPage() {
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 pt-20 pb-20 overflow-auto">
+        <div className="flex-1 pt-20 pb-4 overflow-auto">
           <div className="max-w-7xl mx-auto px-6 py-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Invoice Details - 70% */}

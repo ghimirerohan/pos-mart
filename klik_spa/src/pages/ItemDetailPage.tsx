@@ -602,7 +602,7 @@ export default function ItemDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-4 lg:pb-0 lg:ml-20 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-beveren-600" />
       </div>
     )
@@ -610,8 +610,8 @@ export default function ItemDetailPage() {
 
   if (!item) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20">
-        <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-4 lg:pb-0 lg:ml-20">
+        <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pl-14 pr-4 py-3 lg:px-4">
           <div className="flex items-center space-x-3">
             <button onClick={() => navigate('/items')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
               <ArrowLeft size={20} />
@@ -630,9 +630,9 @@ export default function ItemDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 lg:pb-0 lg:ml-20">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-4 lg:pb-0 lg:ml-20">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pl-14 pr-4 py-3 lg:px-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <button 

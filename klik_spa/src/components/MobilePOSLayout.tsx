@@ -112,7 +112,7 @@ export default function MobilePOSLayout({
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Mobile Header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between pl-14 pr-4 py-3">
           <div className="flex items-center space-x-3">
             <img src="/assets/klik_pos/klik_spa/logo.jpeg" alt="R-POS" className="w-8 h-8 rounded-full object-cover" />
             <span className="font-bold text-beveren-600 dark:text-beveren-400">R-POS</span>
@@ -315,7 +315,7 @@ export default function MobilePOSLayout({
       {totalItems > 0 && (
         <button
           onClick={() => navigate('/cart')}
-          className="fixed bottom-20 right-6 bg-beveren-600 text-white rounded-full p-4 shadow-lg hover:bg-beveren-700 transition-colors z-30"
+          className="fixed bottom-24 right-6 bg-beveren-600 text-white rounded-full p-4 shadow-lg hover:bg-beveren-700 transition-colors z-30"
         >
           <div className="relative">
             <ShoppingCart className="w-6 h-6" />
@@ -329,7 +329,7 @@ export default function MobilePOSLayout({
 
       {/* Bottom Cart Summary - Above Bottom Navigation */}
       {totalItems > 0 && (
-        <div className="fixed bottom-16 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-3 z-40">
+        <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-3 z-40">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-600 dark:text-gray-400">{totalItems} items</div>
             <div className="text-lg font-bold text-beveren-600 dark:text-beveren-400">{formatCurrency(totalAmount, posDetails?.currency || 'USD')}</div>

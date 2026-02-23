@@ -20,39 +20,42 @@ export default function CartItemRow({ item, onUpdateQty }: CartItemRowProps) {
   const nameAr = (item as any).nameAr ?? (item as any).name
 
   return (
-    <div className="flex items-center justify-between py-2">
-      <div className="flex items-center space-x-3">
-        {/* Only show image if it exists */}
-        {imageSrc && (
-          <div className="w-12 h-12 rounded object-cover bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-            <img src={imageSrc as string} alt={nameEn as string} className="w-12 h-12 rounded object-cover" />
-          </div>
-        )}
-        <div className={imageSrc ? "" : "flex-1"}>
-          <div className="font-medium text-sm">{isRTL ? (nameAr as string) : (nameEn as string)}</div>
-          <div className="text-xs text-gray-600">{isRTL ? (nameEn as string) : (nameAr as string)}</div>
+    <div className="flex items-center py-2 gap-3">
+      {imageSrc && (
+        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700 flex-shrink-0">
+          <img src={imageSrc as string} alt={nameEn as string} className="w-12 h-12 rounded-lg object-cover" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm leading-snug line-clamp-2 text-gray-900 dark:text-white">
+          {isRTL ? (nameAr as string) : (nameEn as string)}
+        </div>
+        <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+          {isRTL ? (nameEn as string) : (nameAr as string)}
         </div>
       </div>
 
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-1.5 flex-shrink-0">
         <button
                 //eslint-disable-next-line @typescript-eslint/no-explicit-any
           onClick={() => onUpdateQty((item as any).item_code ?? item.id, qty - 1)}
-          className="w-6 h-6 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center hover:bg-gray-200"
+          className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           −
         </button>
-        <span className="w-8 text-center font-medium">{qty}</span>
+        <span className="w-7 text-center font-semibold text-sm text-gray-900 dark:text-white">{qty}</span>
         <button
         //eslint-disable-next-line @typescript-eslint/no-explicit-any
           onClick={() => onUpdateQty((item as any).item_code ?? item.id, qty + 1)}
-          className="w-6 h-6 rounded-full bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center hover:bg-blue-100"
+          className="w-6 h-6 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 flex items-center justify-center hover:bg-blue-100 dark:hover:bg-blue-900/30"
         >
           +
         </button>
       </div>
 
-      <div className="text-gray-800 font-semibold">₨ {(item.price * qty).toFixed(2)}</div>
+      <div className="text-gray-800 dark:text-gray-200 font-semibold text-sm whitespace-nowrap flex-shrink-0">
+        ₨ {(item.price * qty).toFixed(2)}
+      </div>
     </div>
   )
 }

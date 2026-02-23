@@ -12,7 +12,7 @@ export default function MobileCustomersPage() {
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between pl-14 pr-4 py-3">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => navigate(-1)}
@@ -27,7 +27,7 @@ export default function MobileCustomersPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 pb-20 overflow-hidden">
+      <div className="flex-1 pb-4 overflow-hidden">
         <CustomersPage />
       </div>
 

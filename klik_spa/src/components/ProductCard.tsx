@@ -49,7 +49,9 @@ return (
           </div>
         )}
         {!isOutOfStock && (
-          <div className="absolute top-2 right-2 bg-slate-600 text-white px-1.5 py-0.5 rounded-md text-xs font-medium">
+          <div className={`absolute top-2 right-2 text-white px-1.5 py-0.5 rounded-md text-xs font-medium ${
+            item.available <= 10 ? "bg-red-500" : "bg-slate-600"
+          }`}>
             {item.available}
           </div>
         )}
@@ -66,17 +68,15 @@ return (
           </div>
         )}
       </div>
-      <div className={`${isMobile ? "p-2 h-12" : "p-3 h-16"} flex flex-col justify-between`}>
-        <div>
-          <h3 className={`font-semibold text-gray-900 dark:text-white truncate ${isMobile ? "text-xs" : "text-sm"}`}>
-            {item.name}
-          </h3>
-        </div>
-        <div className="flex items-center justify-between">
-          <p className={`text-gray-500 dark:text-gray-400 capitalize ${isMobile ? "text-xs" : "text-xs"}`}>
+      <div className={`${isMobile ? "px-2 pt-2 pb-1.5" : "px-3 pt-2.5 pb-2"}`}>
+        <h3 className={`font-semibold text-gray-900 dark:text-white leading-snug line-clamp-2 ${isMobile ? "text-xs" : "text-sm"}`}>
+          {item.name}
+        </h3>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 capitalize truncate mr-2">
             {item.category}
           </p>
-          <span className={`font-bold text-beveren-600 dark:text-beveren-400 ${isMobile ? "text-xs" : "text-sm"}`}>
+          <span className={`font-bold text-beveren-600 dark:text-beveren-400 whitespace-nowrap ${isMobile ? "text-sm" : "text-sm"}`}>
             {formattedPrice}
           </span>
         </div>

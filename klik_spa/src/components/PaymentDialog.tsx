@@ -39,7 +39,7 @@ import { createDraftSalesInvoice } from "../services/salesInvoice";
 import { createSalesInvoice } from "../services/salesInvoice";
 import { useNavigate } from "react-router-dom";
 import DisplayPrintPreview from "../utils/invoicePrint";
-import { handlePrintInvoice } from "../utils/printHandler";
+import { handlePrintInvoice, handlePrintWithThermal } from "../utils/printHandler";
 import { sendEmails, sendWhatsAppMessage, sendSMSMessage } from "../services/useSharing";
 import { clearDraftInvoiceCache, getOriginalDraftInvoiceId } from "../utils/draftInvoiceCache";
 // import { deleteDraftInvoice } from "../services/salesInvoice";
@@ -157,6 +157,7 @@ export default function PaymentDialog({
   const [invoiceData, setInvoiceData] = useState<any>(null);
   const [roundOffInput, setRoundOffInput] = useState(roundOffAmount.toFixed(2));
   const [isAutoPrinting, setIsAutoPrinting] = useState(false);
+  const [isThermalPrinting, setIsThermalPrinting] = useState(false);
   const [sharingMode, setSharingMode] = useState<string | null>(
     initialSharingMode
   ); // 'email', 'sms', 'whatsapp'
@@ -540,11 +541,11 @@ export default function PaymentDialog({
   useEffect(() => {
     if (invoiceSubmitted && invoiceData && print_receipt_on_order_complete) {
       setIsAutoPrinting(true);
-      // Small delay to ensure the preview is rendered
-      setTimeout(() => {
-        handlePrintInvoice(invoiceData);
+      const timer = setTimeout(async () => {
+        await handlePrintWithThermal(invoiceData, setIsThermalPrinting, true);
         setIsAutoPrinting(false);
       }, 500);
+      return () => clearTimeout(timer);
     }
   }, [invoiceSubmitted, invoiceData, print_receipt_on_order_complete]);
 
@@ -1257,7 +1258,7 @@ export default function PaymentDialog({
 
                 {/* Action Buttons Row */}
                 <div className="flex flex-wrap gap-2 justify-center">
-                  {isAutoPrinting && (
+                  {(isAutoPrinting || isThermalPrinting) && (
                     <div className="flex items-center space-x-2 text-blue-600 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                       <Loader2 size={16} className="animate-spin" />
                       <span className="text-sm">Printing...</span>
@@ -1267,8 +1268,9 @@ export default function PaymentDialog({
                   <button
                     className="flex items-center space-x-2 px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     title="Print"
+                    disabled={isThermalPrinting}
                     onClick={() => {
-                      handlePrintInvoice(invoiceData);
+                      handlePrintWithThermal(invoiceData, setIsThermalPrinting);
                     }}
                   >
                     <Printer size={18} />
@@ -1711,7 +1713,7 @@ export default function PaymentDialog({
 
           {invoiceSubmitted ? (
             <div className="flex items-center space-x-3">
-              {isAutoPrinting && (
+              {(isAutoPrinting || isThermalPrinting) && (
                 <div className="flex items-center space-x-2 text-blue-600">
                   <Loader2 size={16} className="animate-spin" />
                   <span className="text-sm">Printing...</span>
@@ -1720,8 +1722,9 @@ export default function PaymentDialog({
               <button
                 className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
                 title="Print"
-                onClick={() => {
-                  handlePrintInvoice(invoiceData);
+                disabled={isThermalPrinting}
+                onClick={async () => {
+                  await handlePrintWithThermal(invoiceData, setIsThermalPrinting);
                   navigate("/");
                 }}
               >
