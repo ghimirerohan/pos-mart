@@ -2914,285 +2914,172 @@ def update_opening_stock(
 	batch_no: str | None = None,
 	valuation_rate: float = 0,
 	posting_date: str | None = None,
-	remarks: str = "Opening Stock Correction"
+	remarks: str = ""
 ):
 	"""
-	Update opening stock quantity using Stock Reconciliation.
-	
-	This method safely updates stock quantities by:
-	- Updating Bin (warehouse stock)
-	- Creating Stock Ledger Entry (audit trail)
-	- Updating Batch quantity (if batch tracking enabled)
-	
-	Does NOT create Material Receipt/Issue entries.
-	
-	Args:
-		item_code: Item code to update
-		warehouse: Warehouse name
-		qty: New stock quantity (absolute value)
-		batch_no: Batch number if batch tracking enabled
-		valuation_rate: Valuation rate (default: 0)
-		posting_date: Posting date (default: today)
-		remarks: Remarks for the reconciliation
-		
-	Returns:
-		dict: Result with reconciliation name and status
+	Update stock quantity for an existing item via Stock Reconciliation.
+
+	Used when editing qty from the Item Detail page (post-creation).
+	Opening stock is only set during item creation via Material Receipt;
+	subsequent adjustments go through Stock Reconciliation purpose.
+
+	For batch-tracked items, the function resolves the correct batch and
+	calculates the per-batch target qty so the warehouse total matches
+	the requested qty.
 	"""
 	from frappe.utils import nowdate, nowtime, flt
 	from erpnext.stock.utils import get_stock_balance
-	
+
 	try:
-		# Validate inputs
 		if not item_code:
 			frappe.throw(_("Item Code is required"))
-		
 		if not warehouse:
 			frappe.throw(_("Warehouse is required"))
-		
+
 		qty = flt(qty)
 		if qty < 0:
 			frappe.throw(_("Stock quantity cannot be negative"))
-		
-		# Validate item exists
+
 		if not frappe.db.exists("Item", item_code):
 			frappe.throw(_("Item '{0}' does not exist").format(item_code))
-		
-		# Validate warehouse exists
 		if not frappe.db.exists("Warehouse", warehouse):
 			frappe.throw(_("Warehouse '{0}' does not exist").format(warehouse))
-		
-		# Get item details
-		item = frappe.get_doc("Item", item_code)
-		
-		# Handle batch tracking - get or create batch if needed
-		if item.has_batch_no and not batch_no:
-			# Try to get existing batches for this item in the warehouse
-			# First, try to find a batch with stock
-			existing_batches = frappe.db.sql("""
-				SELECT DISTINCT sle.batch_no, b.batch_id
-				FROM `tabStock Ledger Entry` sle
-				INNER JOIN `tabBatch` b ON b.name = sle.batch_no
-				WHERE sle.item_code = %s
-				AND sle.warehouse = %s
-				AND sle.batch_no IS NOT NULL
-				ORDER BY sle.posting_date DESC
-				LIMIT 1
-			""", (item_code, warehouse), as_dict=True)
-			
-			if existing_batches and existing_batches[0].batch_no:
-				# Use existing batch
-				batch_no = existing_batches[0].batch_no
-			else:
-				# Try to get any batch for this item (not warehouse-specific)
-				any_batch = frappe.db.get_value("Batch", {"item": item_code}, "name", order_by="creation DESC")
-				if any_batch:
-					batch_no = any_batch
-				else:
-					# Create a default batch for opening stock correction
-					batch_id = f"OPENING-{item_code[:10]}-{frappe.generate_hash(length=6).upper()}"
-					batch_doc = frappe.get_doc({
-						"doctype": "Batch",
-						"batch_id": batch_id,
-						"item": item_code,
-						"expiry_date": None
-					})
-					batch_doc.insert(ignore_permissions=True)
-					batch_no = batch_doc.name
-					frappe.db.commit()
-		
-		# Get current stock
-		current_qty = get_stock_balance(item_code, warehouse, posting_date or nowdate())
-		
-		# Set defaults
+
+		item = frappe.get_cached_doc("Item", item_code)
+
 		posting_date = posting_date or nowdate()
 		posting_time = nowtime()
 		valuation_rate = flt(valuation_rate)
-		
-		# Get company from warehouse
+
+		total_current_qty = flt(get_stock_balance(item_code, warehouse, posting_date, posting_time))
+
+		if qty == total_current_qty:
+			frappe.throw(
+				_("Stock quantity is already {0} for {1} in {2}. No update needed.").format(
+					total_current_qty, item_code, warehouse
+				)
+			)
+
 		company = frappe.db.get_value("Warehouse", warehouse, "company")
 		if not company:
 			frappe.throw(_("Company not found for warehouse '{0}'").format(warehouse))
-		
-		# Get expense account for Opening Stock - must be Asset/Liability type (not P&L)
-		# Use ERPNext's built-in functions to get warehouse account or stock accounts
-		expense_account = None
-		
-		# First, try to get account from warehouse
-		try:
-			from erpnext.stock import get_warehouse_account
-			warehouse_doc = frappe.get_doc("Warehouse", warehouse)
-			warehouse_account = get_warehouse_account(warehouse_doc)
-			if warehouse_account:
-				# Verify it's an Asset account (not P&L)
-				account_type = frappe.db.get_value("Account", warehouse_account, "account_type")
-				report_type = frappe.db.get_value("Account", warehouse_account, "report_type")
-				if account_type == "Asset" and report_type != "Profit and Loss":
-					expense_account = warehouse_account
-		except Exception:
-			pass
-		
-		# If not found, try to get from company default inventory account
-		if not expense_account:
-			default_stock_account = frappe.db.get_value("Company", company, "default_inventory_account")
-			if default_stock_account:
-				account_type = frappe.db.get_value("Account", default_stock_account, "account_type")
-				report_type = frappe.db.get_value("Account", default_stock_account, "report_type")
-				if account_type == "Asset" and report_type != "Profit and Loss":
-					expense_account = default_stock_account
-		
-		# If not found, try to get stock accounts using ERPNext utility
-		if not expense_account:
-			try:
-				from erpnext.accounts.utils import get_stock_accounts
-				stock_accounts = get_stock_accounts(company)
-				if stock_accounts:
-					# Get first stock account and verify it's Asset type
-					for acc in stock_accounts:
-						account_type = frappe.db.get_value("Account", acc, "account_type")
-						report_type = frappe.db.get_value("Account", acc, "report_type")
-						if account_type == "Asset" and report_type != "Profit and Loss":
-							expense_account = acc
-							break
-			except Exception:
-				pass
-		
-		# If still not found, try to find any Stock type account
-		if not expense_account:
-			stock_account = frappe.db.get_value(
-				"Account",
-				{"company": company, "account_type": "Stock", "is_group": 0},
-				"name",
-				order_by="creation DESC"
-			)
-			if stock_account:
-				expense_account = stock_account
-		
-		# If still not found, try Temporary account (used by ERPNext for Opening Stock)
-		if not expense_account:
-			temp_account = frappe.db.get_value(
-				"Account",
-				{"company": company, "account_type": "Temporary", "is_group": 0},
-				"name",
-				order_by="creation DESC"
-			)
-			if temp_account:
-				# Verify it's not P&L type
-				report_type = frappe.db.get_value("Account", temp_account, "report_type")
-				if report_type != "Profit and Loss":
-					expense_account = temp_account
-		
-		# If still not found, try to find any Asset account (not P&L, not group)
-		if not expense_account:
-			asset_account = frappe.db.sql("""
-				SELECT name FROM `tabAccount`
-				WHERE company = %s
-				AND account_type = 'Asset'
-				AND report_type != 'Profit and Loss'
-				AND is_group = 0
-				ORDER BY creation DESC
-				LIMIT 1
-			""", (company,), as_dict=True)
-			if asset_account:
-				expense_account = asset_account[0].name
-		
-		# Last resort: try any account that's not P&L and not a group
-		if not expense_account:
-			any_account = frappe.db.sql("""
-				SELECT name FROM `tabAccount`
-				WHERE company = %s
-				AND report_type != 'Profit and Loss'
-				AND is_group = 0
-				ORDER BY creation DESC
-				LIMIT 1
-			""", (company,), as_dict=True)
-			if any_account:
-				expense_account = any_account[0].name
-		
-		# If still not found, throw error with helpful message
-		if not expense_account:
-			frappe.throw(
-				_("No suitable Asset account found for Opening Stock. "
-				  "Please configure a Stock Asset account in Warehouse '{0}' or set Default Inventory Account in Company '{1}'").format(
-					warehouse, company
-				)
-			)
-		
-		# Get current valuation rate from Bin
-		bin_name = frappe.db.get_value("Bin", {
-			"item_code": item_code,
-			"warehouse": warehouse
-		})
-		
-		current_valuation_rate = 0
-		if bin_name:
-			bin_doc = frappe.get_doc("Bin", bin_name)
-			if bin_doc.actual_qty > 0 and bin_doc.valuation_rate:
-				current_valuation_rate = flt(bin_doc.valuation_rate)
-		
-		# Use current valuation rate if not provided
-		if valuation_rate == 0:
+
+		# --- resolve batch for batch-tracked items ---
+		if item.has_batch_no:
+			from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+			if not batch_no:
+				batch_no = _pick_best_batch(item_code, warehouse)
+
+			if batch_no:
+				batch_current_qty = flt(get_batch_qty(batch_no, warehouse) or 0)
+				adjustment = qty - total_current_qty
+				target_batch_qty = flt(batch_current_qty + adjustment)
+
+				if target_batch_qty < 0:
+					frappe.throw(
+						_("Cannot reduce stock below 0. Batch {0} has {1} qty, "
+						  "but the adjustment requires reducing by {2}.").format(
+							batch_no, batch_current_qty, abs(adjustment)
+						)
+					)
+
+				reconciliation_qty = target_batch_qty
+				current_qty = batch_current_qty
+			else:
+				# No existing batch — create one for the new stock
+				batch_id = f"BATCH-{item_code[:10]}-{frappe.generate_hash(length=6).upper()}"
+				batch_doc = frappe.get_doc({
+					"doctype": "Batch",
+					"batch_id": batch_id,
+					"item": item_code,
+				})
+				batch_doc.insert(ignore_permissions=True)
+				batch_no = batch_doc.name
+				reconciliation_qty = qty
+				current_qty = 0
+		else:
+			reconciliation_qty = qty
+			current_qty = total_current_qty
+
+		# --- valuation rate ---
+		current_valuation_rate = flt(
+			frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "valuation_rate")
+		)
+		if not valuation_rate:
 			valuation_rate = current_valuation_rate
-		
-		# Create Stock Reconciliation
-		# For batch tracking, we need to use use_serial_batch_fields to use old batch_no field
-		# or create a Serial and Batch Bundle. Using use_serial_batch_fields is simpler.
+
+		# --- build reconciliation item row ---
 		item_row = {
 			"item_code": item_code,
 			"warehouse": warehouse,
-			"qty": qty,
+			"qty": reconciliation_qty,
 			"valuation_rate": valuation_rate,
-			"current_qty": current_qty,
-			"current_valuation_rate": current_valuation_rate
 		}
-		
-		# If batch tracking is enabled, use the old batch fields
 		if item.has_batch_no and batch_no:
 			item_row["use_serial_batch_fields"] = 1
 			item_row["batch_no"] = batch_no
-		
-		# If serial tracking is enabled (future support)
 		if item.has_serial_no:
 			item_row["use_serial_batch_fields"] = 1
-			item_row["serial_no"] = None
-		
+
+		# --- create and submit Stock Reconciliation ---
 		reconciliation = frappe.get_doc({
 			"doctype": "Stock Reconciliation",
-			"purpose": "Opening Stock",
+			"purpose": "Stock Reconciliation",
 			"posting_date": posting_date,
 			"posting_time": posting_time,
 			"company": company,
-			"expense_account": expense_account,  # Required for Opening Stock - must be Asset/Liability
 			"items": [item_row],
-			"remarks": remarks or "Opening Stock Correction"
+			"remarks": remarks or _("Stock correction from Item Detail page"),
 		})
-		
-		# Insert and submit
+
 		reconciliation.insert()
 		reconciliation.submit()
-		
 		frappe.db.commit()
-		
-		# Return success response
+
 		return {
 			"status": "success",
 			"reconciliation_name": reconciliation.name,
 			"item_code": item_code,
 			"warehouse": warehouse,
-			"old_qty": current_qty,
+			"old_qty": total_current_qty,
 			"new_qty": qty,
-			"difference": qty - current_qty,
-			"message": _("Stock successfully updated from {0} to {1} for {2} in {3}").format(
-				current_qty, qty, item_code, warehouse
-			)
+			"difference": qty - total_current_qty,
+			"message": _("Stock updated from {0} to {1} for {2} in {3}").format(
+				total_current_qty, qty, item_code, warehouse
+			),
 		}
-		
+
 	except frappe.ValidationError as e:
-		frappe.log_error(frappe.get_traceback(), f"Validation error in stock reconciliation: {str(e)}")
+		frappe.log_error(frappe.get_traceback(), f"Stock reconciliation validation error: {str(e)}")
 		frappe.throw(str(e))
 	except Exception as e:
 		frappe.db.rollback()
-		frappe.log_error(frappe.get_traceback(), f"Error in stock reconciliation: {str(e)}")
+		frappe.log_error(frappe.get_traceback(), f"Stock reconciliation error: {str(e)}")
 		frappe.throw(_("Failed to update stock: {0}").format(str(e)))
+
+
+def _pick_best_batch(item_code: str, warehouse: str) -> str | None:
+	"""Return the batch_no with the highest positive stock in the warehouse, or None."""
+	result = frappe.db.sql("""
+		SELECT sle.batch_no, SUM(sle.actual_qty) AS batch_qty
+		FROM `tabStock Ledger Entry` sle
+		INNER JOIN `tabBatch` b ON b.name = sle.batch_no
+		WHERE sle.item_code = %s
+			AND sle.warehouse = %s
+			AND sle.batch_no IS NOT NULL
+			AND IFNULL(sle.is_cancelled, 0) = 0
+		GROUP BY sle.batch_no
+		HAVING SUM(sle.actual_qty) > 0
+		ORDER BY batch_qty DESC
+		LIMIT 1
+	""", (item_code, warehouse), as_dict=True)
+
+	if result:
+		return result[0].batch_no
+
+	# Fallback: any batch linked to this item (even if no stock in this warehouse)
+	return frappe.db.get_value("Batch", {"item": item_code, "disabled": 0}, "name", order_by="creation DESC")
 
 
 @frappe.whitelist()

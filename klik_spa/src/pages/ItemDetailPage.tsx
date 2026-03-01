@@ -437,9 +437,7 @@ export default function ItemDetailPage() {
               item_code: itemCode,
               warehouse: item.warehouse,
               qty: form.available_qty,
-              batch_no: null, // Can be enhanced to support batch selection
-              valuation_rate: form.valuation_rate,
-              remarks: 'Opening stock correction from Item Detail page'
+              valuation_rate: form.valuation_rate
             }),
             credentials: 'include'
           })
