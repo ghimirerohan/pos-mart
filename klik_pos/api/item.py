@@ -2923,9 +2923,9 @@ def update_opening_stock(
 	Opening stock is only set during item creation via Material Receipt;
 	subsequent adjustments go through Stock Reconciliation purpose.
 
-	For batch-tracked items, the function resolves the correct batch and
-	calculates the per-batch target qty so the warehouse total matches
-	the requested qty.
+	For batch-tracked items with multiple batches the adjustment is
+	distributed: the largest batch is kept/resized to hold the target,
+	and smaller batches are zeroed out as needed.
 	"""
 	from frappe.utils import nowdate, nowtime, flt
 	from erpnext.stock.utils import get_stock_balance
@@ -2964,44 +2964,6 @@ def update_opening_stock(
 		if not company:
 			frappe.throw(_("Company not found for warehouse '{0}'").format(warehouse))
 
-		# --- resolve batch for batch-tracked items ---
-		if item.has_batch_no:
-			from erpnext.stock.doctype.batch.batch import get_batch_qty
-
-			if not batch_no:
-				batch_no = _pick_best_batch(item_code, warehouse)
-
-			if batch_no:
-				batch_current_qty = flt(get_batch_qty(batch_no, warehouse) or 0)
-				adjustment = qty - total_current_qty
-				target_batch_qty = flt(batch_current_qty + adjustment)
-
-				if target_batch_qty < 0:
-					frappe.throw(
-						_("Cannot reduce stock below 0. Batch {0} has {1} qty, "
-						  "but the adjustment requires reducing by {2}.").format(
-							batch_no, batch_current_qty, abs(adjustment)
-						)
-					)
-
-				reconciliation_qty = target_batch_qty
-				current_qty = batch_current_qty
-			else:
-				# No existing batch — create one for the new stock
-				batch_id = f"BATCH-{item_code[:10]}-{frappe.generate_hash(length=6).upper()}"
-				batch_doc = frappe.get_doc({
-					"doctype": "Batch",
-					"batch_id": batch_id,
-					"item": item_code,
-				})
-				batch_doc.insert(ignore_permissions=True)
-				batch_no = batch_doc.name
-				reconciliation_qty = qty
-				current_qty = 0
-		else:
-			reconciliation_qty = qty
-			current_qty = total_current_qty
-
 		# --- valuation rate ---
 		current_valuation_rate = flt(
 			frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "valuation_rate")
@@ -3009,27 +2971,24 @@ def update_opening_stock(
 		if not valuation_rate:
 			valuation_rate = current_valuation_rate
 
-		# --- build reconciliation item row ---
-		item_row = {
-			"item_code": item_code,
-			"warehouse": warehouse,
-			"qty": reconciliation_qty,
-			"valuation_rate": valuation_rate,
-		}
-		if item.has_batch_no and batch_no:
-			item_row["use_serial_batch_fields"] = 1
-			item_row["batch_no"] = batch_no
-		if item.has_serial_no:
-			item_row["use_serial_batch_fields"] = 1
+		# --- build reconciliation item rows ---
+		item_rows = _build_reconciliation_rows(
+			item=item,
+			item_code=item_code,
+			warehouse=warehouse,
+			target_qty=qty,
+			total_current_qty=total_current_qty,
+			valuation_rate=valuation_rate,
+			batch_no=batch_no,
+		)
 
-		# --- create and submit Stock Reconciliation ---
 		reconciliation = frappe.get_doc({
 			"doctype": "Stock Reconciliation",
 			"purpose": "Stock Reconciliation",
 			"posting_date": posting_date,
 			"posting_time": posting_time,
 			"company": company,
-			"items": [item_row],
+			"items": item_rows,
 			"remarks": remarks or _("Stock correction from Item Detail page"),
 		})
 
@@ -3059,10 +3018,108 @@ def update_opening_stock(
 		frappe.throw(_("Failed to update stock: {0}").format(str(e)))
 
 
-def _pick_best_batch(item_code: str, warehouse: str) -> str | None:
-	"""Return the batch_no with the highest positive stock in the warehouse, or None."""
-	result = frappe.db.sql("""
-		SELECT sle.batch_no, SUM(sle.actual_qty) AS batch_qty
+def _build_reconciliation_rows(
+	item, item_code, warehouse, target_qty, total_current_qty, valuation_rate, batch_no=None
+):
+	"""
+	Build the list of Stock Reconciliation item rows.
+
+	Non-batch items: single row with the target qty.
+	Batch items: distributes target_qty across batches — keeps stock in
+	the largest batch (or the specified batch_no) and zeros out the rest
+	as needed so the warehouse total equals target_qty.
+	"""
+	from frappe.utils import flt
+
+	if not item.has_batch_no:
+		return [{
+			"item_code": item_code,
+			"warehouse": warehouse,
+			"qty": target_qty,
+			"valuation_rate": valuation_rate,
+		}]
+
+	# --- batch-tracked item ---
+	batches = _get_all_batches_with_stock(item_code, warehouse)
+
+	if not batches:
+		# No batches with stock — create a new batch to hold the target qty
+		batch_no = batch_no or _create_new_batch(item_code)
+		return [{
+			"item_code": item_code,
+			"warehouse": warehouse,
+			"qty": target_qty,
+			"valuation_rate": valuation_rate,
+			"use_serial_batch_fields": 1,
+			"batch_no": batch_no,
+		}]
+
+	# Sort batches: largest stock first
+	batches.sort(key=lambda b: b["qty"], reverse=True)
+
+	rows = []
+	remaining = flt(target_qty)
+
+	for batch in batches:
+		bno = batch["batch_no"]
+		bqty = flt(batch["qty"])
+
+		if remaining >= bqty:
+			# Keep this batch as-is (no change needed, skip it)
+			remaining -= bqty
+		elif remaining > 0:
+			# Partially keep — set this batch to whatever is remaining
+			rows.append({
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"qty": remaining,
+				"valuation_rate": valuation_rate,
+				"use_serial_batch_fields": 1,
+				"batch_no": bno,
+			})
+			remaining = 0
+		else:
+			# Zero out this batch
+			rows.append({
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"qty": 0,
+				"valuation_rate": valuation_rate,
+				"use_serial_batch_fields": 1,
+				"batch_no": bno,
+			})
+
+	# If remaining > 0, we need MORE stock than currently exists.
+	# Add the extra to the largest batch.
+	if remaining > 0:
+		largest = batches[0]["batch_no"]
+		largest_current = flt(batches[0]["qty"])
+		# Check if we already have a row for this batch (we modified it above)
+		existing_row = next((r for r in rows if r["batch_no"] == largest), None)
+		if existing_row:
+			existing_row["qty"] = flt(existing_row["qty"]) + remaining
+		else:
+			# Largest batch was kept as-is; now we need to increase it
+			rows.append({
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"qty": largest_current + remaining,
+				"valuation_rate": valuation_rate,
+				"use_serial_batch_fields": 1,
+				"batch_no": largest,
+			})
+
+	if not rows:
+		# target_qty equals sum of all batches — shouldn't happen (caught earlier)
+		frappe.throw(_("No stock adjustment needed."))
+
+	return rows
+
+
+def _get_all_batches_with_stock(item_code, warehouse):
+	"""Return list of dicts [{batch_no, qty}, ...] for batches with positive stock."""
+	return frappe.db.sql("""
+		SELECT sle.batch_no, SUM(sle.actual_qty) AS qty
 		FROM `tabStock Ledger Entry` sle
 		INNER JOIN `tabBatch` b ON b.name = sle.batch_no
 		WHERE sle.item_code = %s
@@ -3071,15 +3128,20 @@ def _pick_best_batch(item_code: str, warehouse: str) -> str | None:
 			AND IFNULL(sle.is_cancelled, 0) = 0
 		GROUP BY sle.batch_no
 		HAVING SUM(sle.actual_qty) > 0
-		ORDER BY batch_qty DESC
-		LIMIT 1
+		ORDER BY qty DESC
 	""", (item_code, warehouse), as_dict=True)
 
-	if result:
-		return result[0].batch_no
 
-	# Fallback: any batch linked to this item (even if no stock in this warehouse)
-	return frappe.db.get_value("Batch", {"item": item_code, "disabled": 0}, "name", order_by="creation DESC")
+def _create_new_batch(item_code):
+	"""Create and return a new batch for the item."""
+	batch_id = f"BATCH-{item_code[:10]}-{frappe.generate_hash(length=6).upper()}"
+	batch_doc = frappe.get_doc({
+		"doctype": "Batch",
+		"batch_id": batch_id,
+		"item": item_code,
+	})
+	batch_doc.insert(ignore_permissions=True)
+	return batch_doc.name
 
 
 @frappe.whitelist()
