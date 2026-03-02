@@ -3117,19 +3117,21 @@ def _build_reconciliation_rows(
 
 
 def _get_all_batches_with_stock(item_code, warehouse):
-	"""Return list of dicts [{batch_no, qty}, ...] for batches with positive stock."""
-	return frappe.db.sql("""
-		SELECT sle.batch_no, SUM(sle.actual_qty) AS qty
-		FROM `tabStock Ledger Entry` sle
-		INNER JOIN `tabBatch` b ON b.name = sle.batch_no
-		WHERE sle.item_code = %s
-			AND sle.warehouse = %s
-			AND sle.batch_no IS NOT NULL
-			AND IFNULL(sle.is_cancelled, 0) = 0
-		GROUP BY sle.batch_no
-		HAVING SUM(sle.actual_qty) > 0
-		ORDER BY qty DESC
-	""", (item_code, warehouse), as_dict=True)
+	"""Return list of dicts [{batch_no, qty}, ...] for batches with positive stock.
+
+	Uses ERPNext's get_batch_qty which handles both legacy batch_no on SLE
+	and the newer Serial and Batch Bundle system.
+	"""
+	from frappe.utils import flt
+	from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+	batches = get_batch_qty(item_code=item_code, warehouse=warehouse) or []
+
+	return [
+		{"batch_no": b.get("batch_no"), "qty": flt(b.get("qty"))}
+		for b in batches
+		if flt(b.get("qty")) > 0
+	]
 
 
 def _create_new_batch(item_code):
