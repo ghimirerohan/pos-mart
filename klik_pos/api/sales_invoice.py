@@ -1,10 +1,11 @@
 import json
+from datetime import date
 
 import erpnext
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import add_days, flt, get_first_day, get_last_day, getdate, today
 
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
@@ -70,14 +71,50 @@ def get_current_pos_opening_entry():
 		return None
 
 
+def _apply_posting_date_preset_to_filters(filters, preset):
+	"""Narrow Sales Invoice query by posting_date using the site's system date (not browser UTC)."""
+	if not preset or str(preset).lower() in ("", "all", "none"):
+		return
+	key = str(preset).lower().strip()
+	allowed = {"today", "yesterday", "week", "month", "year"}
+	if key not in allowed:
+		return
+	tday = getdate(today())
+	if key == "today":
+		start_d = end_d = tday
+	elif key == "yesterday":
+		start_d = end_d = add_days(tday, -1)
+	elif key == "week":
+		# Sunday–Saturday week (matches Invoice History client filter)
+		wd = tday.weekday()  # Mon=0 … Sun=6
+		days_since_sunday = (wd + 1) % 7
+		start_d = add_days(tday, -days_since_sunday)
+		end_d = add_days(start_d, 6)
+	elif key == "month":
+		start_d = get_first_day(tday)
+		end_d = get_last_day(tday)
+	else:  # year
+		start_d = date(tday.year, 1, 1)
+		end_d = date(tday.year, 12, 31)
+	filters["posting_date"] = ["between", [start_d, end_d]]
+
+
 @frappe.whitelist(allow_guest=True)
-def get_sales_invoices(limit=100, start=0, search="", skip_opening_entry_filter=False, cashier_name=None):
+def get_sales_invoices(
+	limit=100,
+	start=0,
+	search="",
+	skip_opening_entry_filter=False,
+	cashier_name=None,
+	posting_date_preset=None,
+):
 	"""
 	Get sales invoices with proper filtering based on user role and POS opening entry.
 
 	Args:
 		skip_opening_entry_filter: If True, skip filtering by opening entry (for Invoice History page)
 		cashier_name: Filter by cashier name (full name). If provided, only returns invoices for that cashier.
+		posting_date_preset: Optional preset: today, yesterday, week, month, year (system timezone). Omit or all = no date filter.
 	"""
 	try:
 		# Convert string to boolean if needed (Frappe passes query params as strings)
@@ -95,6 +132,7 @@ def get_sales_invoices(limit=100, start=0, search="", skip_opening_entry_filter=
 		filters, fields = _build_filters_and_fields(
 			skip_opening_entry_filter=skip_opening_entry_filter, cashier_user_ids=cashier_user_ids
 		)
+		_apply_posting_date_preset_to_filters(filters, posting_date_preset)
 
 		# Build search filters
 		or_filters = _build_search_filters(search)
@@ -194,6 +232,8 @@ def _build_filters_and_fields(skip_opening_entry_filter=False, cashier_user_ids=
 		"base_rounded_total",
 		"status",
 		"discount_amount",
+		"additional_discount_percentage",
+		"apply_discount_on",
 		"total_taxes_and_charges",
 		"custom_pos_opening_entry",
 		"pos_profile",
@@ -637,6 +677,7 @@ def create_and_submit_invoice(data):
 			is_partial_payment,
 			partial_payment_amount,
 			outstanding_amount,
+			request_payload,
 		) = parse_invoice_data(data)
 
 		# Validate required fields
@@ -676,6 +717,7 @@ def create_and_submit_invoice(data):
 			delivery_personnel=delivery_personnel,
 			is_credit_sale=is_credit_sale,
 			is_partial_payment=is_partial_payment,
+			request_payload=request_payload,
 		)
 
 		# Ensure totals are calculated before accessing them
@@ -894,6 +936,7 @@ def create_draft_invoice(data):
 			is_partial_payment,
 			partial_payment_amount,
 			outstanding_amount,
+			request_payload,
 		) = parse_invoice_data(data)
 		doc = build_sales_invoice_doc(
 			customer,
@@ -907,6 +950,7 @@ def create_draft_invoice(data):
 			delivery_personnel=delivery_personnel,
 			is_credit_sale=is_credit_sale,
 			is_partial_payment=is_partial_payment,
+			request_payload=request_payload,
 		)
 		doc.insert(ignore_permissions=True)
 
@@ -973,7 +1017,60 @@ def parse_invoice_data(data):
 		is_partial_payment,
 		partial_payment_amount,
 		outstanding_amount,
+		data,
 	)
+
+
+def _line_net_total_from_payload_items(items):
+	"""Sum of rate * qty using POS payload fields (price, quantity)."""
+	total = 0.0
+	for row in items or []:
+		total += flt(row.get("price", 0)) * flt(row.get("quantity", 0))
+	return flt(total)
+
+
+def _compute_pos_additional_discount_amount(items, request_payload):
+	"""
+	Match POS: subtotal -> coupon -> bill discount (% on post-coupon base, or fixed capped).
+	ERPNext additional discount applies to item net total; we merge coupon + bill into one amount.
+	"""
+	payload = request_payload or {}
+	coupon = max(0.0, flt(payload.get("couponDiscount", 0)))
+	N = _line_net_total_from_payload_items(items)
+	if N <= 0:
+		return 0.0
+
+	base_after_coupon = max(0.0, N - coupon)
+	btype = (payload.get("billDiscountType") or "").strip().lower()
+	bval = flt(payload.get("billDiscountValue", 0))
+	bill_amt = 0.0
+	if btype in ("percent", "percentage") and bval > 0:
+		pct = min(bval, 100.0)
+		bill_amt = base_after_coupon * pct / 100.0
+	elif btype in ("amount", "fixed") and bval > 0:
+		bill_amt = min(bval, base_after_coupon)
+
+	total_disc = coupon + bill_amt
+	if total_disc > N:
+		total_disc = N
+
+	# Optional client hint (must not exceed server cap)
+	hint = flt(payload.get("totalAdditionalDiscountAmount", 0))
+	if hint > 0 and abs(hint - total_disc) > 0.05:
+		frappe.logger().warning(
+			f"POS additional discount hint {hint} vs server {total_disc}; using server value"
+		)
+
+	return flt(total_disc, 2)
+
+
+def _apply_pos_additional_discount_to_doc(doc, items, request_payload):
+	disc = _compute_pos_additional_discount_amount(items, request_payload)
+	if disc <= 0:
+		return
+	doc.apply_discount_on = "Net Total"
+	doc.discount_amount = disc
+	doc.additional_discount_percentage = 0.0
 
 
 def build_sales_invoice_doc(
@@ -988,6 +1085,7 @@ def build_sales_invoice_doc(
 	delivery_personnel=None,
 	is_credit_sale=False,
 	is_partial_payment=False,
+	request_payload=None,
 ):
 	"""Main function to build a sales invoice document."""
 	doc = frappe.new_doc("Sales Invoice")
@@ -1028,6 +1126,9 @@ def build_sales_invoice_doc(
 
 	# Add items to invoice
 	_populate_invoice_items(doc, items, pos_profile)
+
+	# Whole-bill + coupon discount (single ERPNext additional discount block)
+	_apply_pos_additional_discount_to_doc(doc, items, request_payload)
 
 	# Populate tax details
 	_populate_tax_details(doc)

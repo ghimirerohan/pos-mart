@@ -1,15 +1,18 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { CartItem, GiftCoupon } from '../../types'
+import type { BillDiscountMode, BillDiscountState, CartItem, GiftCoupon } from '../../types'
 import type { Customer } from '../types/customer'
 import { toast } from 'react-toastify'
 import { clearDraftInvoiceCache } from '../utils/draftInvoiceCache'
 import { updateItemPricesForCustomer, getItemPriceForCustomer, applyPricingRulesToCart } from '../services/dynamicPricing'
 
+const defaultBillDiscount: BillDiscountState = { mode: 'none', value: 0 }
+
 interface CartState {
   cartItems: CartItem[]
   appliedCoupons: GiftCoupon[]
   selectedCustomer: Customer | null
+  billDiscount: BillDiscountState
 
   // Actions
   addToCart: (item: Omit<CartItem, 'quantity'>) => Promise<void>
@@ -23,6 +26,8 @@ interface CartState {
   setSelectedCustomer: (customer: Customer | null) => Promise<void>
   updatePricesForCustomer: (customerId?: string) => Promise<void>
   applyPricingRules: () => Promise<void>
+  setBillDiscount: (mode: BillDiscountMode, value?: number) => void
+  resetBillDiscount: () => void
 }
 
 export const useCartStore = create<CartState>()(
@@ -31,6 +36,17 @@ export const useCartStore = create<CartState>()(
       cartItems: [],
       appliedCoupons: [],
       selectedCustomer: null,
+      billDiscount: { ...defaultBillDiscount },
+
+      setBillDiscount: (mode, value = 0) =>
+        set(() => ({
+          billDiscount: {
+            mode,
+            value: mode === 'none' ? 0 : Math.max(0, value),
+          },
+        })),
+
+      resetBillDiscount: () => set(() => ({ billDiscount: { ...defaultBillDiscount } })),
 
       addToCart: async (item) => {
         const state = get();
@@ -217,7 +233,8 @@ export const useCartStore = create<CartState>()(
         set(() => ({
           cartItems: [],
           appliedCoupons: [],
-          selectedCustomer: null
+          selectedCustomer: null,
+          billDiscount: { ...defaultBillDiscount },
         }));
       },
 
@@ -360,7 +377,15 @@ export const useCartStore = create<CartState>()(
       }
     }),
     {
-      name: 'beveren-cart-storage'
+      name: 'klik-pos-cart-storage',
+      merge: (persisted, current) => {
+        const p = persisted as Partial<CartState> | undefined
+        return {
+          ...current,
+          ...p,
+          billDiscount: p?.billDiscount?.mode != null ? p.billDiscount : current.billDiscount,
+        }
+      },
     }
   )
 )

@@ -115,7 +115,7 @@ export default function MobilePOSLayout({
         <div className="flex items-center justify-between pl-14 pr-4 py-3">
           <div className="flex items-center space-x-3">
             <img src="/assets/klik_pos/klik_spa/logo.jpeg" alt="R-POS" className="w-8 h-8 rounded-full object-cover" />
-            <span className="font-bold text-beveren-600 dark:text-beveren-400">R-POS</span>
+            <span className="font-bold text-brand-600 dark:text-brand-400">R-POS</span>
             {scannerOnly && (
               <div className="bg-blue-600/90 text-white px-2 py-1 rounded-md text-xs font-medium">
                 <div className="flex items-center space-x-1">
@@ -136,7 +136,7 @@ export default function MobilePOSLayout({
             </div>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-8 h-8 bg-beveren-600 rounded-full flex items-center justify-center hover:bg-beveren-700 transition-colors focus:outline-none focus:ring-2 focus:ring-beveren-300 cursor-pointer"
+              className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center hover:bg-brand-700 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
               aria-label="User menu"
               type="button"
             >
@@ -149,7 +149,7 @@ export default function MobilePOSLayout({
                 {/* User info header */}
                 <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-beveren-600 rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-10 h-10 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white font-medium text-sm">{initials}</span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -160,7 +160,7 @@ export default function MobilePOSLayout({
                           {displayName}
                         </p>
                       </div>
-                      <p className="text-xs text-beveren-600 dark:text-beveren-400 font-medium mt-1">{user?.role || "User"}</p>
+                      <p className="text-xs text-brand-600 dark:text-brand-400 font-medium mt-1">{user?.role || "User"}</p>
                     </div>
                   </div>
                 </div>
@@ -233,12 +233,12 @@ export default function MobilePOSLayout({
                 placeholder={t("SEARCH_PRODUCTS")}
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                className="w-full pl-10 pr-12 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                className="w-full pl-10 pr-12 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               />
               {onScanBarcode && (
                 <button
                   onClick={onScanBarcode}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 text-gray-400 hover:text-beveren-600 dark:hover:text-beveren-400 transition-colors focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:ring-offset-2 rounded-lg"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 rounded-lg"
                   title="Scan Barcode"
                 >
                   <Scan className="w-4 h-4" />
@@ -252,7 +252,7 @@ export default function MobilePOSLayout({
                 onClick={() => setViewMode('grid')}
                 className={`p-2 rounded-md transition-colors ${
                   viewMode === 'grid'
-                    ? 'bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm'
+                    ? 'bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 title="Grid View"
@@ -263,7 +263,7 @@ export default function MobilePOSLayout({
                 onClick={() => setViewMode('list')}
                 className={`p-2 rounded-md transition-colors ${
                   viewMode === 'list'
-                    ? 'bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm'
+                    ? 'bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 title="List View"
@@ -285,14 +285,14 @@ export default function MobilePOSLayout({
         {posLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-beveren-600 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mx-auto mb-4"></div>
               <p className="text-gray-500 dark:text-gray-400">Loading view preferences...</p>
             </div>
           </div>
         ) : isSearching ? (
           <div className="flex items-center justify-center h-32">
             <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-beveren-600"></div>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-brand-600"></div>
               <span className="text-gray-500 dark:text-gray-400">Searching...</span>
             </div>
           </div>
@@ -315,7 +315,7 @@ export default function MobilePOSLayout({
       {totalItems > 0 && (
         <button
           onClick={() => navigate('/cart')}
-          className="fixed bottom-24 right-6 bg-beveren-600 text-white rounded-full p-4 shadow-lg hover:bg-beveren-700 transition-colors z-30"
+          className="fixed bottom-24 right-6 bg-brand-600 text-white rounded-full p-4 shadow-lg hover:bg-brand-700 transition-colors z-30"
         >
           <div className="relative">
             <ShoppingCart className="w-6 h-6" />
@@ -332,10 +332,10 @@ export default function MobilePOSLayout({
         <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 px-4 py-3 z-40">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-600 dark:text-gray-400">{totalItems} items</div>
-            <div className="text-lg font-bold text-beveren-600 dark:text-beveren-400">{formatCurrency(totalAmount, posDetails?.currency || 'USD')}</div>
+            <div className="text-lg font-bold text-brand-600 dark:text-brand-400">{formatCurrency(totalAmount, posDetails?.currency || 'USD')}</div>
             <button
               onClick={() => navigate('/cart')}
-              className="bg-beveren-600 text-white px-6 py-2 rounded-lg hover:bg-beveren-700 transition-colors font-medium"
+              className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 transition-colors font-medium"
             >
               View Cart
             </button>

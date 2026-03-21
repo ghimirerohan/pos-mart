@@ -221,7 +221,7 @@ export default function RetailPOSLayout() {
                   setShowScanner(false)
                   navigate(`/items?barcode=${encodeURIComponent(barcode)}`)
                 }}
-                className="flex items-center justify-center gap-1 px-3 py-1.5 bg-beveren-600 text-white text-sm rounded-lg hover:bg-beveren-700 transition-colors"
+                className="flex items-center justify-center gap-1 px-3 py-1.5 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700 transition-colors"
               >
                 <Plus size={14} />
                 Create New Item
@@ -590,7 +590,7 @@ export default function RetailPOSLayout() {
           <p className="text-gray-600 mb-4">{getUserFriendlyError(error)}</p>
           <button
             onClick={refetch}
-            className="bg-beveren-600 text-white px-6 py-2 rounded-lg hover:bg-beveren-700 transition-colors"
+            className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Try Again
           </button>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+
+<style>
+@page {
+    size: 80mm auto;
+    margin: 4mm;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    color: #000;
+}
+
+.receipt {
+    width: 100%;
+}
+
+.center {
+    text-align: center;
+}
+
+.bold {
+    font-weight: bold;
+}
+
+.small {
+    font-size: 10px;
+}
+
+.hr {
+    border-top: 1px dashed #000;
+    margin: 6px 0;
+}
+
+.item {
+    margin-bottom: 6px;
+}
+
+.item-name {
+    font-weight: bold;
+}
+
+.item-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+}
+
+.total-line {
+    display: flex;
+    justify-content: space-between;
+    margin: 4px 0;
+}
+
+.total-line.discount-line {
+    color: #c00;
+    font-size: 10px;
+}
+
+.grand-total {
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.footer {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 10px;
+}
+
+.qr-section {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 10px;
+}
+
+.qr-box {
+    text-align: center;
+    font-size: 9px;
+}
+
+.qr-box img {
+    width: 22mm;
+    height: 22mm;
+}
+</style>
+</head>
+
+<body>
+<div class="receipt">
+
+    <!-- COMPANY HEADER -->
+    <div class="center">
+        <div class="bold" style="font-size:16px;">
+            {{ doc.company }}
+        </div>
+
+        <div class="small bold">
+            PAN No: 622397203
+        </div>
+
+        {% if doc.company_address %}
+        <div class="small">
+            {{ doc.company_address }}
+        </div>
+        {% endif %}
+
+        <div class="small">
+            {{ frappe.utils.format_datetime(doc.posting_date) }}
+        </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <!-- CUSTOMER -->
+    {% if doc.customer_name %}
+    <div>
+        <div class="bold">{{ doc.customer_name }}</div>
+        {% if doc.contact_mobile %}
+        <div class="small">{{ doc.contact_mobile }}</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="hr"></div>
+
+    <!-- ITEMS -->
+    {% for item in doc.items %}
+    <div class="item">
+        <div class="item-name">{{ item.item_name }}</div>
+        <div class="item-line">
+            <span>{{ item.qty|int }} x Rs {{ "%.2f"|format(item.rate) }}</span>
+            <span>Rs {{ "%.2f"|format(item.amount) }}</span>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="hr"></div>
+
+    <!-- TOTALS: use flt(); fallback when discount_amount is 0 in print but total > net_total -->
+    {% set _da = frappe.utils.flt(doc.discount_amount) %}
+    {% set _implied = frappe.utils.flt(doc.total) - frappe.utils.flt(doc.net_total) %}
+    {% set disc_amt = _da if _da > 0.005 else (_implied if _implied > 0.005 else 0) %}
+    {% if disc_amt > 0.005 %}
+    <div class="total-line small">
+        <span>Items total</span>
+        <span>Rs {{ "%.2f"|format(frappe.utils.flt(doc.total)) }}</span>
+    </div>
+    <div class="total-line discount-line">
+        <span>Discount{% if frappe.utils.flt(doc.additional_discount_percentage) > 0 %} ({{ frappe.utils.flt(doc.additional_discount_percentage, 2) }}%){% endif %}</span>
+        <span>- Rs {{ "%.2f"|format(disc_amt) }}</span>
+    </div>
+    {% endif %}
+
+    <div class="total-line">
+        <span>Subtotal</span>
+        <span>Rs {{ "%.2f"|format(frappe.utils.flt(doc.net_total)) }}</span>
+    </div>
+
+    {% if frappe.utils.flt(doc.total_taxes_and_charges) > 0 %}
+    <div class="total-line">
+        <span>Tax</span>
+        <span>Rs {{ "%.2f"|format(frappe.utils.flt(doc.total_taxes_and_charges)) }}</span>
+    </div>
+    {% endif %}
+
+    <div class="hr"></div>
+
+    <div class="total-line grand-total">
+        <span>Total</span>
+        <span>Rs {{ "%.2f"|format(frappe.utils.flt(doc.grand_total)) }}</span>
+    </div>
+
+    <div class="hr"></div>
+
+    <!-- PAYMENTS -->
+    {% if doc.payments %}
+    <div class="bold small">Payment Methods:</div>
+    {% for p in doc.payments %}
+    <div class="total-line small">
+        <span>{{ p.mode_of_payment }}</span>
+        <span>Rs {{ "%.2f"|format(p.amount) }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <div class="hr"></div>
+
+<hr>
+
+<div style="display:flex; justify-content:space-around; text-align:center; margin-top:12px;">
+
+    <div>
+        <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://www.tiktok.com/@nepali.mart.damak"
+            style="width:120px; height:120px;"
+        >
+        <div style="font-size:10px;">TikTok</div>
+    </div>
+
+    <div>
+        <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://www.facebook.com/share/17qWhnDsT3/"
+            style="width:120px; height:120px;"
+        >
+        <div style="font-size:10px;">Facebook</div>
+    </div>
+
+</div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        Thank you for your business!
+    </div>
+
+</div>
+</body>
+</html>

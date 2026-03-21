@@ -123,7 +123,7 @@ export default function MenuGrid({
                 onClick={() => setViewMode('grid')}
                 className={`p-2 rounded-md transition-colors ${
                   viewMode === 'grid'
-                    ? 'bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm'
+                    ? 'bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 title="Grid View"
@@ -134,7 +134,7 @@ export default function MenuGrid({
                 onClick={() => setViewMode('list')}
                 className={`p-2 rounded-md transition-colors ${
                   viewMode === 'list'
-                    ? 'bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm'
+                    ? 'bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 title="List View"
@@ -150,7 +150,7 @@ export default function MenuGrid({
             </div>
             <button
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className="w-8 h-8 bg-beveren-600 rounded-full flex items-center justify-center hover:bg-beveren-700 transition-colors focus:outline-none focus:ring-2 focus:ring-beveren-300 cursor-pointer"
+              className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center hover:bg-brand-700 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
               aria-label="User menu"
               type="button"
             >
@@ -163,7 +163,7 @@ export default function MenuGrid({
                 {/* User info header */}
                 <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-beveren-600 rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-12 h-12 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white font-medium text-base">{initials}</span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -174,7 +174,7 @@ export default function MenuGrid({
                           {displayName}
                         </p>
                       </div>
-                      {/* <p className="text-xs text-beveren-600 dark:text-beveren-400 font-medium mt-1">{userRole}</p> */}
+                      {/* <p className="text-xs text-brand-600 dark:text-brand-400 font-medium mt-1">{userRole}</p> */}
                     </div>
                   </div>
                 </div>
@@ -248,14 +248,14 @@ export default function MenuGrid({
         {posLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-beveren-600 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mx-auto mb-4"></div>
               <p className="text-gray-500 dark:text-gray-400">Loading view preferences...</p>
             </div>
           </div>
         ) : isSearching ? (
           <div className="flex items-center justify-center h-32">
             <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-beveren-600"></div>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-brand-600"></div>
               <span className="text-gray-500 dark:text-gray-400">Searching...</span>
             </div>
           </div>

@@ -15,6 +15,8 @@ export interface PaymentTransaction {
   source: TransactionSource;
   payment_mode: string;
   amount: number;
+  /** Additional discount on linked Sales Invoice (whole bill); 0 if none */
+  discount_amount?: number;
   customer: string;
   customer_id: string;
   reference: string;
@@ -27,6 +29,32 @@ export interface PaymentTransaction {
   cashier_id: string;
   is_return: boolean;
   status: string;
+}
+
+/** Sum invoice-level discounts once per Sales Invoice (split payments share the same discount). */
+export function totalDiscountDedupedForTransactions(
+  transactions: PaymentTransaction[]
+): number {
+  const byInvoice = new Map<string, number>();
+  for (const t of transactions) {
+    const d = Number(t.discount_amount) || 0;
+    if (d <= 0) continue;
+    let key: string | null = null;
+    if (t.reference_type === "Sales Invoice" && t.reference) {
+      key = t.reference;
+    } else if (t.reference_type === "Payment Entry" && t.linked_invoice) {
+      key = t.linked_invoice;
+    }
+    if (!key) continue;
+    if (!byInvoice.has(key)) {
+      byInvoice.set(key, d);
+    }
+  }
+  let sum = 0;
+  for (const v of byInvoice.values()) {
+    sum += v;
+  }
+  return sum;
 }
 
 export interface PaymentModeInBreakdown {
@@ -52,6 +80,12 @@ export interface PaymentModeSummary {
   total?: number;
 }
 
+export interface BillDiscountByCashierRow {
+  user_id: string;
+  name: string;
+  discount_total: number;
+}
+
 export interface InvoiceSummary {
   total_invoices: number;
   paid: number;
@@ -60,6 +94,8 @@ export interface InvoiceSummary {
   total_sales: number;
   total_returns: number;
   net_sales: number;
+  total_bill_discount?: number;
+  bill_discount_by_cashier?: BillDiscountByCashierRow[];
 }
 
 export interface Cashier {

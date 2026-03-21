@@ -42,7 +42,7 @@ export default function CustomerDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-300">Loading customer details...</p>
         </div>
       </div>
@@ -57,7 +57,7 @@ export default function CustomerDetailPage() {
           <p className="text-gray-600 dark:text-gray-400 mb-6">{error}</p>
           <button
             onClick={() => navigate('/customers')}
-            className="bg-beveren-600 text-white px-6 py-3 rounded-lg hover:bg-beveren-700 transition-colors"
+            className="bg-brand-600 text-white px-6 py-3 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Back to Customers
           </button>
@@ -74,7 +74,7 @@ export default function CustomerDetailPage() {
           <p className="text-gray-600 dark:text-gray-400 mb-6">The customer you're looking for doesn't exist.</p>
           <button
             onClick={() => navigate('/customers')}
-            className="bg-beveren-600 text-white px-6 py-3 rounded-lg hover:bg-beveren-700 transition-colors"
+            className="bg-brand-600 text-white px-6 py-3 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Back to Customers
           </button>
@@ -183,10 +183,10 @@ export default function CustomerDetailPage() {
           <div className="flex items-center space-x-4 mb-6">
             <button
               onClick={() => navigate('/customers')}
-              className="flex items-center space-x-2 text-gray-600 hover:text-beveren-600 dark:text-gray-300 dark:hover:text-beveren-400 transition-colors group"
+              className="flex items-center space-x-2 text-gray-600 hover:text-brand-600 dark:text-gray-300 dark:hover:text-brand-400 transition-colors group"
               type="button"
             >
-              <div className="p-2 rounded-lg bg-gray-100 group-hover:bg-beveren-50 dark:bg-gray-800 dark:group-hover:bg-beveren-900 transition-colors">
+              <div className="p-2 rounded-lg bg-gray-100 group-hover:bg-brand-50 dark:bg-gray-800 dark:group-hover:bg-brand-900 transition-colors">
                 <ArrowLeft size={20} />
               </div>
               <span className="font-medium">Back to Customers</span>
@@ -194,7 +194,7 @@ export default function CustomerDetailPage() {
           </div>
 
           {/* Customer Header Card */}
-          <div className="bg-gradient-to-r from-beveren-600 to-beveren-700 rounded-xl p-6 text-white mb-6">
+          <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-xl p-6 text-white mb-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between">
               <div className="flex items-center space-x-4">
                 <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
@@ -202,7 +202,7 @@ export default function CustomerDetailPage() {
                 </div>
                 <div>
                   <h1 className="text-3xl font-bold">{customer.name}</h1>
-                  <p className="text-beveren-100 text-lg">Customer ID: {customer.id}</p>
+                  <p className="text-brand-100 text-lg">Customer ID: {customer.id}</p>
                   <div className="flex items-center space-x-4 mt-2">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${customerTypeInfo.color}`}>
                       {customerTypeInfo.icon}
@@ -342,7 +342,7 @@ export default function CustomerDetailPage() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-beveren-600 dark:text-beveren-400">{customer.totalOrders}</p>
+                  <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{customer.totalOrders}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Total Orders</p>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 text-center">
@@ -426,7 +426,7 @@ export default function CustomerDetailPage() {
                   {customer.tags.map((tag, index) => (
                     <span
                       key={index}
-                      className="px-3 py-1 bg-beveren-100 text-beveren-700 dark:bg-beveren-900 dark:text-beveren-300 rounded-full text-sm font-medium"
+                      className="px-3 py-1 bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300 rounded-full text-sm font-medium"
                     >
                       {tag}
                     </span>

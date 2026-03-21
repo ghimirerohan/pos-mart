@@ -43,6 +43,17 @@ export default function InvoiceViewModal({
   if (error) return <div>Error loading invoice: {error}</div>;
 
   const displayInvoice = (fullInvoice || invoice) as SalesInvoice;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawInv = displayInvoice as any;
+  const billDiscountAmt = Number(
+    rawInv.discount_amount ?? displayInvoice.giftCardDiscount ?? 0
+  );
+  const billDiscountPct = Number(
+    rawInv.additional_discount_percentage ?? 0
+  );
+  const promoCode = String(rawInv.discount_code || "").trim();
+  const cashierLabel =
+    rawInv.cashier_name || displayInvoice.cashier || displayInvoice.cashier_name || "—";
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -132,7 +143,7 @@ export default function InvoiceViewModal({
                     <InfoItem
                       icon={<User />}
                       label="Cashier"
-                      value={displayInvoice.cashier}
+                      value={cashierLabel}
                     />
                     <InfoItem
                       icon={<CreditCard />}
@@ -210,10 +221,10 @@ export default function InvoiceViewModal({
 
               {/* Right Panel */}
               <div className="space-y-6">
-                {displayInvoice.giftCardCode && (
+                {promoCode && (
                   <GiftCardSection
-                    code={displayInvoice.giftCardCode}
-                    discount={displayInvoice.giftCardDiscount}
+                    code={promoCode}
+                    discount={billDiscountAmt}
                   />
                 )}
 
@@ -223,10 +234,14 @@ export default function InvoiceViewModal({
                   </h3>
                   <div className="space-y-3">
                     <SummaryRow label="Subtotal" value={Number(displayInvoice.subtotal ?? 0)} />
-                    {displayInvoice.giftCardDiscount > 0 && (
+                    {billDiscountAmt > 0 && (
                       <SummaryRow
-                        label="Gift Card Discount"
-                        value={-displayInvoice.giftCardDiscount}
+                        label={
+                          billDiscountPct > 0
+                            ? `Additional discount (${billDiscountPct}%)`
+                            : "Additional discount"
+                        }
+                        value={-billDiscountAmt}
                         color="green"
                       />
                     )}

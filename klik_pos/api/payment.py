@@ -350,12 +350,14 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 	)
 	
 	for payment in sales_payments:
+		inv_disc = abs(float(payment.get("invoice_discount_amount") or 0))
 		txn = {
 			"id": f"{payment.invoice_name}-{payment.mode_of_payment or 'Unknown'}",
 			"type": "out" if payment.is_return else "in",
 			"source": "return" if payment.is_return else "sales",
 			"payment_mode": payment.mode_of_payment or "Unknown",
 			"amount": abs(float(payment.amount or 0)),
+			"discount_amount": inv_disc,
 			"customer": payment.customer_name or payment.customer or "Unknown",
 			"customer_id": payment.customer or "",
 			"reference": payment.invoice_name or "",
@@ -403,12 +405,14 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 		else:
 			source = "partial_payment" if bool(pe.get("custom_pos_opening_entry")) else "credit_payment"
 
+		pe_inv_disc = abs(float(pe.get("invoice_discount_amount") or 0))
 		txn = {
 			"id": pe.name or "",
 			"type": "in" if pe.payment_type == "Receive" else "out",
 			"source": source,
 			"payment_mode": pe.mode_of_payment or "Unknown",
 			"amount": abs(float(pe.paid_amount or 0)),
+			"discount_amount": pe_inv_disc,
 			"customer": pe.party_name or pe.party or "Unknown",
 			"customer_id": pe.party or "",
 			"reference": pe.name or "",
@@ -438,12 +442,14 @@ def _fetch_all_payment_transactions(pos_profile, opening_entry_name, opening_dat
 	)
 	
 	for credit in credits_given:
+		credit_disc = abs(float(credit.get("invoice_discount_amount") or 0))
 		txn = {
 			"id": f"{credit.name}-credit",
 			"type": "out",
 			"source": "credit_given",
 			"payment_mode": "Credit",
 			"amount": float(credit.outstanding_amount or 0),
+			"discount_amount": credit_disc,
 			"customer": credit.customer_name or credit.customer or "Unknown",
 			"customer_id": credit.customer or "",
 			"reference": credit.name or "",
@@ -509,6 +515,7 @@ def _fetch_sales_invoice_payments(pos_profile, opening_entry_name, opening_date,
 			si.status,
 			sip.mode_of_payment,
 			sip.amount,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
 			u.full_name as cashier_name
 		FROM `tabSales Invoice` si
 		JOIN `tabSales Invoice Payment` sip ON si.name = sip.parent
@@ -577,6 +584,7 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 			TIME(pe.creation) as creation_time,
 			per.reference_name,
 			si.posting_date as reference_posting_date,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
 			u.full_name as cashier_name
 		FROM `tabPayment Entry` pe
 		LEFT JOIN `tabPayment Entry Reference` per ON pe.name = per.parent
@@ -640,6 +648,7 @@ def _fetch_credits_given(pos_profile, opening_entry_name, opening_date, is_admin
 			si.status,
 			si.outstanding_amount,
 			si.grand_total,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
 			u.full_name as cashier_name
 		FROM `tabSales Invoice` si
 		LEFT JOIN `tabUser` u ON si.owner = u.name
@@ -788,12 +797,30 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 			SUM(CASE WHEN si.status IN ('Unpaid', 'Overdue', 'Partly Paid') AND si.is_return = 0 THEN 1 ELSE 0 END) as unpaid,
 			SUM(CASE WHEN si.is_return = 1 THEN 1 ELSE 0 END) as returns,
 			SUM(CASE WHEN si.is_return = 0 THEN si.grand_total ELSE 0 END) as total_sales,
-			SUM(CASE WHEN si.is_return = 1 THEN ABS(si.grand_total) ELSE 0 END) as total_returns
+			SUM(CASE WHEN si.is_return = 1 THEN ABS(si.grand_total) ELSE 0 END) as total_returns,
+			SUM(CASE WHEN si.is_return = 0 THEN IFNULL(si.discount_amount, 0) ELSE 0 END) as total_bill_discount
 		FROM `tabSales Invoice` si
 		WHERE {base_condition}
 	"""
 	
 	result = frappe.db.sql(query, params, as_dict=True)
+
+	bill_discount_by_cashier = []
+	if user_filter == "all":
+		cashier_q = f"""
+			SELECT
+				si.owner as user_id,
+				IFNULL(u.full_name, si.owner) as name,
+				SUM(IFNULL(si.discount_amount, 0)) as discount_total
+			FROM `tabSales Invoice` si
+			LEFT JOIN `tabUser` u ON si.owner = u.name
+			WHERE {base_condition}
+				AND si.is_return = 0
+			GROUP BY si.owner, u.full_name
+			HAVING SUM(IFNULL(si.discount_amount, 0)) > 0
+			ORDER BY discount_total DESC
+		"""
+		bill_discount_by_cashier = frappe.db.sql(cashier_q, params, as_dict=True) or []
 	
 	if result and result[0]:
 		data = result[0]
@@ -804,7 +831,9 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 			"returns": int(data.returns or 0),
 			"total_sales": float(data.total_sales or 0),
 			"total_returns": float(data.total_returns or 0),
-			"net_sales": float((data.total_sales or 0) - (data.total_returns or 0))
+			"net_sales": float((data.total_sales or 0) - (data.total_returns or 0)),
+			"total_bill_discount": float(data.total_bill_discount or 0),
+			"bill_discount_by_cashier": bill_discount_by_cashier,
 		}
 	
 	return {
@@ -814,7 +843,9 @@ def _build_invoice_summary(pos_profile, opening_entry_name, opening_date, is_adm
 		"returns": 0,
 		"total_sales": 0.0,
 		"total_returns": 0.0,
-		"net_sales": 0.0
+		"net_sales": 0.0,
+		"total_bill_discount": 0.0,
+		"bill_discount_by_cashier": [],
 	}
 
 

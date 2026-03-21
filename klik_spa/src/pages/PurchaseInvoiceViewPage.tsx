@@ -173,13 +173,13 @@ export default function PurchaseInvoiceViewPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
         {/* Header */}
-        <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <button
                   onClick={handleBackClick}
-                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-beveren-200 dark:hover:bg-gray-700 rounded-lg"
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-brand-200 dark:hover:bg-gray-700 rounded-lg"
                 >
                   <ArrowLeft size={20} />
                 </button>
@@ -397,10 +397,10 @@ export default function PurchaseInvoiceViewPage() {
 
                   {/* Tax Details Section */}
                   {invoice.taxes && invoice.taxes.length > 0 && (
-                    <div className="px-6 py-4 bg-beveren-50 dark:bg-beveren-900/20 border-t border-gray-200 dark:border-gray-600">
+                    <div className="px-6 py-4 bg-brand-50 dark:bg-brand-900/20 border-t border-gray-200 dark:border-gray-600">
                       <div className="flex items-center space-x-2 mb-3">
-                        <Percent className="w-5 h-5 text-beveren-600 dark:text-beveren-400" />
-                        <h4 className="text-sm font-semibold text-beveren-900 dark:text-beveren-100">Tax Details</h4>
+                        <Percent className="w-5 h-5 text-brand-600 dark:text-brand-400" />
+                        <h4 className="text-sm font-semibold text-brand-900 dark:text-brand-100">Tax Details</h4>
                       </div>
                       <div className="space-y-2">
                         {invoice.taxes.map((tax, index) => (
@@ -408,7 +408,7 @@ export default function PurchaseInvoiceViewPage() {
                             <div className="flex items-center space-x-2">
                               <span className="text-gray-700 dark:text-gray-300">{tax.description}</span>
                               {tax.rate && (
-                                <span className="px-2 py-0.5 bg-beveren-100 dark:bg-beveren-800 text-beveren-700 dark:text-beveren-300 rounded text-xs">
+                                <span className="px-2 py-0.5 bg-brand-100 dark:bg-brand-800 text-brand-700 dark:text-brand-300 rounded text-xs">
                                   {tax.rate}%
                                 </span>
                               )}

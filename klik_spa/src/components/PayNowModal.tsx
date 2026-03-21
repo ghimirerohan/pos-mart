@@ -237,7 +237,7 @@ export default function PayNowModal({
           {isLoadingInvoice ? (
             // Loading state while fetching latest invoice data
             <div className="text-center py-8">
-              <Loader2 className="w-10 h-10 animate-spin text-beveren-600 mx-auto mb-4" />
+              <Loader2 className="w-10 h-10 animate-spin text-brand-600 mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-400">
                 Checking invoice status...
               </p>
@@ -340,7 +340,7 @@ export default function PayNowModal({
                 
                 {modesLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-beveren-600" />
+                    <Loader2 className="w-6 h-6 animate-spin text-brand-600" />
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -351,20 +351,20 @@ export default function PayNowModal({
                         disabled={isProcessing}
                         className={`flex items-center space-x-3 p-4 rounded-lg border-2 transition-all ${
                           selectedPaymentMethod === mode.mode_of_payment
-                            ? "border-beveren-500 bg-beveren-50 dark:bg-beveren-900/20"
+                            ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20"
                             : "border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500"
                         } ${isProcessing ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         <div className={`p-2 rounded-lg ${
                           selectedPaymentMethod === mode.mode_of_payment
-                            ? "bg-beveren-100 text-beveren-600 dark:bg-beveren-800 dark:text-beveren-400"
+                            ? "bg-brand-100 text-brand-600 dark:bg-brand-800 dark:text-brand-400"
                             : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
                         }`}>
                           {getPaymentMethodIcon(mode.mode_of_payment)}
                         </div>
                         <span className={`font-medium text-sm ${
                           selectedPaymentMethod === mode.mode_of_payment
-                            ? "text-beveren-700 dark:text-beveren-300"
+                            ? "text-brand-700 dark:text-brand-300"
                             : "text-gray-700 dark:text-gray-300"
                         }`}>
                           {mode.mode_of_payment}
@@ -385,7 +385,7 @@ export default function PayNowModal({
               // Already paid - show refresh button
               <button
                 onClick={handleRefreshAndClose}
-                className="w-full px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors font-medium flex items-center justify-center space-x-2"
+                className="w-full px-4 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium flex items-center justify-center space-x-2"
               >
                 <RefreshCw size={20} />
                 <span>Refresh & Close</span>
@@ -403,7 +403,7 @@ export default function PayNowModal({
                 <button
                   onClick={handlePayment}
                   disabled={isProcessing || !selectedPaymentMethod || modesLoading || currentOutstandingAmount <= 0}
-                  className="flex-1 px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  className="flex-1 px-4 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
                   {isProcessing ? (
                     <>

@@ -54,7 +54,7 @@ export default function EditDraftInvoiceDialog({
         <div className="space-y-3">
           <button
             onClick={() => onGoToCart(invoice)}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
           >
             <ShoppingCart size={20} />
             <span>Go to Cart</span>

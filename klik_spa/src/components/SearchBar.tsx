@@ -36,7 +36,7 @@ export default function SearchBar({
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyPress={onSearchKeyPress}
           placeholder={getPlaceholder()}
-          className={`flex-1 px-4 py-3 pl-12 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:border-transparent transition-all duration-200 ${
+          className={`flex-1 px-4 py-3 pl-12 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200 ${
             isFocused ? "shadow-lg" : "shadow-sm"
           }`}
           onFocus={() => setIsFocused(true)}
@@ -62,7 +62,7 @@ export default function SearchBar({
         {onScanBarcode && (
           <button
             onClick={onScanBarcode}
-            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-2 text-gray-400 hover:text-beveren-600 dark:hover:text-beveren-400 transition-colors focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:ring-offset-2 rounded-lg"
+            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-2 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 rounded-lg"
             title="Scan Barcode"
           >
             <Scan size={20} />

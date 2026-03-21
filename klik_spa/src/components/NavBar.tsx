@@ -88,7 +88,7 @@ export default function NavBar() {
                   console.log('Avatar clicked, current showUserMenu:', showUserMenu)
                   setShowUserMenu(!showUserMenu)
                 }}
-                className="w-10 h-10 bg-beveren-600 rounded-full flex items-center justify-center hover:bg-beveren-700 transition-colors focus:outline-none focus:ring-2 focus:ring-beveren-300 cursor-pointer"
+                className="w-10 h-10 bg-brand-600 rounded-full flex items-center justify-center hover:bg-brand-700 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer"
                 aria-label="User menu"
                 type="button"
               >
@@ -101,7 +101,7 @@ export default function NavBar() {
                   {/* User info header */}
                   <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                     <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-beveren-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
                         <span className="text-white font-medium text-base">{initials}</span>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -112,7 +112,7 @@ export default function NavBar() {
                             {displayName}
                           </p>
                         </div>
-                        {/* <p className="text-xs text-beveren-600 font-medium mt-1">{userRole}</p> */}
+                        {/* <p className="text-xs text-brand-600 font-medium mt-1">{userRole}</p> */}
                       </div>
                     </div>
                   </div>

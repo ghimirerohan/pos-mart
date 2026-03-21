@@ -38,8 +38,8 @@ module.exports = {
 					DEFAULT: "hsl(var(--card))",
 					foreground: "hsl(var(--card-foreground))",
 				},
-				// Beveren brand colors
-				beveren: {
+				// App brand colors
+				brand: {
 					50: "#f0f6fb",
 					100: "#e0ecf6",
 					200: "#c7dcef",
@@ -65,7 +65,7 @@ module.exports = {
 					800: "#1a4e1a",
 					900: "#174117",
 				},
-				// Blue theme (using beveren colors)
+				// Blue theme (aligned with brand palette)
 				blue: {
 					50: "#f0f6fb",
 					100: "#e0ecf6",

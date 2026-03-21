@@ -59,6 +59,8 @@ import {
 } from "../services/emailTemplateService";
 import DeliveryPersonnelModal from "./DeliveryPersonnelModal";
 import { useDeliveryPersonnel } from "../hooks/useDeliveryPersonnel";
+import { useCartStore } from "../stores/cartStore";
+import { billDiscountPayload, computeBillDiscountBreakdown } from "../utils/posDiscount";
 
 interface PaymentDialogProps {
   isOpen: boolean;
@@ -99,7 +101,7 @@ const getIconAndColor = (
   const lowerLabel = label.toLowerCase();
 
   if (lowerLabel.includes("cash")) {
-    return { icon: <Banknote size={24} />, color: "bg-beveren-600" };
+    return { icon: <Banknote size={24} />, color: "bg-brand-600" };
   }
   // Credit (as payment mode, not credit card) - use different icon
   if (lowerLabel === "credit" || lowerLabel === "credit sale") {
@@ -111,19 +113,19 @@ const getIconAndColor = (
     lowerLabel.includes("debit") ||
     lowerLabel.includes("bank")
   ) {
-    return { icon: <CreditCard size={24} />, color: "bg-beveren-600" };
+    return { icon: <CreditCard size={24} />, color: "bg-brand-600" };
   }
   if (lowerLabel.includes("phone") || lowerLabel.includes("mpesa")) {
-    return { icon: <Smartphone size={24} />, color: "bg-beveren--600" };
+    return { icon: <Smartphone size={24} />, color: "bg-brand-600" };
   }
   if (lowerLabel.includes("gift")) {
-    return { icon: <Gift size={24} />, color: "bg-beveren--600" };
+    return { icon: <Gift size={24} />, color: "bg-brand-600" };
   }
   if (lowerLabel.includes("cheque") || lowerLabel.includes("check")) {
-    return { icon: <Check size={24} />, color: "bg-beveren--600" };
+    return { icon: <Check size={24} />, color: "bg-brand-600" };
   }
 
-  return { icon: <CreditCard size={24} />, color: "bg-beveren--600" };
+  return { icon: <CreditCard size={24} />, color: "bg-brand-600" };
 };
 
 export default function PaymentDialog({
@@ -139,6 +141,7 @@ export default function PaymentDialog({
   initialSharingMode = null,
   externalInvoiceData = null,
   itemDiscounts = {},
+  totalItemDiscount = 0,
 
 }: PaymentDialogProps) {
   const [selectedSalesTaxCharges, setSelectedSalesTaxCharges] = useState("");
@@ -200,6 +203,7 @@ export default function PaymentDialog({
   const { salesTaxCharges, defaultTax } = useSalesTaxCharges();
   const { personnel: deliveryPersonnelList } = useDeliveryPersonnel();
   const navigate = useNavigate();
+  const billDiscount = useCartStore((s) => s.billDiscount);
 
   // Determine if this is B2B business type
   const isB2B = posDetails?.business_type === "B2B";
@@ -446,7 +450,13 @@ export default function PaymentDialog({
       (sum, coupon) => sum + coupon.value,
       0
     );
-    const taxableAmount = Math.max(0, subtotal - couponDiscount);
+    const discBreak = computeBillDiscountBreakdown(
+      subtotal,
+      couponDiscount,
+      billDiscount.mode,
+      billDiscount.value
+    );
+    const taxableAmount = discBreak.taxableBeforeTax;
 
     const selectedTax = salesTaxCharges.find(
       (tax) => tax.id === selectedSalesTaxCharges
@@ -472,6 +482,8 @@ export default function PaymentDialog({
     return {
       subtotal,
       couponDiscount,
+      billDiscountAmount: discBreak.billDiscountAmount,
+      totalAdditionalDiscount: discBreak.totalAdditionalDiscount,
       taxableAmount,
       taxAmount,
       grandTotal: grandTotal + roundOffAmount,
@@ -481,6 +493,8 @@ export default function PaymentDialog({
   }, [
     cartItems,
     appliedCoupons,
+    billDiscount.mode,
+    billDiscount.value,
     selectedSalesTaxCharges,
     salesTaxCharges,
     roundOffAmount,
@@ -987,6 +1001,12 @@ export default function PaymentDialog({
       isCreditSale: isCreditSale, // Send flag to backend
       isPartialPayment: isPartialPayment, // Send partial payment flag to backend
       partialPaymentAmount: isPartialPayment ? totalPaidAmount : 0, // Amount paid for partial payment
+      ...billDiscountPayload(
+        billDiscount.mode,
+        billDiscount.value,
+        calculations.couponDiscount,
+        { totalAdditionalDiscount: calculations.totalAdditionalDiscount }
+      ),
     };
 
     try {
@@ -1094,7 +1114,16 @@ export default function PaymentDialog({
     setIsHoldingOrder(true);
 
     const orderData = {
-      items: cartItems,
+      items: cartItems.map((item) => ({
+        ...item,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        price: (item as any).discountedPrice || item.price,
+        batchNumber: itemDiscounts[item.id]?.batchNumber || null,
+        serialNumber: itemDiscounts[item.id]?.serialNumber || null,
+        uom: item.uom || "Nos",
+        discountPercentage: itemDiscounts[item.id]?.discountPercentage || 0,
+        discountAmount: itemDiscounts[item.id]?.discountAmount || 0,
+      })),
       customer: selectedCustomer,
       subtotal: calculations.subtotal,
       SalesTaxCharges: selectedSalesTaxCharges,
@@ -1106,6 +1135,13 @@ export default function PaymentDialog({
       appliedCoupons,
       status: "held",
       businessType: posDetails?.business_type,
+      totalItemDiscount,
+      ...billDiscountPayload(
+        billDiscount.mode,
+        billDiscount.value,
+        calculations.couponDiscount,
+        { totalAdditionalDiscount: calculations.totalAdditionalDiscount }
+      ),
     };
 
     try {
@@ -1299,7 +1335,7 @@ export default function PaymentDialog({
                   </button>
 
                   <button
-                    className="flex items-center space-x-2 px-4 py-2 bg-green-100 dark:bg-green-900/20 text-beveren-600 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors"
+                    className="flex items-center space-x-2 px-4 py-2 bg-green-100 dark:bg-green-900/20 text-brand-600 dark:text-green-400 rounded-lg hover:bg-green-200 dark:hover:bg-green-900/30 transition-colors"
                     title="WhatsApp"
                     onClick={() => {
                       const msg = encodeURIComponent(
@@ -1357,7 +1393,7 @@ export default function PaymentDialog({
                       // Simply close the modal - no navigation needed
                       onClose(true);
                     }}
-                    className="w-full py-3 bg-beveren-600 text-white rounded-lg font-medium hover:bg-beveren-700 transition-colors"
+                    className="w-full py-3 bg-brand-600 text-white rounded-lg font-medium hover:bg-brand-700 transition-colors"
                   >
                     Start New Order
                   </button>
@@ -1382,7 +1418,7 @@ export default function PaymentDialog({
                           }
                         }}
                         disabled={invoiceSubmitted || isProcessingPayment || isPartialPayment}
-                        className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
+                        className="w-5 h-5 text-brand-600 border-gray-300 rounded focus:ring-brand-500 focus:ring-2"
                       />
                       <div>
                         <span className="text-sm font-medium text-gray-900 dark:text-white">
@@ -1452,7 +1488,7 @@ export default function PaymentDialog({
                             paymentMethods.length <= 3
                               ? "flex-1 min-w-0"
                               : "min-w-[280px] max-w-[280px] flex-shrink-0"
-                          } border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-beveren-300 transition-colors ${
+                          } border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-brand-300 transition-colors ${
                             invoiceSubmitted || isProcessingPayment
                               ? "bg-gray-50 dark:bg-gray-800"
                               : ""
@@ -1485,7 +1521,7 @@ export default function PaymentDialog({
                               }
                               placeholder="0.00"
                               disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
-                              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
+                              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
                                 invoiceSubmitted || isProcessingPayment || isCreditSale
                                   ? "cursor-not-allowed opacity-50"
                                   : ""
@@ -1522,7 +1558,7 @@ export default function PaymentDialog({
                           onChange={(e) => handleRoundOffChange(e.target.value)}
                           disabled={invoiceSubmitted || isProcessingPayment || !roundOffEnabled}
                           placeholder="-0.00"
-                          className={`flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
+                          className={`flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
                             invoiceSubmitted || isProcessingPayment || !roundOffEnabled
                               ? "cursor-not-allowed opacity-50"
                               : ""
@@ -1531,7 +1567,7 @@ export default function PaymentDialog({
                         <button
                           onClick={handleRoundOff}
                           disabled={invoiceSubmitted || isProcessingPayment || !roundOffEnabled}
-                          className={`px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors ${
+                          className={`px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors ${
                             invoiceSubmitted || isProcessingPayment || !roundOffEnabled
                               ? "cursor-not-allowed opacity-50"
                               : ""
@@ -1557,9 +1593,22 @@ export default function PaymentDialog({
                   </div>
                   {calculations.couponDiscount > 0 && (
                     <div className="flex justify-between text-green-600 dark:text-green-400">
-                      <span>Discount</span>
+                      <span>Coupon / gift discount</span>
                       <span>
                         -{formatCurrency(calculations.couponDiscount)}
+                      </span>
+                    </div>
+                  )}
+                  {calculations.billDiscountAmount > 0 && (
+                    <div className="flex justify-between text-green-600 dark:text-green-400">
+                      <span>
+                        Bill discount
+                        {billDiscount.mode === "percent"
+                          ? ` (${billDiscount.value}%)`
+                          : ""}
+                      </span>
+                      <span>
+                        -{formatCurrency(calculations.billDiscountAmount)}
                       </span>
                     </div>
                   )}
@@ -1571,7 +1620,7 @@ export default function PaymentDialog({
                     <span
                       className={`font-medium ${
                         calculations.isInclusive
-                          ? "text-beveren-600 dark:text-beveren-400"
+                          ? "text-brand-600 dark:text-brand-400"
                           : "text-gray-900 dark:text-white"
                       }`}
                     >
@@ -1607,7 +1656,7 @@ export default function PaymentDialog({
                         <span className="text-gray-600 dark:text-gray-400">
                           Total Paid
                         </span>
-                        <span className="font-medium text-beveren-600 dark:text-blue-400">
+                        <span className="font-medium text-brand-600 dark:text-blue-400">
                           {formatCurrency(totalPaidAmount)}
                         </span>
                       </div>
@@ -1624,7 +1673,7 @@ export default function PaymentDialog({
                           <span className="text-gray-600 dark:text-gray-400">
                             Change
                           </span>
-                          <span className="font-medium text-beveren-600 dark:text-beveren-400">
+                          <span className="font-medium text-brand-600 dark:text-brand-400">
                             {formatCurrency(
                               subtractCurrency(totalPaidAmount, calculations.grandTotal)
                             )}
@@ -1829,7 +1878,7 @@ export default function PaymentDialog({
                             name: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="Customer name"
                       />
                     </div>
@@ -1846,7 +1895,7 @@ export default function PaymentDialog({
                             email: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="customer@email.com"
                       />
                     </div>
@@ -1859,7 +1908,7 @@ export default function PaymentDialog({
                         <button
                           type="button"
                           onClick={() => setIsEditingEmail(!isEditingEmail)}
-                          className="text-sm text-beveren-600 hover:text-beveren-700 dark:text-beveren-400 dark:hover:text-beveren-300 font-medium"
+                          className="text-sm text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium"
                         >
                           {isEditingEmail ? (
       <Check className="w-4 h-4" />
@@ -1884,7 +1933,7 @@ export default function PaymentDialog({
                               <select
                                 value={selectedEmailTemplate?.name || ""}
                                 onChange={(e) => handleEmailTemplateChange(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                               >
                                 <option value="">Select a template (optional)</option>
                                 {emailTemplates.map((template) => {
@@ -1906,7 +1955,7 @@ export default function PaymentDialog({
                             <textarea
                               value={emailMessage}
                               onChange={(e) => setEmailMessage(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                               rows={6}
                               placeholder="Enter your email message..."
                             />
@@ -1970,7 +2019,7 @@ export default function PaymentDialog({
                             name: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="Customer name"
                       />
                     </div>
@@ -1987,7 +2036,7 @@ export default function PaymentDialog({
                             phone: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="+254700000000"
                       />
                     </div>
@@ -1999,7 +2048,7 @@ export default function PaymentDialog({
                         <button
                           type="button"
                           onClick={() => setIsEditingWhatsapp(!isEditingWhatsapp)}
-                          className="text-sm text-beveren-600 hover:text-beveren-700 dark:text-beveren-400 dark:hover:text-beveren-300 font-medium"
+                          className="text-sm text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 font-medium"
                         >
                           {isEditingWhatsapp ? (
       <Check className="w-4 h-4" />
@@ -2024,7 +2073,7 @@ export default function PaymentDialog({
                               <select
                                 value={selectedTemplate?.name || ""}
                                 onChange={(e) => handleTemplateChange(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                               >
                                 <option value="">Select a template (optional)</option>
                                 {whatsappTemplates.map((template) => {
@@ -2046,7 +2095,7 @@ export default function PaymentDialog({
                             <textarea
                               value={customMessage}
                               onChange={(e) => setCustomMessage(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                               rows={4}
                               placeholder="Enter your WhatsApp message..."
                             />
@@ -2107,7 +2156,7 @@ export default function PaymentDialog({
                             name: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="Customer name"
                       />
                     </div>
@@ -2124,7 +2173,7 @@ export default function PaymentDialog({
                             phone: e.target.value,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                         placeholder="+254700000000"
                       />
                     </div>
@@ -2190,7 +2239,7 @@ export default function PaymentDialog({
                           }
                         }}
                         disabled={invoiceSubmitted || isProcessingPayment || isPartialPayment}
-                        className="w-5 h-5 text-beveren-600 border-gray-300 rounded focus:ring-beveren-500 focus:ring-2"
+                        className="w-5 h-5 text-brand-600 border-gray-300 rounded focus:ring-brand-500 focus:ring-2"
                       />
                       <div>
                         <span className="text-sm font-medium text-gray-900 dark:text-white">
@@ -2262,7 +2311,7 @@ export default function PaymentDialog({
                           paymentMethods.length <= 3
                             ? "flex-1 min-w-0"
                             : "min-w-[300px] flex-shrink-0"
-                        } border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-beveren-300 transition-colors ${
+                        } border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-brand-300 transition-colors ${
                           invoiceSubmitted || isProcessingPayment
                             ? "bg-gray-50 dark:bg-gray-800"
                             : ""
@@ -2292,7 +2341,7 @@ export default function PaymentDialog({
                                 className={`p-1 rounded text-xs ${
                                   invoiceSubmitted || isProcessingPayment
                                     ? "cursor-not-allowed opacity-50"
-                                    : "hover:bg-beveren-100 text-beveren-600"
+                                    : "hover:bg-brand-100 text-brand-600"
                                 }`}
                                 title="Auto-fill with grand total"
                               >
@@ -2327,7 +2376,7 @@ export default function PaymentDialog({
                             }}
                             placeholder="0.00"
                             disabled={invoiceSubmitted || isProcessingPayment || isCreditSale}
-                            className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm ${
+                            className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm ${
                               invoiceSubmitted || isProcessingPayment || isCreditSale
                                 ? "cursor-not-allowed opacity-50"
                                 : ""
@@ -2361,7 +2410,7 @@ export default function PaymentDialog({
                         value={selectedSalesTaxCharges}
                         onChange={(e) => handleSalesTaxChange(e.target.value)}
                         disabled={invoiceSubmitted || isProcessingPayment}
-                        className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
+                        className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
                           invoiceSubmitted || isProcessingPayment
                             ? "cursor-not-allowed opacity-50"
                             : ""
@@ -2414,7 +2463,7 @@ export default function PaymentDialog({
                             }
                             disabled={invoiceSubmitted || isProcessingPayment || !roundOffEnabled}
                             placeholder="-0.00"
-                            className={`flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
+                            className={`flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white ${
                               invoiceSubmitted || isProcessingPayment
                                 ? "cursor-not-allowed opacity-50"
                                 : ""
@@ -2423,7 +2472,7 @@ export default function PaymentDialog({
                           <button
                             onClick={handleRoundOff}
                             disabled={invoiceSubmitted || isProcessingPayment || !roundOffEnabled}
-                            className={`px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors ${
+                            className={`px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors ${
                               invoiceSubmitted || isProcessingPayment || !roundOffEnabled
                                 ? "cursor-not-allowed opacity-50"
                                 : ""
@@ -2447,9 +2496,22 @@ export default function PaymentDialog({
                       </div>
                       {calculations.couponDiscount > 0 && (
                         <div className="flex justify-between text-green-600 dark:text-green-400">
-                          <span>Coupon Discount</span>
+                          <span>Coupon / gift discount</span>
                           <span>
                             -{formatCurrency(calculations.couponDiscount)}
+                          </span>
+                        </div>
+                      )}
+                      {calculations.billDiscountAmount > 0 && (
+                        <div className="flex justify-between text-green-600 dark:text-green-400">
+                          <span>
+                            Bill discount
+                            {billDiscount.mode === "percent"
+                              ? ` (${billDiscount.value}%)`
+                              : ""}
+                          </span>
+                          <span>
+                            -{formatCurrency(calculations.billDiscountAmount)}
                           </span>
                         </div>
                       )}
@@ -2675,9 +2737,22 @@ export default function PaymentDialog({
                   </div>
                   {calculations.couponDiscount > 0 && (
                     <div className="flex justify-between text-green-600 dark:text-green-400">
-                      <span>Discount</span>
+                      <span>Coupon / gift discount</span>
                       <span>
                         -{formatCurrency(calculations.couponDiscount)}
+                      </span>
+                    </div>
+                  )}
+                  {calculations.billDiscountAmount > 0 && (
+                    <div className="flex justify-between text-green-600 dark:text-green-400">
+                      <span>
+                        Bill discount
+                        {billDiscount.mode === "percent"
+                          ? ` (${billDiscount.value}%)`
+                          : ""}
+                      </span>
+                      <span>
+                        -{formatCurrency(calculations.billDiscountAmount)}
                       </span>
                     </div>
                   )}
@@ -2904,7 +2979,7 @@ export default function PaymentDialog({
                 {invoiceSubmitted && (
                   <button
                     onClick={() => onClose(true)}
-                    className="bg-beveren-500 px-6 py-2 border border-gray-300 dark:border-gray-600 text-white dark:text-gray-300 rounded-lg font-medium hover:bg-green-700 dark:hover:bg-gray-800 transition-colors"
+                    className="bg-brand-500 px-6 py-2 border border-gray-300 dark:border-gray-600 text-white dark:text-gray-300 rounded-lg font-medium hover:bg-green-700 dark:hover:bg-gray-800 transition-colors"
                   >
                     New Order
                   </button>
@@ -2974,8 +3049,8 @@ export default function PaymentDialog({
                   disabled={isActionButtonDisabled()}
                   className={`px-8 py-2 rounded-lg font-semibold disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2 ${
                     isB2B
-                      ? "bg-beveren-500 hover:bg-blue-700 text-white"
-                      : "bg-beveren-600 hover:bg-beveren-700 text-white"
+                      ? "bg-brand-500 hover:bg-blue-700 text-white"
+                      : "bg-brand-600 hover:bg-brand-700 text-white"
                   }`}
                 >
                   {isProcessingPayment ? (

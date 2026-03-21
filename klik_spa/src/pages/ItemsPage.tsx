@@ -958,7 +958,7 @@ export default function ItemsPage() {
               </button>
             )}
             <div className="flex items-center space-x-2">
-              <Package className={showInactiveOnly ? "text-amber-600" : "text-beveren-600"} size={24} />
+              <Package className={showInactiveOnly ? "text-amber-600" : "text-brand-600"} size={24} />
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 {view === 'list' 
                   ? (showInactiveOnly ? 'Inactive Items' : 'Items')
@@ -1013,7 +1013,7 @@ export default function ItemsPage() {
               {/* Add Item Button */}
               <button
                 onClick={() => setView('add')}
-                className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
               >
                 <Plus size={18} />
                 <span>Add Item</span>
@@ -1050,7 +1050,7 @@ export default function ItemsPage() {
                 refetchProducts()
               }}
               disabled={isLoading}
-              className="flex items-center space-x-2 text-beveren-600 hover:text-beveren-700"
+              className="flex items-center space-x-2 text-brand-600 hover:text-brand-700"
             >
               <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
               <span>Refresh</span>
@@ -1078,7 +1078,7 @@ export default function ItemsPage() {
                   <p>Please log in to view items</p>
                   <button
                     onClick={() => navigate('/login')}
-                    className="mt-4 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700"
+                    className="mt-4 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
                   >
                     Go to Login
                   </button>
@@ -1089,7 +1089,7 @@ export default function ItemsPage() {
                   <p className="text-red-600">{productsError}</p>
                   <button
                     onClick={refetchProducts}
-                    className="mt-4 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700"
+                    className="mt-4 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
                   >
                     Try Again
                   </button>
@@ -1117,7 +1117,7 @@ export default function ItemsPage() {
                       className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
                         isInactive
                           ? 'bg-gray-100 dark:bg-gray-800/70 border-gray-300 dark:border-gray-600 opacity-90 hover:opacity-100 hover:border-amber-400'
-                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-beveren-500 hover:shadow-lg'
+                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-brand-500 hover:shadow-lg'
                       }`}
                     >
                       {/* Top Section - Image and Info */}
@@ -1232,7 +1232,7 @@ export default function ItemsPage() {
             {/* Barcode Section */}
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                <Barcode size={20} className="mr-2 text-beveren-600" />
+                <Barcode size={20} className="mr-2 text-brand-600" />
                 Barcode
               </h2>
               
@@ -1250,7 +1250,7 @@ export default function ItemsPage() {
                     setBarcodeError(null)
                     setBarcodeLookupStatus('idle')
                   }}
-                  className="w-4 h-4 text-beveren-600 rounded"
+                  className="w-4 h-4 text-brand-600 rounded"
                 />
                 <span className="text-sm text-gray-600 dark:text-gray-400">
                   Auto Generate (unique SKU-standard barcode)
@@ -1286,16 +1286,16 @@ export default function ItemsPage() {
                       title="Lookup product info online"
                     >
                       {isLookingUpBarcode ? (
-                        <Loader2 size={20} className="animate-spin text-beveren-600" />
+                        <Loader2 size={20} className="animate-spin text-brand-600" />
                       ) : (
-                        <Globe size={20} className="text-beveren-600" />
+                        <Globe size={20} className="text-brand-600" />
                       )}
                     </button>
                     {/* Camera scanner */}
                     <button
                       type="button"
                       onClick={() => setShowScanner(true)}
-                      className="px-4 py-3 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                      className="px-4 py-3 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
                     >
                       <Camera size={20} />
                     </button>
@@ -1358,7 +1358,7 @@ export default function ItemsPage() {
             {/* Item Image Section */}
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                <ImagePlus size={20} className="mr-2 text-beveren-600" />
+                <ImagePlus size={20} className="mr-2 text-brand-600" />
                 Item Image (Optional)
               </h2>
               
@@ -1379,7 +1379,7 @@ export default function ItemsPage() {
                     </button>
                   </div>
                 ) : (
-                  <label className="w-40 h-40 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-beveren-500 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                  <label className="w-40 h-40 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-brand-500 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     {isOptimizingImage ? (
                       <div className="flex flex-col items-center text-gray-400">
                         <Loader2 size={32} className="animate-spin mb-2" />
@@ -1441,7 +1441,7 @@ export default function ItemsPage() {
                         type="checkbox"
                         checked={form.itemCodeAuto}
                         onChange={(e) => setForm(prev => ({ ...prev, itemCodeAuto: e.target.checked }))}
-                        className="w-4 h-4 text-beveren-600 rounded"
+                        className="w-4 h-4 text-brand-600 rounded"
                       />
                       <span className="text-sm text-gray-600 dark:text-gray-400">Auto Generate</span>
                     </label>
@@ -1507,7 +1507,7 @@ export default function ItemsPage() {
                     <button
                       type="button"
                       onClick={addUOMConversion}
-                      className="text-beveren-600 hover:text-beveren-700 text-sm flex items-center"
+                      className="text-brand-600 hover:text-brand-700 text-sm flex items-center"
                     >
                       <Plus size={16} className="mr-1" />
                       Add
@@ -1562,7 +1562,7 @@ export default function ItemsPage() {
                     type="checkbox"
                     checked={form.hasBatch}
                     onChange={(e) => setForm(prev => ({ ...prev, hasBatch: e.target.checked }))}
-                    className="w-5 h-5 text-beveren-600 rounded"
+                    className="w-5 h-5 text-brand-600 rounded"
                   />
                   <span className="text-gray-700 dark:text-gray-300">Enable Batch Tracking</span>
                 </label>
@@ -1576,7 +1576,7 @@ export default function ItemsPage() {
                           type="checkbox"
                           checked={form.batchAuto}
                           onChange={(e) => setForm(prev => ({ ...prev, batchAuto: e.target.checked }))}
-                          className="w-4 h-4 text-beveren-600 rounded"
+                          className="w-4 h-4 text-brand-600 rounded"
                         />
                         <span className="text-sm text-gray-600 dark:text-gray-400">Auto Generate Batch Number</span>
                       </label>
@@ -1606,7 +1606,7 @@ export default function ItemsPage() {
                             name="expiryType"
                             checked={form.expiryType === 'months'}
                             onChange={() => setForm(prev => ({ ...prev, expiryType: 'months', bestBefore: '' }))}
-                            className="w-4 h-4 text-beveren-600"
+                            className="w-4 h-4 text-brand-600"
                           />
                           <span className="text-sm text-gray-600 dark:text-gray-400">Shelf Life (Months)</span>
                         </label>
@@ -1616,7 +1616,7 @@ export default function ItemsPage() {
                             name="expiryType"
                             checked={form.expiryType === 'date'}
                             onChange={() => setForm(prev => ({ ...prev, expiryType: 'date', shelfLifeMonths: 0 }))}
-                            className="w-4 h-4 text-beveren-600"
+                            className="w-4 h-4 text-brand-600"
                           />
                           <span className="text-sm text-gray-600 dark:text-gray-400">Expiry Date</span>
                         </label>
@@ -1727,7 +1727,7 @@ export default function ItemsPage() {
               className={`w-full py-4 rounded-lg font-semibold text-white flex items-center justify-center space-x-2 transition-colors ${
                 isSubmitting || barcodeError
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-beveren-600 hover:bg-beveren-700'
+                  : 'bg-brand-600 hover:bg-brand-700'
               }`}
             >
               {isSubmitting ? (

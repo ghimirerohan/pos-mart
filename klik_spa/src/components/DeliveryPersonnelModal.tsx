@@ -108,7 +108,7 @@ export default function DeliveryPersonnelModal({
         <div className="p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 size={24} className="animate-spin text-beveren-600" />
+              <Loader2 size={24} className="animate-spin text-brand-600" />
               <span className="ml-2 text-gray-600 dark:text-gray-400">Loading...</span>
             </div>
           ) : error ? (
@@ -131,7 +131,7 @@ export default function DeliveryPersonnelModal({
                   onChange={(e) => handleInputChange(e.target.value)}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  className="w-full pl-10 pr-10 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                  className="w-full pl-10 pr-10 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   autoFocus
                 />
                 <ChevronDown
@@ -154,7 +154,7 @@ export default function DeliveryPersonnelModal({
                           onClick={() => handleSelect(person.name, person.delivery_personnel)}
                           className={`w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
                             selectedPersonnel === person.name
-                              ? "bg-beveren-50 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400"
+                              ? "bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400"
                               : "text-gray-900 dark:text-white"
                           }`}
                         >
@@ -184,7 +184,7 @@ export default function DeliveryPersonnelModal({
           <button
             onClick={handleConfirm}
             disabled={!selectedPersonnel || loading}
-            className="px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
           >
             Confirm
           </button>

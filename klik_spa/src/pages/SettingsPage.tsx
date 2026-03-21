@@ -54,13 +54,13 @@ export default function SettingsPage() {
   const renderProfileSettings = () => (
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
-        <div className="w-20 h-20 bg-beveren-600 rounded-full flex items-center justify-center">
+        <div className="w-20 h-20 bg-brand-600 rounded-full flex items-center justify-center">
           <span className="text-white font-bold text-2xl">NS</span>
         </div>
         <div>
           <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Nick Szabo</h3>
           <p className="text-gray-600 dark:text-gray-400">Store Manager</p>
-          <p className="text-sm text-gray-500 dark:text-gray-500">nick.szabo@beveren.com</p>
+          <p className="text-sm text-gray-500 dark:text-gray-500">user@example.com</p>
         </div>
       </div>
 
@@ -70,15 +70,15 @@ export default function SettingsPage() {
           <input
             type="text"
             defaultValue="Nick Szabo"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
           <input
             type="email"
-            defaultValue="nick.szabo@beveren.com"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            defaultValue="user@example.com"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
         <div>
@@ -86,12 +86,12 @@ export default function SettingsPage() {
           <input
             type="tel"
             defaultValue="+1 (555) 123-4567"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Role</label>
-          <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+          <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
             <option>Store Manager</option>
             <option>Cashier</option>
             <option>Administrator</option>
@@ -110,7 +110,7 @@ export default function SettingsPage() {
             onClick={() => setTheme("light")}
             className={`p-4 rounded-lg border-2 transition-colors ${
               theme === "light"
-                ? "border-beveren-500 bg-beveren-50 dark:bg-beveren-900"
+                ? "border-brand-500 bg-brand-50 dark:bg-brand-900"
                 : "border-gray-300 dark:border-gray-600 hover:border-gray-400"
             }`}
           >
@@ -121,7 +121,7 @@ export default function SettingsPage() {
             onClick={() => setTheme("dark")}
             className={`p-4 rounded-lg border-2 transition-colors ${
               theme === "dark"
-                ? "border-beveren-500 bg-beveren-50 dark:bg-beveren-900"
+                ? "border-brand-500 bg-brand-50 dark:bg-brand-900"
                 : "border-gray-300 dark:border-gray-600 hover:border-gray-400"
             }`}
           >
@@ -143,7 +143,7 @@ export default function SettingsPage() {
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             >
               <option value="en">English</option>
               <option value="ar">العربية (Arabic)</option>
@@ -151,7 +151,7 @@ export default function SettingsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Currency</label>
-            <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+            <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
               <option>USD ($)</option>
               <option>SAR (ر.س)</option>
               <option>EUR (€)</option>
@@ -169,13 +169,13 @@ export default function SettingsPage() {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Store Name</label>
           <input
             type="text"
-            defaultValue="Beveren Store"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            defaultValue="My Store"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Timezone</label>
-          <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+          <select className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
             <option>UTC-5 (Eastern Time)</option>
             <option>UTC+3 (Saudi Arabia)</option>
             <option>UTC+0 (GMT)</option>
@@ -186,7 +186,7 @@ export default function SettingsPage() {
           <input
             type="text"
             defaultValue="Thank you for shopping with us!"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           />
         </div>
       </div>
@@ -200,7 +200,7 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-gray-700 dark:text-gray-300">Auto-print receipts</span>
-            <button className="w-12 h-6 bg-beveren-600 rounded-full relative">
+            <button className="w-12 h-6 bg-brand-600 rounded-full relative">
               <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
             </button>
           </div>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
               className="flex items-center justify-between p-3 border border-gray-300 dark:border-gray-600 rounded-lg"
             >
               <span className="text-gray-700 dark:text-gray-300">{method}</span>
-              <button className="w-12 h-6 bg-beveren-600 rounded-full relative">
+              <button className="w-12 h-6 bg-brand-600 rounded-full relative">
                 <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
               </button>
             </div>
@@ -242,7 +242,7 @@ export default function SettingsPage() {
               className="flex items-center justify-between p-3 border border-gray-300 dark:border-gray-600 rounded-lg"
             >
               <span className="text-gray-700 dark:text-gray-300">{notification}</span>
-              <button className="w-12 h-6 bg-beveren-600 rounded-full relative">
+              <button className="w-12 h-6 bg-brand-600 rounded-full relative">
                 <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
               </button>
             </div>
@@ -300,7 +300,7 @@ export default function SettingsPage() {
               <div className="font-medium text-gray-900 dark:text-white">Automatic Backup</div>
               <div className="text-sm text-gray-500 dark:text-gray-400">Daily backup to cloud storage</div>
             </div>
-            <button className="w-12 h-6 bg-beveren-600 rounded-full relative">
+            <button className="w-12 h-6 bg-brand-600 rounded-full relative">
               <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
             </button>
           </div>
@@ -441,7 +441,7 @@ export default function SettingsPage() {
                     onClick={() => setActiveSection(section.id)}
                     className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
                       activeSection === section.id
-                        ? "bg-beveren-50 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400"
+                        ? "bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400"
                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
@@ -467,7 +467,7 @@ export default function SettingsPage() {
                   <button className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     Cancel
                   </button>
-                  <button className="px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors">
+                  <button className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
                     Save Changes
                   </button>
                 </div>

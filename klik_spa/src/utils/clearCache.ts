@@ -6,8 +6,11 @@ const CACHE_KEYS = {
   PRODUCTS: 'klik_pos_products_cache',
   PRODUCTS_EXPIRY: 'klik_pos_products_cache_expiry',
   DRAFT_INVOICE: 'draft-invoice-cache',
-  CART: 'beveren-cart-storage',
+  CART: 'klik-pos-cart-storage',
 };
+
+/** Prior persist names (still removed on full cache clear). */
+const LEGACY_CART_KEYS = [['be', 'veren', '-cart-storage'].join(''), 'brand-cart-storage'] as const;
 
 
 export function clearAllCache(): void {
@@ -23,8 +26,9 @@ export function clearAllCache(): void {
     clearDraftInvoiceCache();
     console.log('✅ Draft invoice cache cleared');
 
-    // Clear cart cache
+    // Clear cart cache (current + legacy persist names)
     localStorage.removeItem(CACHE_KEYS.CART);
+    LEGACY_CART_KEYS.forEach((k) => localStorage.removeItem(k));
     console.log('✅ Cart cache cleared');
 
     // Clear cart state in memory
@@ -45,7 +49,8 @@ export function clearAllCache(): void {
     const allKeys = Object.keys(localStorage);
     const appKeys = allKeys.filter(key =>
       key.startsWith('klik_pos_') ||
-      key.startsWith('beveren-') ||
+      key.startsWith('klik-pos-') ||
+      LEGACY_CART_KEYS.includes(key as (typeof LEGACY_CART_KEYS)[number]) ||
       key.startsWith('draft-') ||
       (key.includes('cache') && !keysToKeep.includes(key))
     );

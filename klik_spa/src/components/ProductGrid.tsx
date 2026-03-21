@@ -70,7 +70,7 @@ export default function ProductGrid({
           <div ref={loadMoreRef} className="py-4 flex justify-center">
             {isLoadingMore && (
               <div className="flex items-center space-x-2">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-beveren-600"></div>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-brand-600"></div>
                 <span className="text-gray-500 dark:text-gray-400 text-sm">Loading more items...</span>
               </div>
             )}
@@ -122,7 +122,7 @@ export default function ProductGrid({
         <div ref={loadMoreRef} className="py-6 flex justify-center">
           {isLoadingMore && (
             <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-beveren-600"></div>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-brand-600"></div>
               <span className="text-gray-500 dark:text-gray-400 text-sm">Loading more items...</span>
             </div>
           )}

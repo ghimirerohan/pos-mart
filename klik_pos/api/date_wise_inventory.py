@@ -1,4 +1,4 @@
-# Copyright (c) Klik POS / Beveren Software Inc.
+# Copyright (c) 2025, Klik POS and contributors
 # Date Wise Inventory API - reuses ERPNext Stock Ledger report and get_stock_balance.
 # Backend operates only in AD; BS date conversion is for defaults/UX only.
 

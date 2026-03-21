@@ -82,7 +82,7 @@ export default function ProductLineView({ items, onAddToCart, isMobile = false, 
 
                 {/* Rate */}
                 <div className={`${isMobile ? "col-span-2" : "col-span-2"} flex items-center justify-center`}>
-                  <span className={`font-semibold text-beveren-600 dark:text-beveren-400 ${isMobile ? "text-xs" : "text-sm"}`}>
+                  <span className={`font-semibold text-brand-600 dark:text-brand-400 ${isMobile ? "text-xs" : "text-sm"}`}>
                     {formattedPrice}
                   </span>
                 </div>

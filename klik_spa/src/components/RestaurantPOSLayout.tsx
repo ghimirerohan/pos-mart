@@ -171,7 +171,7 @@ export default function RetailPOSLayout() {
           <p className="text-gray-600 mb-4">{error}</p>
           <button
             onClick={refetch}
-            className="bg-beveren-600 text-white px-6 py-2 rounded-lg hover:bg-beveren-700 transition-colors"
+            className="bg-brand-600 text-white px-6 py-2 rounded-lg hover:bg-brand-700 transition-colors"
           >
             Try Again
           </button>

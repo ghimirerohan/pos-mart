@@ -531,7 +531,7 @@ export default function AddCustomerModal({
                         key={type.value}
                         className={`relative flex flex-col items-center p-4 border-2 rounded-lg cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-700 ${
                           formData.customer_type === type.value
-                            ? "border-beveren-500 bg-beveren-50 dark:bg-beveren-900/20"
+                            ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20"
                             : "border-gray-200 dark:border-gray-600"
                         }`}
                       >
@@ -553,14 +553,14 @@ export default function AddCustomerModal({
                           size={24}
                           className={`mb-2 ${
                             formData.customer_type === type.value
-                              ? "text-beveren-600"
+                              ? "text-brand-600"
                               : "text-gray-400"
                           }`}
                         />
                         <span
                           className={`font-medium text-sm ${
                             formData.customer_type === type.value
-                              ? "text-beveren-900 dark:text-beveren-100"
+                              ? "text-brand-900 dark:text-brand-100"
                               : "text-gray-900 dark:text-white"
                           }`}
                         >
@@ -569,7 +569,7 @@ export default function AddCustomerModal({
                         <span
                           className={`text-xs text-center mt-1 ${
                             formData.customer_type === type.value
-                              ? "text-beveren-700 dark:text-beveren-300"
+                              ? "text-brand-700 dark:text-brand-300"
                               : "text-gray-500 dark:text-gray-400"
                           }`}
                         >
@@ -586,21 +586,21 @@ export default function AddCustomerModal({
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                   Customer Type
                 </h3>
-                <div className="bg-beveren-50 dark:bg-beveren-900/20 border-2 border-beveren-500 rounded-lg p-4">
+                <div className="bg-brand-50 dark:bg-brand-900/20 border-2 border-brand-500 rounded-lg p-4">
                   <div className="flex items-center">
                     {formData.customer_type === "company" ? (
-                      <Building size={24} className="text-beveren-600 mr-3" />
+                      <Building size={24} className="text-brand-600 mr-3" />
                     ) : (
-                      <User size={24} className="text-beveren-600 mr-3" />
+                      <User size={24} className="text-brand-600 mr-3" />
                     )}
                     <div>
-                      <span className="font-medium text-beveren-900 dark:text-beveren-100">
+                      <span className="font-medium text-brand-900 dark:text-brand-100">
                         {formData.customer_type === "company"
                           ? "Company"
                           : "Individual"}{" "}
                         Customer
                       </span>
-                      <p className="text-sm text-beveren-700 dark:text-beveren-300 mt-1">
+                      <p className="text-sm text-brand-700 dark:text-brand-300 mt-1">
                         {formData.customer_type === "company"
                           ? "Business customer (B2B)"
                           : "Personal customer (B2C)"}
@@ -634,7 +634,7 @@ export default function AddCustomerModal({
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, name: e.target.value }))
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                       errors.name ? "border-red-500" : "border-gray-300"
                     }`}
                     placeholder="Enter full name"
@@ -662,7 +662,7 @@ export default function AddCustomerModal({
                           address: { ...prev.address, country: e.target.value },
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                       placeholder="Select country"
                     />
                     <datalist id="country-list">
@@ -687,7 +687,7 @@ export default function AddCustomerModal({
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, customer_group: e.target.value }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                     disabled={loadingGroups}
                   >
                     {loadingGroups ? (
@@ -716,7 +716,7 @@ export default function AddCustomerModal({
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, territory: e.target.value }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                     disabled={loadingTerritories}
                   >
                     <option value="All Territories">All Territories</option>
@@ -763,7 +763,7 @@ export default function AddCustomerModal({
                           email: e.target.value,
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                         errors.email || errors.contact
                           ? "border-red-500"
                           : "border-gray-300"
@@ -794,7 +794,7 @@ export default function AddCustomerModal({
                         onChange={(value: string | undefined) =>
                           setFormData((prev) => ({ ...prev, phone: value || "" }))
                         }
-                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                           errors.phone ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                         }`}
                       />
@@ -843,7 +843,7 @@ export default function AddCustomerModal({
                           contactName: e.target.value,
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                         errors.contactName ? "border-red-500" : "border-gray-300"
                       }`}
                       placeholder="Enter contact person name"
@@ -870,7 +870,7 @@ export default function AddCustomerModal({
                           email: e.target.value,
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                         errors.email || errors.contact
                           ? "border-red-500"
                           : "border-gray-300"
@@ -902,7 +902,7 @@ export default function AddCustomerModal({
                     onChange={(value: string | undefined) =>
                       setFormData((prev) => ({ ...prev, phone: value || "" }))
                     }
-                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                       errors.phone ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                     }`}
                   />
@@ -942,7 +942,7 @@ export default function AddCustomerModal({
                             .value as Customer["preferredPaymentMethod"],
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                     >
                       {paymentMethods.map((method) => (
                         <option key={method.value} value={method.value}>
@@ -969,7 +969,7 @@ export default function AddCustomerModal({
                           vatNumber: e.target.value,
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                         errors.vatOrRegistration
                           ? "border-red-500"
                           : "border-gray-300"
@@ -994,7 +994,7 @@ export default function AddCustomerModal({
                           registrationScheme: e.target.value,
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                     >
                       <option value="">Select Registration Scheme</option>
                       {registrationSchemes.map((scheme) => (
@@ -1023,7 +1023,7 @@ export default function AddCustomerModal({
                           registrationNumber: e.target.value,
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white ${
                         errors.registrationNumber || errors.vatOrRegistration
                           ? "border-red-500"
                           : "border-gray-300"
@@ -1093,7 +1093,7 @@ export default function AddCustomerModal({
                         },
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                   >
                     {addressTypes.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -1127,7 +1127,7 @@ export default function AddCustomerModal({
                           },
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                         errors.street ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                       }`}
                       placeholder="Enter street address"
@@ -1162,7 +1162,7 @@ export default function AddCustomerModal({
                           }));
                         }
                       }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                         errors.buildingNumber ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                       }`}
                       placeholder="1234"
@@ -1198,7 +1198,7 @@ export default function AddCustomerModal({
                           },
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                         errors.city ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                       }`}
                       placeholder="Enter city"
@@ -1230,7 +1230,7 @@ export default function AddCustomerModal({
                           },
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                         errors.state ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                       }`}
                       placeholder="Enter state/province"
@@ -1265,7 +1265,7 @@ export default function AddCustomerModal({
                           },
                         }))
                       }
-                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white ${
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white ${
                         errors.zipCode ? "border-red-500" : "border-gray-300 dark:border-gray-600"
                       }`}
                       placeholder="Enter zip code"
@@ -1295,7 +1295,7 @@ export default function AddCustomerModal({
                           },
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 dark:bg-gray-700 dark:text-white"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-gray-700 dark:text-white"
                       placeholder="Select country"
                     />
                     <datalist id="country-list">

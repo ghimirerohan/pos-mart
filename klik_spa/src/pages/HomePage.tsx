@@ -19,11 +19,11 @@ export default function HomePage() {
 
   // Show loading spinner while checking authentication
   return (
-    <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 flex items-center justify-center">
       <div className="text-center">
-        <div className="text-2xl font-bold text-beveren-700 mb-4">R-POS</div>
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-beveren-700 mx-auto"></div>
-        <p className="text-beveren-600 mt-4">Loading...</p>
+        <div className="text-2xl font-bold text-brand-700 mb-4">R-POS</div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-700 mx-auto"></div>
+        <p className="text-brand-600 mt-4">Loading...</p>
       </div>
     </div>
   )

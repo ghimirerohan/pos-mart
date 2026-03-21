@@ -359,21 +359,21 @@ export default function DateWiseInventoryPage() {
 
   if (userInfoLoading || !userInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-beveren-600" />
+      <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600" />
       </div>
     );
   }
 
   if (!canAccess) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <p className="text-gray-700 dark:text-gray-300 mb-4">You do not have permission to view Date Wise Inventory.</p>
           <button
             type="button"
             onClick={() => navigate("/pos")}
-            className="px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700"
+            className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700"
           >
             Back to POS
           </button>
@@ -391,10 +391,10 @@ export default function DateWiseInventoryPage() {
     "w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-sm";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 dark:from-gray-900 dark:to-gray-800 pb-4 lg:pb-8">
+    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 dark:from-gray-900 dark:to-gray-800 pb-4 lg:pb-8">
       <div className={`p-4 ${isMobile ? "pt-6 pl-14" : "pt-8"} max-w-7xl mx-auto lg:pl-24`}>
         <div className="flex items-center gap-2 mb-6">
-          <ClipboardList className="w-8 h-8 text-beveren-600" />
+          <ClipboardList className="w-8 h-8 text-brand-600" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Date Wise Inventory</h1>
         </div>
 
@@ -525,7 +525,7 @@ export default function DateWiseInventoryPage() {
               type="button"
               onClick={handleGetData}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
@@ -562,7 +562,7 @@ export default function DateWiseInventoryPage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           {loading && (
             <div className="flex items-center justify-center py-12">
-              <span className="animate-spin rounded-full h-10 w-10 border-2 border-beveren-600 border-t-transparent" />
+              <span className="animate-spin rounded-full h-10 w-10 border-2 border-brand-600 border-t-transparent" />
             </div>
           )}
           {!loading && data && (

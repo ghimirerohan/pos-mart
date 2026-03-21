@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, TrendingUp, TrendingDown, Eye, FileText, CreditCard } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Eye, FileText, CreditCard, Percent } from "lucide-react";
 import type {
   PaymentTransaction,
   TransactionSource,
@@ -11,6 +11,7 @@ import {
   filterTransactionsByPaymentMode,
   getSourceLabel,
   getSourceColor,
+  totalDiscountDedupedForTransactions,
 } from "../../hooks/usePaymentTransactions";
 import { formatCurrency } from "../../utils/currency";
 
@@ -86,7 +87,8 @@ export default function TransactionList({
     const outAmount = filteredTransactions
       .filter((t) => t.type === "out")
       .reduce((sum, t) => sum + t.amount, 0);
-    return { in: inAmount, out: outAmount, net: inAmount - outAmount };
+    const totalDiscount = totalDiscountDedupedForTransactions(filteredTransactions);
+    return { in: inAmount, out: outAmount, net: inAmount - outAmount, totalDiscount };
   }, [filteredTransactions]);
 
   const formatTime = (timeStr: string) => {
@@ -113,22 +115,33 @@ export default function TransactionList({
           </h3>
 
           {/* Summary Bar */}
-          <div className="flex items-center space-x-4 text-sm">
-            <div className="flex items-center space-x-1">
-              <TrendingUp className="w-4 h-4 text-green-500" />
-              <span className="text-green-600 dark:text-green-400 font-medium">
-                +{formatCurrency(totals.in, currency)}
-              </span>
+          <div className="flex flex-col items-end sm:flex-row sm:items-center sm:space-x-4 text-sm gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+              <div className="flex items-center space-x-1">
+                <TrendingUp className="w-4 h-4 text-green-500" />
+                <span className="text-green-600 dark:text-green-400 font-medium">
+                  +{formatCurrency(totals.in, currency)}
+                </span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <TrendingDown className="w-4 h-4 text-red-500" />
+                <span className="text-red-600 dark:text-red-400 font-medium">
+                  -{formatCurrency(totals.out, currency)}
+                </span>
+              </div>
+              <div className="font-bold text-gray-900 dark:text-white">
+                = {formatCurrency(totals.net, currency)}
+              </div>
             </div>
-            <div className="flex items-center space-x-1">
-              <TrendingDown className="w-4 h-4 text-red-500" />
-              <span className="text-red-600 dark:text-red-400 font-medium">
-                -{formatCurrency(totals.out, currency)}
-              </span>
-            </div>
-            <div className="font-bold text-gray-900 dark:text-white">
-              = {formatCurrency(totals.net, currency)}
-            </div>
+            {totals.totalDiscount > 0 && (
+              <div className="flex items-center space-x-1 text-amber-700 dark:text-amber-400 font-medium border-l border-gray-200 dark:border-gray-600 pl-3 sm:pl-4">
+                <Percent className="w-4 h-4 shrink-0" />
+                <span>Total discount</span>
+                <span className="font-bold tabular-nums">
+                  {formatCurrency(totals.totalDiscount, currency)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -140,7 +153,7 @@ export default function TransactionList({
               onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                 activeTab === tab.id
-                  ? `${tab.color} ring-2 ring-offset-1 ring-beveren-500`
+                  ? `${tab.color} ring-2 ring-offset-1 ring-brand-500`
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
               }`}
             >
@@ -158,13 +171,13 @@ export default function TransactionList({
               placeholder="Search by reference, customer, or cashier..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
             />
           </div>
           <select
             value={paymentModeFilter}
             onChange={(e) => setPaymentModeFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
           >
             <option value="all">All Payment Modes</option>
             {paymentModes.map((mode) => (
@@ -249,17 +262,24 @@ export default function TransactionList({
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span className="text-sm text-gray-900 dark:text-white">{txn.payment_mode}</span>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span
-                      className={`text-sm font-semibold ${
-                        txn.type === "in"
-                          ? "text-green-600 dark:text-green-400"
-                          : "text-red-600 dark:text-red-400"
-                      }`}
-                    >
-                      {txn.type === "in" ? "+" : "-"}
-                      {formatCurrency(txn.amount, currency)}
-                    </span>
+                  <td className="px-4 py-3 whitespace-nowrap align-top">
+                    <div className="flex flex-col gap-0.5">
+                      <span
+                        className={`text-sm font-bold ${
+                          txn.type === "in"
+                            ? "text-slate-800 dark:text-slate-100"
+                            : "text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {txn.type === "in" ? "+" : "-"}
+                        {formatCurrency(txn.amount, currency)}
+                      </span>
+                      {(txn.discount_amount ?? 0) > 0 && (
+                        <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                          -{formatCurrency(txn.discount_amount ?? 0, currency)} discount
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -273,7 +293,7 @@ export default function TransactionList({
                     {txn.reference_type === "Sales Invoice" && onViewInvoice && (
                       <button
                         onClick={() => onViewInvoice(txn.reference)}
-                        className="flex items-center space-x-1 text-beveren-600 hover:text-beveren-800 dark:text-beveren-400 dark:hover:text-beveren-300 text-sm"
+                        className="flex items-center space-x-1 text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 text-sm"
                       >
                         <Eye className="w-4 h-4" />
                         <span>View</span>

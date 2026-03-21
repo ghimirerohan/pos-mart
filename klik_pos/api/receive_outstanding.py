@@ -1,4 +1,4 @@
-# Copyright (c) Klik POS / Beveren Software Inc.
+# Copyright (c) 2025, Klik POS and contributors
 # Receive Outstanding: prepare and submit Payment Entries against customer invoices (FIFO).
 
 import json

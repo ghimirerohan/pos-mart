@@ -10,6 +10,7 @@ import {
   Users,
   CreditCard,
   Gift,
+  Percent,
   Calendar,
   Clock,
   BarChart3,
@@ -83,7 +84,7 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Loading dashboard...</p>
         </div>
       </div>
@@ -135,7 +136,22 @@ export default function DashboardPage() {
     const totalTransactions = filteredInvoices.length
     const averageOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0
     const totalItems = filteredInvoices.reduce((sum: number, inv: SalesInvoice) => sum + inv.items.length, 0)
-    return { totalRevenue, totalTransactions, averageOrderValue, totalItems }
+    const totalBillDiscount = filteredInvoices.reduce(
+      (sum: number, inv: SalesInvoice) =>
+        sum + (inv.giftCardDiscount || inv.discount_amount || 0),
+      0
+    )
+    const invoicesWithAdditionalDiscount = filteredInvoices.filter(
+      (inv: SalesInvoice) => (inv.giftCardDiscount || inv.discount_amount || 0) > 0
+    ).length
+    return {
+      totalRevenue,
+      totalTransactions,
+      averageOrderValue,
+      totalItems,
+      totalBillDiscount,
+      invoicesWithAdditionalDiscount,
+    }
   })()
 
   // Calculate sales by hour for today only using posting_time
@@ -342,7 +358,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   <Filter className="w-4 h-4" />
                   <span className="text-sm">Filters</span>
                 </button>
-                {/* <button className="flex items-center space-x-2 px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors">
+                {/* <button className="flex items-center space-x-2 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
                   <RefreshCw className="w-4 h-4" />
                   <span className="text-sm">Refresh</span>
                 </button> */}
@@ -363,7 +379,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   <select
                     value={timeRange}
                     onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="">Current POS Session</option>
                     <option value="today">Today</option>
@@ -377,7 +393,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                     value={cashierFilter}
                     onChange={(e) => setCashierFilter(e.target.value)}
                     disabled={!isAdminUser}
-                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
                       !isAdminUser ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
@@ -401,7 +417,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   <select
                     value={paymentFilter}
                     onChange={(e) => setPaymentFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="all">All Methods</option>
                     <option value="Cash">Cash</option>
@@ -517,7 +533,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                         onClick={() => setSalesByHourGraphType("bar")}
                         className={`px-2 py-1 text-xs rounded transition-colors ${
                           salesByHourGraphType === "bar"
-                            ? "bg-beveren-600 text-white"
+                            ? "bg-brand-600 text-white"
                             : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                         }`}
                       >
@@ -527,7 +543,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                         onClick={() => setSalesByHourGraphType("line")}
                         className={`px-2 py-1 text-xs rounded transition-colors ${
                           salesByHourGraphType === "line"
-                            ? "bg-beveren-600 text-white"
+                            ? "bg-brand-600 text-white"
                             : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400"
                         }`}
                       >
@@ -553,7 +569,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                         <div className="relative w-full">
                           {salesByHourGraphType === "bar" ? (
                             <div
-                              className="w-full bg-beveren-600 dark:bg-beveren-500 rounded-t hover:bg-beveren-700 dark:hover:bg-beveren-400 transition-colors cursor-pointer"
+                              className="w-full bg-brand-600 dark:bg-brand-500 rounded-t hover:bg-brand-700 dark:hover:bg-brand-400 transition-colors cursor-pointer"
                               style={{
                                 height: `${height}px`,
                                 minHeight: "4px",
@@ -573,7 +589,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                                     y2={`${100 - (item.sales / maxSales) * 100}`}
                                     stroke="currentColor"
                                     strokeWidth="2"
-                                    className="text-beveren-600 dark:text-beveren-400"
+                                    className="text-brand-600 dark:text-brand-400"
                                   />
                                 )}
                                 <circle
@@ -581,7 +597,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                                   cy={`${100 - (item.sales / maxSales) * 100}`}
                                   r="2"
                                   fill="currentColor"
-                                  className="text-beveren-600 dark:text-beveren-400"
+                                  className="text-brand-600 dark:text-brand-400"
                                 />
                               </svg>
                             </div>
@@ -599,7 +615,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 </div>
                 <div className="mt-3 text-center">
                   <div className="text-sm text-gray-600 dark:text-gray-400">
-                    Total Revenue: <span className="font-semibold text-beveren-600 dark:text-beveren-400">
+                    Total Revenue: <span className="font-semibold text-brand-600 dark:text-brand-400">
                       {formatCurrency(salesByHourData.reduce((sum, item) => sum + item.sales, 0), posDetails?.currency || 'USD')}
                     </span>
                   </div>
@@ -615,7 +631,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               </div>
               <div className="space-y-4">
                 {paymentMethodsData.map((method, index) => {
-                  const colors = ['bg-orange-500', 'bg-beveren-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
+                  const colors = ['bg-orange-500', 'bg-brand-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
                   const color = colors[index % colors.length]
                   return (
                     <div key={method.method} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -643,7 +659,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               <div className="mt-4">
                 <div className="flex rounded-lg overflow-hidden h-4">
                   {paymentMethodsData.map((method, index) => {
-                    const colors = ['bg-orange-500', 'bg-beveren-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
+                    const colors = ['bg-orange-500', 'bg-brand-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
                     const color = colors[index % colors.length]
                     return (
                       <div
@@ -710,7 +726,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 </div>
                 <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-600">
                   <div className="text-center text-sm text-gray-600 dark:text-gray-400">
-                    Total Invoices: <span className="font-semibold text-beveren-600 dark:text-beveren-400">{zatcaData.total}</span>
+                    Total Invoices: <span className="font-semibold text-brand-600 dark:text-brand-400">{zatcaData.total}</span>
                   </div>
                 </div>
               </div>
@@ -749,15 +765,37 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               </div>
             </div>
 
+            {/* Whole bill / additional discount (Sales Invoice discount_amount) */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Bill discounts</h3>
+                <Percent className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Total given</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    {formatCurrency(filteredStats.totalBillDiscount, posDetails?.currency || "USD")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 dark:text-gray-400">Invoices with discount</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    {filteredStats.invoicesWithAdditionalDiscount}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* Top Cashier */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top Performer</h3>
-                <Users className="w-5 h-5 text-beveren-600" />
+                <Users className="w-5 h-5 text-brand-600" />
               </div>
               {topPerformer ? (
                 <div className="text-center">
-                  <div className="w-16 h-16 bg-beveren-600 rounded-full flex items-center justify-center mx-auto mb-3 relative">
+                  <div className="w-16 h-16 bg-brand-600 rounded-full flex items-center justify-center mx-auto mb-3 relative">
                     <span className="text-white font-bold text-xl">
                       {topPerformer.name
                         .split(" ")
@@ -772,7 +810,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                     {topPerformer.transactions} transactions
                   </p>
-                  <p className="text-lg font-bold text-beveren-600 dark:text-beveren-400">
+                  <p className="text-lg font-bold text-brand-600 dark:text-brand-400">
                     {formatCurrency(topPerformer.sales, posDetails?.currency || 'USD')}
                   </p>
                   <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -797,7 +835,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   <div key={index} className="flex flex-col items-center flex-1 group">
                     <div className="relative">
                       <div
-                        className="w-full bg-beveren-600 dark:bg-beveren-500 rounded-t hover:bg-beveren-700 dark:hover:bg-beveren-400 transition-colors cursor-pointer"
+                        className="w-full bg-brand-600 dark:bg-brand-500 rounded-t hover:bg-brand-700 dark:hover:bg-brand-400 transition-colors cursor-pointer"
                         style={{
                           height: `${(item.sales / Math.max(...stats.salesByDay.map((s: { day: string; sales: number }) => s.sales))) * 60}px`,
                           minHeight: "4px",
@@ -814,7 +852,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               </div>
               <div className="text-center">
                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Best day: <span className="font-semibold text-beveren-600 dark:text-beveren-400">Friday</span>
+                  Best day: <span className="font-semibold text-brand-600 dark:text-brand-400">Friday</span>
                 </div>
               </div>
             </div>
@@ -826,7 +864,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
             <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top Selling Products</h3>
-                <button className="text-sm text-beveren-600 dark:text-beveren-400 hover:underline">View All</button>
+                <button className="text-sm text-brand-600 dark:text-brand-400 hover:underline">View All</button>
               </div>
               <div className="space-y-3">
                 {topProducts.map((product, index) => (
@@ -835,8 +873,8 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-beveren-100 dark:bg-beveren-900/20 rounded-lg flex items-center justify-center">
-                        <span className="text-sm font-bold text-beveren-600 dark:text-beveren-400">{index + 1}</span>
+                      <div className="w-8 h-8 bg-brand-100 dark:bg-brand-900/20 rounded-lg flex items-center justify-center">
+                        <span className="text-sm font-bold text-brand-600 dark:text-brand-400">{index + 1}</span>
                       </div>
                       <div>
                         <div className="font-medium text-gray-900 dark:text-white">{product.name}</div>
@@ -867,7 +905,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Transactions</h3>
                 <button
                   onClick={() => navigate("/closing_shift")}
-                  className="text-sm text-beveren-600 dark:text-beveren-400 hover:underline"
+                  className="text-sm text-brand-600 dark:text-brand-400 hover:underline"
                 >
                   View All Reports
                 </button>
@@ -932,7 +970,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
 
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
       {/* Header */}
-      <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+      <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -947,11 +985,11 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 <Filter className="w-4 h-4" />
                 <span className="hidden sm:inline">Filters</span>
               </button>
-              {/* <button className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors">
+              {/* <button className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors">
                 <RefreshCw className="w-4 h-4" />
                 <span className="hidden sm:inline">Refresh</span>
               </button> */}
-              {/* <button className="hidden sm:flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
+              {/* <button className="hidden sm:flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
                 <Download className="w-4 h-4" />
                 <span>Export</span>
               </button> */}
@@ -971,7 +1009,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 <select
                   value={timeRange}
                   onChange={(e) => setTimeRange(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="">Current POS Session</option>
                   <option value="today">Today</option>
@@ -985,7 +1023,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   value={cashierFilter}
                   onChange={(e) => setCashierFilter(e.target.value)}
                   disabled={!isAdminUser}
-                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
                     !isAdminUser ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                 >
@@ -1009,7 +1047,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 <select
                   value={paymentFilter}
                   onChange={(e) => setPaymentFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="all">All Methods</option>
                   <option value="Cash">Cash</option>
@@ -1125,7 +1163,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                       onClick={() => setSalesByHourGraphType("bar")}
                       className={`px-3 py-1 text-xs rounded-lg transition-colors ${
                         salesByHourGraphType === "bar"
-                          ? "bg-beveren-600 text-white"
+                          ? "bg-brand-600 text-white"
                           : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600"
                       }`}
                     >
@@ -1135,7 +1173,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                       onClick={() => setSalesByHourGraphType("line")}
                       className={`px-3 py-1 text-xs rounded-lg transition-colors ${
                         salesByHourGraphType === "line"
-                          ? "bg-beveren-600 text-white"
+                          ? "bg-brand-600 text-white"
                           : "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600"
                       }`}
                     >
@@ -1161,7 +1199,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                       <div className="relative w-full">
                         {salesByHourGraphType === "bar" ? (
                           <div
-                            className="w-full bg-beveren-600 dark:bg-beveren-500 rounded-t hover:bg-beveren-700 dark:hover:bg-beveren-400 transition-colors cursor-pointer"
+                            className="w-full bg-brand-600 dark:bg-brand-500 rounded-t hover:bg-brand-700 dark:hover:bg-brand-400 transition-colors cursor-pointer"
                             style={{
                               height: `${height}px`,
                               minHeight: "4px",
@@ -1181,7 +1219,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                                   y2={`${100 - (item.sales / maxSales) * 100}`}
                                   stroke="currentColor"
                                   strokeWidth="2"
-                                  className="text-beveren-600 dark:text-beveren-400"
+                                  className="text-brand-600 dark:text-brand-400"
                                 />
                               )}
                               <circle
@@ -1189,7 +1227,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                                 cy={`${100 - (item.sales / maxSales) * 100}`}
                                 r="3"
                                 fill="currentColor"
-                                className="text-beveren-600 dark:text-beveren-400"
+                                className="text-brand-600 dark:text-brand-400"
                               />
                             </svg>
                           </div>
@@ -1207,7 +1245,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               </div>
               <div className="mt-4 text-center">
                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Total Revenue: <span className="font-semibold text-beveren-600 dark:text-beveren-400">
+                  Total Revenue: <span className="font-semibold text-brand-600 dark:text-brand-400">
                     {formatCurrency(salesByHourData.reduce((sum, item) => sum + item.sales, 0), posDetails?.currency || 'USD')}
                   </span>
                 </div>
@@ -1223,7 +1261,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
             </div>
             <div className="space-y-4">
               {paymentMethodsData.map((method, index) => {
-                const colors = ['bg-orange-500', 'bg-beveren-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
+                const colors = ['bg-orange-500', 'bg-brand-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
                 const color = colors[index % colors.length]
                 return (
                   <div key={method.method} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -1251,7 +1289,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
             <div className="mt-4">
               <div className="flex rounded-lg overflow-hidden h-4">
                 {paymentMethodsData.map((method, index) => {
-                  const colors = ['bg-orange-500', 'bg-beveren-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
+                  const colors = ['bg-orange-500', 'bg-brand-600', 'bg-green-500', 'bg-purple-500', 'bg-pink-500']
                   const color = colors[index % colors.length]
                   return (
                     <div
@@ -1318,7 +1356,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               </div>
               <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-600">
                 <div className="text-center text-sm text-gray-600 dark:text-gray-400">
-                  Total Invoices: <span className="font-semibold text-beveren-600 dark:text-beveren-400">{zatcaData.total}</span>
+                  Total Invoices: <span className="font-semibold text-brand-600 dark:text-brand-400">{zatcaData.total}</span>
                 </div>
               </div>
             </div>
@@ -1329,11 +1367,11 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top Performer</h3>
-              <Users className="w-5 h-5 text-beveren-600" />
+              <Users className="w-5 h-5 text-brand-600" />
             </div>
             {topPerformer ? (
               <div className="text-center">
-                <div className="w-16 h-16 bg-beveren-600 rounded-full flex items-center justify-center mx-auto mb-3 relative">
+                <div className="w-16 h-16 bg-brand-600 rounded-full flex items-center justify-center mx-auto mb-3 relative">
                   <span className="text-white font-bold text-xl">
                     {topPerformer.name
                       .split(" ")
@@ -1348,7 +1386,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                   {topPerformer.transactions} transactions
                 </p>
-                <p className="text-lg font-bold text-beveren-600 dark:text-beveren-400">
+                <p className="text-lg font-bold text-brand-600 dark:text-brand-400">
                   {formatCurrency(topPerformer.sales, posDetails?.currency || 'USD')}
                 </p>
                 <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -1371,7 +1409,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top Selling Products</h3>
-              <button className="text-sm text-beveren-600 dark:text-beveren-400 hover:underline">View All</button>
+              <button className="text-sm text-brand-600 dark:text-brand-400 hover:underline">View All</button>
             </div>
             <div className="space-y-4">
               {topProducts.map((product, index) => (
@@ -1380,8 +1418,8 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
                   className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-beveren-100 dark:bg-beveren-900/20 rounded-lg flex items-center justify-center">
-                      <span className="text-sm font-bold text-beveren-600 dark:text-beveren-400">{index + 1}</span>
+                    <div className="w-8 h-8 bg-brand-100 dark:bg-brand-900/20 rounded-lg flex items-center justify-center">
+                      <span className="text-sm font-bold text-brand-600 dark:text-brand-400">{index + 1}</span>
                     </div>
                     <div>
                       <div className="font-medium text-gray-900 dark:text-white">{product.name}</div>
@@ -1412,7 +1450,7 @@ if (Object.prototype.hasOwnProperty.call(hourlySales, hour)) {
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Transactions</h3>
               <button
                 onClick={() => navigate("/closing_shift")}
-                className="text-sm text-beveren-600 dark:text-beveren-400 hover:underline"
+                className="text-sm text-brand-600 dark:text-brand-400 hover:underline"
               >
                 View All Reports
               </button>

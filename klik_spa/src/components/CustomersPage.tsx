@@ -78,7 +78,7 @@ export default function CustomersPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Loading customers...</p>
         </div>
       </div>
@@ -200,7 +200,7 @@ export default function CustomersPage() {
               <h1 className="text-lg font-bold text-gray-900 dark:text-white">Customers</h1>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="bg-beveren-600 text-white px-4 py-2 rounded-lg hover:bg-beveren-700 transition-colors flex items-center space-x-2 text-sm"
+                className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors flex items-center space-x-2 text-sm"
               >
                 <Plus size={16} />
                 <span>Add</span>
@@ -249,11 +249,11 @@ export default function CustomersPage() {
                     value={searchQuery}
                     onChange={handleSearchInput}
                     onKeyPress={handleSearchKeyPress}
-                    className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 text-sm font-medium border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white"
+                    className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-medium border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white"
                   />
                   {isLoading && customers.length > 0 && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      <div className="animate-spin h-4 w-4 border-2 border-b-transparent border-beveren-500 rounded-full"></div>
+                      <div className="animate-spin h-4 w-4 border-2 border-b-transparent border-brand-500 rounded-full"></div>
                     </div>
                   )}
                 </div>
@@ -297,7 +297,7 @@ export default function CustomersPage() {
                       >
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="w-10 h-10 bg-beveren-600 rounded-full flex items-center justify-center flex-shrink-0">
+                            <div className="w-10 h-10 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
                               <span className="text-white font-medium text-sm">
                                 {getInitials(customer.name)}
                               </span>
@@ -356,7 +356,7 @@ export default function CustomersPage() {
                                 e.stopPropagation()
                                 navigate(`/customers/${customer.id}`)
                               }}
-                              className="text-beveren-600 hover:text-beveren-700 dark:text-beveren-400 dark:hover:text-beveren-300"
+                              className="text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
                             >
                               <Eye size={16} />
                             </button>
@@ -393,7 +393,7 @@ export default function CustomersPage() {
                 <div className="p-4 text-center">
                   <button
                     onClick={loadMore}
-                    className="px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors text-sm"
+                    className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm"
                   >
                     Load More ({customers.length}/{totalCount})
                   </button>
@@ -445,13 +445,13 @@ export default function CustomersPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       {/* Fixed Header */}
-      <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+      <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Customers</h1>
             <button
               onClick={() => setShowAddModal(true)}
-              className="bg-beveren-600 text-white px-6 py-3 rounded-lg hover:bg-beveren-700 transition-colors flex items-center space-x-2"
+              className="bg-brand-600 text-white px-6 py-3 rounded-lg hover:bg-brand-700 transition-colors flex items-center space-x-2"
             >
               <Plus size={20} />
               <span>Add Customer</span>
@@ -501,7 +501,7 @@ export default function CustomersPage() {
                   value={searchQuery}
                   onChange={handleSearchInput}
                   onKeyPress={handleSearchKeyPress}
-                  className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 text-sm font-medium border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white"
+                  className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 text-sm font-medium border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white"
                 />
               </div>
 
@@ -511,7 +511,7 @@ export default function CustomersPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as "all" | Customer['status'])}
-                  className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-beveren-500"
+                  className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="all">All Status</option>
                   <option value="active">Active</option>
@@ -557,7 +557,7 @@ export default function CustomersPage() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className="w-10 h-10 bg-beveren-600 rounded-full flex items-center justify-center flex-shrink-0">
+                          <div className="w-10 h-10 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
                             <span className="text-white font-medium text-sm">
                               {getInitials(customer.name)}
                             </span>
@@ -616,7 +616,7 @@ export default function CustomersPage() {
                               e.stopPropagation()
                               navigate(`/customers/${customer.id}`)
                             }}
-                            className="text-beveren-600 hover:text-beveren-700 dark:text-beveren-400 dark:hover:text-beveren-300"
+                            className="text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
                           >
                             <Eye size={16} />
                           </button>

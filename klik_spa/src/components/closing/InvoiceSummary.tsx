@@ -43,6 +43,11 @@ export default function InvoiceSummary({ summary, currency }: InvoiceSummaryProp
             <span className="font-semibold text-gray-900 dark:text-white">
               {formatCurrency(summary.net_sales, currency)}
             </span>
+            {(summary.total_bill_discount ?? 0) > 0 && (
+              <span className="hidden sm:inline text-amber-600 dark:text-amber-400 text-xs font-medium">
+                Disc. {formatCurrency(summary.total_bill_discount ?? 0, currency)}
+              </span>
+            )}
           </div>
           {isExpanded ? (
             <ChevronUp className="w-5 h-5 text-gray-400" />
@@ -130,8 +135,36 @@ export default function InvoiceSummary({ summary, currency }: InvoiceSummaryProp
                   {formatCurrency(summary.net_sales, currency)}
                 </span>
               </div>
+              {(summary.total_bill_discount ?? 0) > 0 && (
+                <div className="flex justify-between sm:flex-col sm:col-span-3 pt-2 border-t border-gray-200 dark:border-gray-600">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    Additional discount given (whole bill)
+                  </span>
+                  <span className="font-semibold text-amber-700 dark:text-amber-300">
+                    {formatCurrency(summary.total_bill_discount ?? 0, currency)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
+          {(summary.bill_discount_by_cashier?.length ?? 0) > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">
+                Discount by cashier (admin view)
+              </h4>
+              <div className="space-y-1 text-sm">
+                {summary.bill_discount_by_cashier!.map((row) => (
+                  <div
+                    key={row.user_id}
+                    className="flex justify-between text-gray-700 dark:text-gray-300"
+                  >
+                    <span>{row.name || row.user_id}</span>
+                    <span>{formatCurrency(row.discount_total, currency)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

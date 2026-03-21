@@ -173,7 +173,7 @@ export default function BarcodePrintDialog({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-            <Printer size={20} className="mr-2 text-beveren-600" />
+            <Printer size={20} className="mr-2 text-brand-600" />
             Print Barcode Labels
           </h2>
           <button
@@ -268,7 +268,7 @@ export default function BarcodePrintDialog({
               type="button"
               onClick={handlePrint}
               disabled={isPrinting || !barcode}
-              className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPrinting ? (
                 <>

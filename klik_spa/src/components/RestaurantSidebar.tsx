@@ -24,7 +24,11 @@ export default function RetailSidebar() {
     <div className="w-20 bg-white dark:bg-gray-800 shadow-lg flex flex-col border-r border-gray-200 dark:border-gray-700">
       {/* Logo Section - Fixed height to match other sections */}
       <div className="h-20 flex items-center justify-center border-b border-gray-100 dark:border-gray-700">
-        <img src="/beveren-software-icon.webp" alt="Beveren Software" className="w-12 h-12 rounded-full object-cover" />
+        <img
+          src="/assets/klik_pos/klik_spa/logo.jpeg"
+          alt="R-POS"
+          className="w-12 h-12 rounded-full object-cover"
+        />
       </div>
 
       {/* Menu Items - Flexible space */}
@@ -35,7 +39,7 @@ export default function RetailSidebar() {
             onClick={() => navigate(item.path)}
             className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
               isActive(item.path)
-                ? "bg-beveren-100 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400"
+                ? "bg-brand-100 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400"
                 : "text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
             }`}
             title={item.label}

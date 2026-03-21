@@ -53,6 +53,14 @@ export interface GiftCoupon {
   description: string
 }
 
+/** Whole-bill discount (after line discounts); merged with coupons on Sales Invoice */
+export type BillDiscountMode = "none" | "percent" | "amount"
+
+export interface BillDiscountState {
+  mode: BillDiscountMode
+  value: number
+}
+
 export interface Invoice {
   invoiceId: string
   dateTime: string
@@ -114,6 +122,10 @@ export interface SalesInvoice {
   items: SalesInvoiceItem[];
   subtotal: number;
   giftCardDiscount: number;
+  /** ERPNext additional discount (whole bill + merged coupons) */
+  discount_amount?: number;
+  additional_discount_percentage?: number;
+  apply_discount_on?: string;
   giftCardCode: string | null;
   taxAmount: number;
   totalAmount: number;

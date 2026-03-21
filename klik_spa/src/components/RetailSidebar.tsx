@@ -65,8 +65,8 @@ export default function RetailSidebar() {
             onClick={() => navigate(item.path)}
             className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all cursor-pointer active:scale-90 duration-150 ${
               isActive(item.path)
-                ? "bg-beveren-100 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400"
-                : "text-beveren-600 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                ? "bg-brand-100 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400"
+                : "text-brand-600 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
             }`}
             title={item.label}
           >

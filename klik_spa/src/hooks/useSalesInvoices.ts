@@ -2,7 +2,13 @@
 import { useEffect, useState, useCallback } from "react";
 import type { SalesInvoice, SalesInvoiceItem } from "../../types";
 
-export function useSalesInvoices(searchTerm: string = "", skipOpeningEntryFilter: boolean = false, cashierName?: string) {
+/** When set (not "all"), API filters by posting_date so we do not load the full invoice table. */
+export function useSalesInvoices(
+  searchTerm: string = "",
+  skipOpeningEntryFilter: boolean = false,
+  cashierName?: string,
+  postingDatePreset?: string
+) {
   const [invoices, setInvoices] = useState<SalesInvoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -41,8 +47,12 @@ export function useSalesInvoices(searchTerm: string = "", skipOpeningEntryFilter
       const skipOpeningFilter = skipOpeningEntryFilter ? '&skip_opening_entry_filter=true' : '';
       // Filter by cashier name if provided
       const cashierParam = cashierName && cashierName !== 'all' ? `&cashier_name=${encodeURIComponent(cashierName)}` : '';
+      const preset =
+        postingDatePreset && postingDatePreset !== 'all'
+          ? `&posting_date_preset=${encodeURIComponent(postingDatePreset)}`
+          : '';
       const response = await fetch(
-        `/api/method/klik_pos.api.sales_invoice.get_sales_invoices?limit=${LIMIT}&start=${start}${searchParam}${skipOpeningFilter}${cashierParam}`,
+        `/api/method/klik_pos.api.sales_invoice.get_sales_invoices?limit=${LIMIT}&start=${start}${searchParam}${skipOpeningFilter}${cashierParam}${preset}`,
         {
           method: 'GET',
           headers: {
@@ -105,6 +115,10 @@ export function useSalesInvoices(searchTerm: string = "", skipOpeningEntryFilter
             (Number(invoice.total_taxes_and_charges) || 0) +
             (Number(invoice.discount_amount) || 0),
           giftCardDiscount: Number(invoice.discount_amount) || 0,
+          discount_amount: Number(invoice.discount_amount) || 0,
+          additional_discount_percentage:
+            Number(invoice.additional_discount_percentage) || 0,
+          apply_discount_on: String(invoice.apply_discount_on || ""),
           giftCardCode: String(invoice.discount_code) || "",
           taxAmount: Number(invoice.total_taxes_and_charges) || 0,
           totalAmount: Number(invoice.base_grand_total) || 0,
@@ -167,7 +181,7 @@ export function useSalesInvoices(searchTerm: string = "", skipOpeningEntryFilter
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [debouncedSearchTerm, skipOpeningEntryFilter, cashierName]);
+  }, [debouncedSearchTerm, skipOpeningEntryFilter, cashierName, postingDatePreset]);
 
   const loadMore = useCallback(() => {
     if (!isLoadingMore && hasMore) {

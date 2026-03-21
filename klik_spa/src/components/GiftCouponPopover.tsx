@@ -123,7 +123,7 @@ const currency_symbol = posDetails?.currency_symbol
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
-            <Tag size={16} className="mr-2 text-beveren-600" />
+            <Tag size={16} className="mr-2 text-brand-600" />
             Add Discount
           </h3>
           <button
@@ -155,7 +155,7 @@ const currency_symbol = posDetails?.currency_symbol
                   setError("")
                 }}
                 placeholder="Enter coupon code"
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
               {couponAmount && (
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 dark:text-green-400 font-medium">
@@ -166,7 +166,7 @@ const currency_symbol = posDetails?.currency_symbol
             <button
               onClick={() => handleApplyCoupon(couponCode, 'coupon')}
               disabled={!couponCode.trim()}
-              className="px-3 py-2 bg-beveren-600 text-white rounded-md hover:bg-beveren-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+              className="px-3 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium transition-colors"
             >
               <Check size={14} />
             </button>
@@ -188,7 +188,7 @@ const currency_symbol = posDetails?.currency_symbol
                   setError("")
                 }}
                 placeholder="Enter gift card code or amount"
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
               {giftCardAmount && (
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 dark:text-green-400 font-medium">
@@ -222,7 +222,7 @@ const currency_symbol = posDetails?.currency_symbol
                   className={`p-2 text-xs rounded-md border transition-colors ${
                     isApplied
                       ? 'bg-gray-100 dark:bg-gray-700 text-gray-400 border-gray-200 dark:border-gray-600 cursor-not-allowed'
-                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-beveren-50 dark:hover:bg-beveren-900/20 hover:border-beveren-300'
+                      : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 hover:border-brand-300'
                   }`}
                 >
                   <div className="font-medium">{coupon.code}</div>

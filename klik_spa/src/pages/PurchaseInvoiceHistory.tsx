@@ -179,7 +179,7 @@ const getStatusBadge = (status: string) => {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Loading purchase invoices...</p>
         </div>
       </div>
@@ -214,18 +214,18 @@ const getStatusBadge = (status: string) => {
             placeholder="Search invoices..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           />
           {isLoading && invoices.length > 0 && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="animate-spin h-4 w-4 border-2 border-b-transparent border-beveren-500 rounded-full"></div>
+              <div className="animate-spin h-4 w-4 border-2 border-b-transparent border-brand-500 rounded-full"></div>
             </div>
           )}
         </div>
         <select
           value={dateFilter}
           onChange={(e) => setDateFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
         >
           <option value="all">All Time</option>
           <option value="today">Today</option>
@@ -238,7 +238,7 @@ const getStatusBadge = (status: string) => {
           value={userFilter}
           onChange={(e) => setUserFilter(e.target.value)}
           disabled={!isAdminUser}
-          className={`px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+          className={`px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
             !isAdminUser ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         >
@@ -255,7 +255,7 @@ const getStatusBadge = (status: string) => {
         <select
           value={paymentFilter}
           onChange={(e) => setPaymentFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
         >
           <option value="all">All Payments</option>
           {modes.map((mode) => (
@@ -445,7 +445,7 @@ const getStatusBadge = (status: string) => {
             onClick={() => setViewMode("list")}
             className={`p-2 rounded-md transition-colors ${
               viewMode === "list"
-                ? "bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm"
+                ? "bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
@@ -455,7 +455,7 @@ const getStatusBadge = (status: string) => {
             onClick={() => setViewMode("cards")}
             className={`p-2 rounded-md transition-colors ${
               viewMode === "cards"
-                ? "bg-white dark:bg-gray-600 text-beveren-600 dark:text-beveren-400 shadow-sm"
+                ? "bg-white dark:bg-gray-600 text-brand-600 dark:text-brand-400 shadow-sm"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
@@ -529,7 +529,7 @@ const getStatusBadge = (status: string) => {
                     <div className="flex space-x-2">
                       <button
                         onClick={() => handleViewInvoice(invoice)}
-                        className="text-beveren-600 hover:text-beveren-900 flex items-center space-x-1"
+                        className="text-brand-600 hover:text-brand-900 flex items-center space-x-1"
                       >
                         <Eye className="w-4 h-4" />
                         <span>View</span>
@@ -591,7 +591,7 @@ const getStatusBadge = (status: string) => {
               <div className="mt-4 flex space-x-2">
                 <button
                   onClick={() => handleViewInvoice(invoice)}
-                  className="flex-1 text-xs px-3 py-2 bg-beveren-600 text-white rounded hover:bg-beveren-700 transition-colors"
+                  className="flex-1 text-xs px-3 py-2 bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors"
                 >
                   View
                 </button>
@@ -618,7 +618,7 @@ const getStatusBadge = (status: string) => {
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${
               isLoadingMore
                 ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                : 'bg-beveren-600 text-white hover:bg-beveren-700'
+                : 'bg-brand-600 text-white hover:bg-brand-700'
             }`}
           >
             {isLoadingMore ? (
@@ -659,7 +659,7 @@ const getStatusBadge = (status: string) => {
               <div className="flex items-center space-x-2">
                 <button
                   onClick={handleExportInvoices}
-                  className="flex items-center space-x-2 px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors text-sm"
+                  className="flex items-center space-x-2 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm"
                 >
                   <Download className="w-4 h-4" />
                   <span>Export</span>
@@ -682,7 +682,7 @@ const getStatusBadge = (status: string) => {
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-xs whitespace-nowrap ${
                         activeTab === tab.id
-                          ? "border-beveren-500 text-beveren-600 dark:text-beveren-400"
+                          ? "border-brand-500 text-brand-600 dark:text-brand-400"
                           : `border-transparent ${tab.color} dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300`
                       }`}
                     >
@@ -725,7 +725,7 @@ const getStatusBadge = (status: string) => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
         {/* Header */}
-        <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -734,7 +734,7 @@ const getStatusBadge = (status: string) => {
               <div className="flex items-center space-x-3">
                 <button
                   onClick={handleExportInvoices}
-                  className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                  className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   <span>Export</span>
@@ -756,7 +756,7 @@ const getStatusBadge = (status: string) => {
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                         activeTab === tab.id
-                          ? "border-beveren-500 text-beveren-600 dark:text-beveren-400"
+                          ? "border-brand-500 text-brand-600 dark:text-brand-400"
                           : `border-transparent ${tab.color} dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300`
                       }`}
                     >

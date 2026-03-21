@@ -1,5 +1,5 @@
 import { useCartStore } from '../stores/cartStore';
-import type { CartItem, Customer } from '../../types';
+import type { BillDiscountState, CartItem, Customer } from '../../types';
 
 interface DraftInvoiceCache {
   items: CartItem[];
@@ -7,18 +7,27 @@ interface DraftInvoiceCache {
   invoiceId: string;
   customer: Customer | null;
   originalDraftInvoiceId: string; // Track the original draft invoice to delete later
+  billDiscount?: BillDiscountState;
 }
 
 const CACHE_KEY = 'draft-invoice-cache';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-export function cacheDraftInvoiceItems(invoiceId: string, items: CartItem[], customer: Customer | null): void {
+export function cacheDraftInvoiceItems(
+  invoiceId: string,
+  items: CartItem[],
+  customer: Customer | null,
+  billDiscount?: BillDiscountState | null
+): void {
   const cache: DraftInvoiceCache = {
     items,
     timestamp: Date.now(),
     invoiceId,
     customer,
-    originalDraftInvoiceId: invoiceId // Store the original draft invoice ID
+    originalDraftInvoiceId: invoiceId, // Store the original draft invoice ID
+    ...(billDiscount && billDiscount.mode !== "none"
+      ? { billDiscount }
+      : {}),
   };
 
   console.log("cacheDraftInvoiceItems - storing cache:", cache);
@@ -63,11 +72,18 @@ export async function loadCachedItemsToCart(): Promise<boolean> {
     return false;
   }
 
-  const { setSelectedCustomer, addToCartWithQuantity } = useCartStore.getState();
+  const { setSelectedCustomer, addToCartWithQuantity, setBillDiscount, resetBillDiscount } =
+    useCartStore.getState();
 
   // Set customer if available
   if (cachedData.customer) {
     setSelectedCustomer(cachedData.customer);
+  }
+
+  if (cachedData.billDiscount && cachedData.billDiscount.mode !== "none") {
+    setBillDiscount(cachedData.billDiscount.mode, cachedData.billDiscount.value);
+  } else {
+    resetBillDiscount();
   }
 
   // Add cached items to cart with correct quantities

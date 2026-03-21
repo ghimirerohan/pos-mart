@@ -46,7 +46,7 @@ export default function PaymentModeCard({
     <div
       className={`bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 cursor-pointer hover:shadow-lg ${
         isSelected
-          ? "border-beveren-500 shadow-md"
+          ? "border-brand-500 shadow-md"
           : "border-gray-200 dark:border-gray-700"
       }`}
       onClick={onClick}

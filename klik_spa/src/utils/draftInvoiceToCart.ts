@@ -2,7 +2,7 @@ import { getDraftInvoiceItems } from '../services/salesInvoice';
 import { toast } from 'react-toastify';
 import { extractErrorFromException } from './errorExtraction';
 import { cacheDraftInvoiceItems } from './draftInvoiceCache';
-import type { Customer } from '../../types';
+import type { BillDiscountMode, Customer } from '../../types';
 
 export interface InvoiceItem {
   item_code: string;
@@ -22,10 +22,23 @@ export interface CartItem {
   quantity: number;
 }
 
+function billDiscountFromInvoiceData(
+  invoiceData: Record<string, unknown>
+): { mode: BillDiscountMode; value: number } {
+  const pct = Number(invoiceData.additional_discount_percentage) || 0;
+  const amt = Number(invoiceData.discount_amount) || 0;
+  if (pct > 0) return { mode: "percent", value: pct };
+  if (amt > 0) return { mode: "amount", value: amt };
+  return { mode: "none", value: 0 };
+}
+
 export async function addDraftInvoiceToCart(invoiceId: string): Promise<boolean> {
   try {
     // Fetch draft invoice items
-    const invoiceData = await getDraftInvoiceItems(invoiceId);
+    const invoiceData = (await getDraftInvoiceItems(invoiceId)) as Record<
+      string,
+      unknown
+    >;
 
     if (!invoiceData || !invoiceData.items || !Array.isArray(invoiceData.items)) {
       throw new Error('No items found in draft invoice');
@@ -76,8 +89,10 @@ export async function addDraftInvoiceToCart(invoiceId: string): Promise<boolean>
       createdAt: new Date().toISOString(),
     } : null;
 
+    const bd = billDiscountFromInvoiceData(invoiceData);
+
     // Cache the items and customer instead of adding directly to cart
-    cacheDraftInvoiceItems(invoiceId, cartItems, customer);
+    cacheDraftInvoiceItems(invoiceId, cartItems, customer, bd);
 
     return true;
 

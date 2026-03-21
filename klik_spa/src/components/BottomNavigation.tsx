@@ -92,7 +92,7 @@ export default function BottomNavigation() {
               alt="R-POS"
               className="w-8 h-8 rounded-full object-cover"
             />
-            <span className="font-bold text-lg text-beveren-600 dark:text-beveren-400">R-POS</span>
+            <span className="font-bold text-lg text-brand-600 dark:text-brand-400">R-POS</span>
           </div>
           <button
             onClick={() => setIsOpen(false)}
@@ -114,7 +114,7 @@ export default function BottomNavigation() {
               }}
               className={`flex items-center w-full px-4 py-3 text-sm font-medium transition-colors ${
                 isActive(item.path)
-                  ? "bg-beveren-50 dark:bg-beveren-900/30 text-beveren-600 dark:text-beveren-400 border-r-3 border-beveren-600 dark:border-beveren-400"
+                  ? "bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 border-r-3 border-brand-600 dark:border-brand-400"
                   : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
               }`}
             >
@@ -122,7 +122,7 @@ export default function BottomNavigation() {
                 size={20}
                 className={`mr-3 flex-shrink-0 ${
                   isActive(item.path)
-                    ? "text-beveren-600 dark:text-beveren-400"
+                    ? "text-brand-600 dark:text-brand-400"
                     : "text-gray-400 dark:text-gray-500"
                 }`}
               />

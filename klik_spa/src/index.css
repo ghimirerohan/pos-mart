@@ -42,18 +42,18 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* Beveren brand colors */
-  --color-beveren-50: #f0f6fb;
-  --color-beveren-100: #e0ecf6;
-  --color-beveren-200: #c7dcef;
-  --color-beveren-300: #a1c4e4;
-  --color-beveren-400: #74a5d6;
-  --color-beveren-500: #5189ca;
-  --color-beveren-600: #316294;
-  --color-beveren-700: #2c5682;
-  --color-beveren-800: #294a6b;
-  --color-beveren-900: #263f5a;
-  --color-beveren-950: #1a293c;
+  /* App brand colors */
+  --color-brand-50: #f0f6fb;
+  --color-brand-100: #e0ecf6;
+  --color-brand-200: #c7dcef;
+  --color-brand-300: #a1c4e4;
+  --color-brand-400: #74a5d6;
+  --color-brand-500: #5189ca;
+  --color-brand-600: #316294;
+  --color-brand-700: #2c5682;
+  --color-brand-800: #294a6b;
+  --color-brand-900: #263f5a;
+  --color-brand-950: #1a293c;
 }
 
 /* Background patterns */

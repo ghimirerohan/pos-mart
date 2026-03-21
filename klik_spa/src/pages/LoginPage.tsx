@@ -80,7 +80,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-beveren-50 to-beveren-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 flex items-center justify-center p-4">
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
 
@@ -92,7 +92,7 @@ export default function LoginPage() {
             <div className="flex justify-center mb-4">
               <img src="/assets/klik_pos/klik_spa/logo.jpeg" alt="R-POS" className="w-16 h-16 rounded-full shadow-lg" />
             </div>
-            <h1 className="text-3xl font-bold text-beveren-800">R-POS</h1>
+            <h1 className="text-3xl font-bold text-brand-800">R-POS</h1>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -103,12 +103,12 @@ export default function LoginPage() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full px-4 py-2.5 border-2 border-beveren-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:border-transparent transition-all duration-200 bg-beveren-50/50"
+                  className="w-full px-4 py-2.5 border-2 border-brand-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200 bg-brand-50/50"
                   placeholder="Username or Email"
                   required
                 />
                 <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  <svg className="w-5 h-5 text-beveren-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -125,12 +125,12 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 border-2 border-beveren-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-beveren-500 focus:border-transparent transition-all duration-200 bg-beveren-50/50"
+                  className="w-full px-4 py-2.5 border-2 border-brand-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200 bg-brand-50/50"
                   placeholder="Password"
                   required
                 />
                 <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  <svg className="w-5 h-5 text-beveren-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -151,7 +151,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-beveren-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-beveren-700 focus:outline-none focus:ring-4 focus:ring-beveren-300 transition-all duration-300 shadow-lg hover:shadow-xl disabled:bg-beveren-400 disabled:cursor-not-allowed"
+              className="w-full bg-brand-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-brand-300 transition-all duration-300 shadow-lg hover:shadow-xl disabled:bg-brand-400 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="flex items-center justify-center">
@@ -163,16 +163,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-        </div>
-
-        {/* Footer */}
-        <div className="text-center mt-6">
-          <p className="text-sm text-beveren-600">
-            Powered by{" "}
-            <a href="https://beverensoftware.com" target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">
-              Beveren Software
-            </a>
-          </p>
         </div>
       </div>
     </div>

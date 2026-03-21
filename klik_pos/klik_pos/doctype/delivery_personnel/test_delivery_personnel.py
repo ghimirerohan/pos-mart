@@ -1,4 +1,4 @@
-# Copyright (c) 2026, Beveren Sooftware Inc and Contributors
+# Copyright (c) 2026, Klik POS and contributors
 # See license.txt
 
 # import frappe

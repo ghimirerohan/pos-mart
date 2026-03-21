@@ -10,8 +10,9 @@ import {
   User,
   Building,
   Banknote,
+  Percent,
 } from "lucide-react";
-import type { CartItem, GiftCoupon } from "../../types";
+import type { BillDiscountMode, CartItem, GiftCoupon } from "../../types";
 import type { Customer } from "../types/customer";
 import PaymentDialog from "./PaymentDialog";
 import AddCustomerModal from "./AddCustomerModal";
@@ -27,6 +28,7 @@ import { useCustomerStatistics } from "../hooks/useCustomerStatistics";
 import { useCustomerPermission } from "../hooks/useCustomerPermission";
 import { useCartStore } from "../stores/cartStore";
 import ReceiveOutstandingModal from "./ReceiveOutstandingModal";
+import { billDiscountPayload, computeBillDiscountBreakdown } from "../utils/posDiscount";
 
 
 interface OrderSummaryProps {
@@ -95,7 +97,7 @@ const QuantityInput = ({ item, onUpdateQuantity, isMobile }: QuantityInputProps)
       onBlur={handleBlur}
       className={`w-full ${
         isMobile ? "text-sm" : "text-sm"
-      } px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
+      } px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
     />
   );
 };
@@ -240,7 +242,7 @@ const UOMSelectField = ({ item, onUOMChange, isMobile, selectedCustomer }: UOMSe
         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
         className={`w-full ${
           isMobile ? "text-sm" : "text-sm"
-        } px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
+        } px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
       >
         <span>{selectedUOM}</span>
         <svg className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -258,7 +260,7 @@ const UOMSelectField = ({ item, onUOMChange, isMobile, selectedCustomer }: UOMSe
               placeholder="Search UOM..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               autoFocus
             />
           </div>
@@ -272,7 +274,7 @@ const UOMSelectField = ({ item, onUOMChange, isMobile, selectedCustomer }: UOMSe
                   type="button"
                   onClick={() => handleUOMSelect(uom)}
                   className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                    uom === selectedUOM ? 'bg-beveren-50 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400' : 'text-gray-900 dark:text-white'
+                    uom === selectedUOM ? 'bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400' : 'text-gray-900 dark:text-white'
                   }`}
                 >
                   {uom}
@@ -318,7 +320,7 @@ const BatchSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, value
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full ${isMobile ? "text-xs" : "text-xs"} px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
+        className={`w-full ${isMobile ? "text-xs" : "text-xs"} px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
       >
         <span className="truncate">{value || "Select Batch"}</span>
         <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -331,7 +333,7 @@ const BatchSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, value
               placeholder="Filter batch..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               autoFocus
             />
           </div>
@@ -341,7 +343,7 @@ const BatchSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, value
                 key={b.batch_id}
                 type="button"
                 onClick={() => handleSelect(b.batch_id)}
-                className={`w-full px-2 py-1 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 ${value === b.batch_id ? 'bg-beveren-50 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400' : 'text-gray-900 dark:text-white'}`}
+                className={`w-full px-2 py-1 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 ${value === b.batch_id ? 'bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400' : 'text-gray-900 dark:text-white'}`}
               >
                 {b.batch_id} - {b.qty}
               </button>
@@ -382,7 +384,7 @@ const SerialSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, valu
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full ${isMobile ? "text-xs" : "text-xs"} px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
+        className={`w-full ${isMobile ? "text-xs" : "text-xs"} px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-left flex items-center justify-between`}
       >
         <span className="truncate">{value || "Select Serial"}</span>
         <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -395,7 +397,7 @@ const SerialSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, valu
               placeholder="Filter serial..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               autoFocus
             />
           </div>
@@ -405,7 +407,7 @@ const SerialSelectField = ({ itemId: _itemId, itemCode: _itemCode, options, valu
                 key={sn}
                 type="button"
                 onClick={() => handleSelect(sn)}
-                className={`w-full px-2 py-1 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 ${value === sn ? 'bg-beveren-50 dark:bg-beveren-900/20 text-beveren-600 dark:text-beveren-400' : 'text-gray-900 dark:text-white'}`}
+                className={`w-full px-2 py-1 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 ${value === sn ? 'bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400' : 'text-gray-900 dark:text-white'}`}
               >
                 {sn}
               </button>
@@ -430,7 +432,15 @@ export default function OrderSummary({
   isMobile = false,
 }: OrderSummaryProps) {
   // const [showCouponPopover, setShowCouponPopover] = useState(false);
-  const { selectedCustomer, setSelectedCustomer, updateUOM, updatePricesForCustomer } = useCartStore();
+  const {
+    selectedCustomer,
+    setSelectedCustomer,
+    updateUOM,
+    updatePricesForCustomer,
+    billDiscount,
+    setBillDiscount,
+    resetBillDiscount,
+  } = useCartStore();
 
   // Track if user has manually removed the default customer
   const [userRemovedDefaultCustomer, setUserRemovedDefaultCustomer] = useState(false);
@@ -584,8 +594,15 @@ export default function OrderSummary({
     0
   );
 
-  // Calculate final total
-  const total = Math.max(0, subtotal - couponDiscount);
+  const billBreakdown = computeBillDiscountBreakdown(
+    subtotal,
+    couponDiscount,
+    billDiscount.mode,
+    billDiscount.value
+  );
+
+  // Net before tax (matches PaymentDialog taxable base)
+  const total = billBreakdown.taxableBeforeTax;
   const handleCustomerSearchKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>
   ) => {
@@ -925,6 +942,8 @@ export default function OrderSummary({
       onRemoveCoupon(coupon.code);
     });
 
+    resetBillDiscount();
+
     // Clear item discounts
     setItemDiscounts({});
 
@@ -1219,7 +1238,7 @@ export default function OrderSummary({
                   }}
                   onKeyDown={handleCustomerSearchKeyDown} // Add this line
                   onFocus={() => setShowCustomerDropdown(true)}
-                  className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
 
                 {/* Customer Dropdown */}
@@ -1255,7 +1274,7 @@ export default function OrderSummary({
 
               <button
                 onClick={() => setShowAddCustomerModal(true)}
-                className="ml-2 p-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                className="ml-2 p-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
                 title="Add New Customer"
               >
                 <UserPlus size={16} />
@@ -1360,7 +1379,7 @@ export default function OrderSummary({
                 }}
                 onKeyPress={handleCustomerSearchKeyDown}
                 onFocus={() => setShowCustomerDropdown(true)}
-                className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
 
               {/* ADD THIS MISSING DROPDOWN - This was missing in mobile version */}
@@ -1395,7 +1414,7 @@ export default function OrderSummary({
             </div>
             <button
               onClick={() => setShowAddCustomerModal(true)}
-              className="p-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+              className="p-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
             >
               <UserPlus size={16} />
             </button>
@@ -1537,7 +1556,7 @@ export default function OrderSummary({
                         <svg
                           className={`${
                             isMobile ? "w-3 h-3" : "w-4 h-4"
-                          } text-beveren-500 dark:text-gray-400 transform transition-transform duration-200 ${
+                          } text-brand-500 dark:text-gray-400 transform transition-transform duration-200 ${
                             expandedItems.has(item.id) ? "rotate-90" : ""
                           }`}
                           fill="none"
@@ -1590,13 +1609,13 @@ export default function OrderSummary({
                               {item.price.toFixed(2)}
                             </span>
 
-                            <span className="text-beveren-600 dark:text-beveren-400 font-semibold">
+                            <span className="text-brand-600 dark:text-brand-400 font-semibold">
                               {currency_symbol}
                               {discountedPrice.toFixed(2)}
                             </span>
                           </div>
                         ) : (
-                          <div className="text-beveren-600 dark:text-beveren-400 font-semibold">
+                          <div className="text-brand-600 dark:text-brand-400 font-semibold">
                             {currency_symbol}
                             {item.price.toFixed(2)}
                           </div>
@@ -1647,7 +1666,7 @@ export default function OrderSummary({
                             {originalTotal.toFixed(2)}
                           </p>
                           <p
-                            className={`text-beveren-600 dark:text-beveren-400 font-semibold ${
+                            className={`text-brand-600 dark:text-brand-400 font-semibold ${
                               isMobile ? "text-base" : "text-sm"
                             }`}
                           >
@@ -1657,7 +1676,7 @@ export default function OrderSummary({
                         </div>
                       ) : (
                         <p
-                          className={`text-beveren-600 dark:text-beveren-400 font-semibold ${
+                          className={`text-brand-600 dark:text-brand-400 font-semibold ${
                             isMobile ? "text-base" : "text-sm"
                           }`}
                         >
@@ -1732,7 +1751,7 @@ export default function OrderSummary({
                                 )
                               }
                               placeholder="0.00"
-                              className={`w-full ${isMobile ? "text-sm" : "text-sm"} px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
+                              className={`w-full ${isMobile ? "text-sm" : "text-sm"} px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
                             />
                           </div>
                           <div>
@@ -1753,7 +1772,7 @@ export default function OrderSummary({
                                 )
                               }
                               placeholder="0.0"
-                              className={`w-full ${isMobile ? "text-sm" : "text-sm"} px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-beveren-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
+                              className={`w-full ${isMobile ? "text-sm" : "text-sm"} px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white`}
                             />
                           </div>
                         </div>
@@ -1836,6 +1855,84 @@ export default function OrderSummary({
           } space-y-3`}
         >
 
+          {/* Whole bill discount */}
+          <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+              <Percent className="w-3.5 h-3.5" />
+              Whole bill discount
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={billDiscount.mode}
+                onChange={(e) => {
+                  const m = e.target.value as BillDiscountMode;
+                  setBillDiscount(m, m === "none" ? 0 : billDiscount.value);
+                }}
+                className="text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1.5"
+              >
+                <option value="none">None</option>
+                <option value="percent">Percent %</option>
+                <option value="amount">Fixed amount</option>
+              </select>
+              {billDiscount.mode !== "none" && (
+                <input
+                  type="number"
+                  min={0}
+                  max={billDiscount.mode === "percent" ? 100 : undefined}
+                  step={billDiscount.mode === "percent" ? 0.01 : 0.01}
+                  value={billDiscount.value || ""}
+                  onChange={(e) =>
+                    setBillDiscount(
+                      billDiscount.mode,
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                  placeholder={billDiscount.mode === "percent" ? "%" : currency_symbol}
+                  className="w-28 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-2 py-1.5"
+                />
+              )}
+            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>
+                  {currency_symbol}
+                  {subtotal.toFixed(2)}
+                </span>
+              </div>
+              {couponDiscount > 0 && (
+                <div className="flex justify-between text-green-600 dark:text-green-400">
+                  <span>Coupons</span>
+                  <span>
+                    −{currency_symbol}
+                    {couponDiscount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {billBreakdown.billDiscountAmount > 0 && (
+                <div className="flex justify-between text-green-600 dark:text-green-400">
+                  <span>
+                    Bill discount
+                    {billDiscount.mode === "percent"
+                      ? ` (${billDiscount.value}%)`
+                      : ""}
+                  </span>
+                  <span>
+                    −{currency_symbol}
+                    {billBreakdown.billDiscountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between font-medium text-gray-900 dark:text-white pt-0.5 border-t border-gray-200 dark:border-gray-600">
+                <span>Before tax</span>
+                <span>
+                  {currency_symbol}
+                  {total.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Action Buttons */}
           <div className={`grid grid-cols-2 gap-3 ${isMobile ? "mb-3" : ""}`}>
             <button
@@ -1855,15 +1952,27 @@ export default function OrderSummary({
                   subtotal,
                   total,
                   appliedCoupons,
+                  couponDiscount,
                   itemDiscounts,
                   totalItemDiscount,
-                  totalSavings: totalItemDiscount + couponDiscount,
+                  totalSavings:
+                    totalItemDiscount +
+                    couponDiscount +
+                    billBreakdown.billDiscountAmount,
                   status: "held",
+                  ...billDiscountPayload(
+                    billDiscount.mode,
+                    billDiscount.value,
+                    couponDiscount,
+                    {
+                      totalAdditionalDiscount: billBreakdown.totalAdditionalDiscount,
+                    }
+                  ),
                 };
 
                 handleHoldOrder(orderData);
               }}
-              className="px-3 py-2 border border-beveren-600 text-beveren-600 dark:text-beveren-400 rounded-lg font-medium hover:bg-beveren-600 hover:text-white transition-colors text-sm"
+              className="px-3 py-2 border border-brand-600 text-brand-600 dark:text-brand-400 rounded-lg font-medium hover:bg-brand-600 hover:text-white transition-colors text-sm"
             >
               Hold
             </button>
@@ -1881,7 +1990,7 @@ export default function OrderSummary({
           <button
             onClick={validateCartStockAndCheckout}
             disabled={isValidatingStock}
-            className={`w-full bg-beveren-600 text-white rounded-xl font-semibold hover:bg-beveren-700 transition-colors disabled:opacity-60 disabled:cursor-wait ${
+            className={`w-full bg-brand-600 text-white rounded-xl font-semibold hover:bg-brand-700 transition-colors disabled:opacity-60 disabled:cursor-wait ${
               isMobile ? "py-3 text-base" : "py-2 text-sm"
             }`}
           >

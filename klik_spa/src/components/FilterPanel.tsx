@@ -58,12 +58,12 @@ export default function FilterPanel({ filterOptions, onFilterChange, onClose }: 
           <button
             onClick={() => setDiscount(!discount)}
             className={`px-3 py-2 rounded-lg border flex items-center ${
-              discount ? "bg-beveren-50 border-beveren-300 text-beveren-600" : "border-gray-300 text-gray-700"
+              discount ? "bg-brand-50 border-brand-300 text-brand-600" : "border-gray-300 text-gray-700"
             }`}
           >
             <div
               className={`w-5 h-5 rounded border mr-2 flex items-center justify-center ${
-                discount ? "bg-beveren-600 border-beveren-600" : "border-gray-400"
+                discount ? "bg-brand-600 border-brand-600" : "border-gray-400"
               }`}
             >
               {discount && <Check size={14} className="text-white" />}
@@ -88,7 +88,7 @@ export default function FilterPanel({ filterOptions, onFilterChange, onClose }: 
                 }}
                 className={`px-2 py-1 rounded-lg border text-sm ${
                   selectedCategories.includes(category.id)
-                    ? "bg-beveren-50 border-beveren-300 text-beveren-600"
+                    ? "bg-brand-50 border-brand-300 text-brand-600"
                     : "border-gray-300 text-gray-700"
                 }`}
               >
@@ -103,7 +103,7 @@ export default function FilterPanel({ filterOptions, onFilterChange, onClose }: 
       {/* Action Buttons */}
       <div className="flex justify-between mt-6">
         <button onClick={handleResetFilters} className="px-4 py-2 border rounded-lg">Reset</button>
-        <button onClick={handleApplyFilters} className="px-4 py-2 bg-beveren-600 text-white rounded-lg">Apply</button>
+        <button onClick={handleApplyFilters} className="px-4 py-2 bg-brand-600 text-white rounded-lg">Apply</button>
       </div>
     </div>
   )

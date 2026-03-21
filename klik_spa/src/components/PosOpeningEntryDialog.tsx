@@ -243,9 +243,9 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
   const isLoadingPaymentModes = selectedProfile && paymentModesLoading;
 
   return (
-    <div className="fixed inset-0 bg-beveren-300 bg-opacity-10 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-brand-300 bg-opacity-10 flex items-center justify-center z-50 p-4">
 <div className="bg-white rounded-lg shadow-xl max-w-xl w-full max-h-[90vh] overflow-hidden">        {/* Header */}
-        <div className="bg-beveren-600 text-white px-6 py-4 flex items-center justify-between">
+        <div className="bg-brand-600 text-white px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">POS Opening Entry</h2>
           <button
             onClick={handleCloseOrCancel}
@@ -259,7 +259,7 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
         {/* Logged-in User Info */}
         <div className="px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
           <div className="flex items-center gap-3">
-            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-beveren-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-white font-semibold text-sm shadow-sm">
               {user?.full_name
                 ? user.full_name.charAt(0).toUpperCase()
                 : <User className="w-4 h-4" />}
@@ -387,7 +387,7 @@ const POSOpeningModal: React.FC<POSOpeningModalProps> = ({
                     !selectedProfile ||
                     paymentMethods.length === 0
                   }
-                  className="flex-1 px-4 py-2 bg-beveren-700 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 px-4 py-2 bg-brand-700 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
                   {profilesLoading ? 'Loading...' :
                    isCreating ? 'Creating...' :

@@ -49,6 +49,22 @@ export default function InvoiceViewPage() {
   const invoiceId = id ?? ""
 
   const { invoice, isLoading, error } = useInvoiceDetails(invoiceId);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const invAny = invoice as any
+  const additionalDiscountAmount = invoice
+    ? Number(
+        invAny?.discount_amount ??
+          invAny?.giftCardDiscount ??
+          0
+      )
+    : 0
+  const additionalDiscountPct = invoice
+    ? Number(invAny?.additional_discount_percentage ?? 0)
+    : 0
+  const discountPromoCode = invoice
+    ? String(invAny?.discount_code || "").trim()
+    : ""
   const { statistics: customerStats, isLoading: statsLoading } = useCustomerStatistics(invoice?.customer || null);
   const { posDetails } = usePOSDetails();
   const navigate = useNavigate()
@@ -293,13 +309,13 @@ export default function InvoiceViewPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
         {/* Header */}
-        <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <button
                   onClick={handleBackClick}
-                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-beveren-200 dark:hover:bg-gray-700 rounded-lg"
+                  className="p-2 text-gray-600 dark:text-gray-400 hover:bg-brand-200 dark:hover:bg-gray-700 rounded-lg"
                 >
                   <ArrowLeft size={20} />
                 </button>
@@ -545,10 +561,10 @@ export default function InvoiceViewPage() {
 
                   {/* Tax Details Section */}
                   {invoice.taxes && invoice.taxes.length > 0 && (
-                    <div className="px-6 py-4 bg-beveren-50 dark:bg-beveren-900/20 border-t border-gray-200 dark:border-gray-600">
+                    <div className="px-6 py-4 bg-brand-50 dark:bg-brand-900/20 border-t border-gray-200 dark:border-gray-600">
                       <div className="flex items-center space-x-2 mb-3">
-                        <Percent className="w-5 h-5 text-beveren-600 dark:text-beveren-400" />
-                        <h4 className="text-sm font-semibold text-beveren-900 dark:text-beveren-100">Tax Details</h4>
+                        <Percent className="w-5 h-5 text-brand-600 dark:text-brand-400" />
+                        <h4 className="text-sm font-semibold text-brand-900 dark:text-brand-100">Tax Details</h4>
                       </div>
                       <div className="space-y-2">
                         {invoice.taxes.map((tax, index) => (
@@ -556,27 +572,27 @@ export default function InvoiceViewPage() {
                             <div className="flex items-center space-x-2">
                                           {/* @ts-expect-error just ignore */}
 
-                              <span className="text-beveren-700 dark:text-beveren-300 font-medium">{tax.account_head}</span>
+                              <span className="text-brand-700 dark:text-brand-300 font-medium">{tax.account_head}</span>
                                          {/* @ts-expect-error just ignore */}
 
-                              <span className="text-beveren-600 dark:text-beveren-400">({tax.rate}%)</span>
+                              <span className="text-brand-600 dark:text-brand-400">({tax.rate}%)</span>
                                          {/* @ts-expect-error just ignore */}
 
                               {tax.included_in_print_rate === 1 && (
-                                <span className="px-2 py-1 bg-beveren-100 dark:bg-beveren-800 text-beveren-800 dark:text-beveren-200 text-xs rounded-full">
+                                <span className="px-2 py-1 bg-brand-100 dark:bg-brand-800 text-brand-800 dark:text-brand-200 text-xs rounded-full">
                                   Inclusive
                                 </span>
                               )}
                             </div>
-                            <span className="text-beveren-900 dark:text-beveren-100 font-semibold">
+                            <span className="text-brand-900 dark:text-brand-100 font-semibold">
                                          {/* @ts-expect-error just ignore */}
                               {formatCurrency(tax.tax_amount, invoice.currency)}
                             </span>
                           </div>
                         ))}
-                        <div className="flex justify-between items-center text-sm pt-2 border-t border-beveren-200 dark:border-beveren-700">
-                          <span className="text-beveren-700 dark:text-beveren-300 font-semibold">Total Tax:</span>
-                          <span className="text-beveren-900 dark:text-beveren-100 font-bold">
+                        <div className="flex justify-between items-center text-sm pt-2 border-t border-brand-200 dark:border-brand-700">
+                          <span className="text-brand-700 dark:text-brand-300 font-semibold">Total Tax:</span>
+                          <span className="text-brand-900 dark:text-brand-100 font-bold">
                             {formatCurrency(invoice.total_taxes_and_charges, invoice.currency)}
                           </span>
                         </div>
@@ -607,10 +623,20 @@ export default function InvoiceViewPage() {
                           </div>
                         )}
 
-                        {invoice.giftCardDiscount > 0 && (
+                        {additionalDiscountAmount > 0 && (
                           <div className="flex justify-between text-sm">
-                            <span className="text-gray-600 dark:text-gray-400">Gift Card Discount:</span>
-                            <span className="text-green-600 dark:text-green-400">-{formatCurrency(invoice.giftCardDiscount, invoice.currency)}</span>
+                            <span className="text-gray-600 dark:text-gray-400">
+                              {discountPromoCode
+                                ? "Promo / gift discount"
+                                : "Additional (whole bill) discount"}
+                              {additionalDiscountPct > 0
+                                ? ` (${additionalDiscountPct}%)`
+                                : ""}
+                              :
+                            </span>
+                            <span className="text-green-600 dark:text-green-400">
+                              -{formatCurrency(additionalDiscountAmount, invoice.currency)}
+                            </span>
                           </div>
                         )}
 
@@ -624,7 +650,7 @@ export default function InvoiceViewPage() {
                         {invoice.paid_amount > 0 && (
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600 dark:text-gray-400">Paid Amount:</span>
-                            <span className="text-beveren-600 dark:text-beveren-400">{formatCurrency(invoice.paid_amount, invoice.currency)}</span>
+                            <span className="text-brand-600 dark:text-brand-400">{formatCurrency(invoice.paid_amount, invoice.currency)}</span>
                           </div>
                         )}
 
@@ -645,13 +671,17 @@ export default function InvoiceViewPage() {
                     </div>
                   </div>
 
-                  {/* Gift Card Section */}
-                  {invoice.giftCardCode && (
+                  {/* Promo / gift code (when stored on invoice) */}
+                  {discountPromoCode && (
                     <div className="px-6 py-4 bg-purple-50 dark:bg-purple-900/20 border-t border-gray-200 dark:border-gray-600">
-                      <h4 className="text-sm font-medium text-purple-900 dark:text-purple-100 mb-2">Gift Card Applied:</h4>
+                      <h4 className="text-sm font-medium text-purple-900 dark:text-purple-100 mb-2">Promo / gift code</h4>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-purple-700 dark:text-purple-300">Code: {invoice.giftCardCode}</span>
-                        <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">-{formatCurrency(invoice.giftCardDiscount, invoice.currency)}</span>
+                        <span className="text-sm text-purple-700 dark:text-purple-300">Code: {discountPromoCode}</span>
+                        {additionalDiscountAmount > 0 && (
+                          <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                            -{formatCurrency(additionalDiscountAmount, invoice.currency)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
@@ -759,7 +789,7 @@ export default function InvoiceViewPage() {
                     {/* Customer Statistics */}
                     <div className="space-y-4">
                       <div className="flex items-center space-x-2">
-                        <TrendingUp className="w-5 h-5 text-beveren-600" />
+                        <TrendingUp className="w-5 h-5 text-brand-600" />
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Customer Statistics</h4>
                       </div>
 
@@ -771,14 +801,14 @@ export default function InvoiceViewPage() {
                       ) : customerStats ? (
                         <div className="space-y-3">
                           <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-gradient-to-r from-beveren-50 to-beveren-100 dark:from-beveren-900/20 dark:to-beveren-800/20 rounded-lg p-4 border border-beveren-200 dark:border-beveren-700">
+                            <div className="bg-gradient-to-r from-brand-50 to-brand-100 dark:from-brand-900/20 dark:to-brand-800/20 rounded-lg p-4 border border-brand-200 dark:border-brand-700">
                               <div className="flex items-center space-x-3">
-                                <div className="p-2 bg-beveren-600 rounded-lg">
+                                <div className="p-2 bg-brand-600 rounded-lg">
                                   <Package className="w-4 h-4 text-white" />
                                 </div>
                                 <div>
-                                  <p className="text-xs text-beveren-700 dark:text-beveren-300 font-medium">Total Orders</p>
-                                  <p className="text-xs font-bold text-beveren-900 dark:text-beveren-100">
+                                  <p className="text-xs text-brand-700 dark:text-brand-300 font-medium">Total Orders</p>
+                                  <p className="text-xs font-bold text-brand-900 dark:text-brand-100">
                                     {customerStats.total_orders}
                                   </p>
                                 </div>

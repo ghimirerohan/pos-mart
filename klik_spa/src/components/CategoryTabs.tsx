@@ -65,7 +65,7 @@ export default function CategoryTabs({
           onClick={() => onCategoryChange(category.id)}
           className={`flex items-center justify-center px-3 py-2 rounded-xl whitespace-nowrap transition-all duration-200 flex-shrink-0 min-w-fit ${
             selectedCategory === category.id
-              ? "bg-beveren-50 dark:bg-beveren-900/20 text-beveren-700 dark:text-beveren-300 border border-beveren-200 dark:border-beveren-800 shadow-sm"
+              ? "bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300 border border-brand-200 dark:border-brand-800 shadow-sm"
               : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700"
           }`}
         >

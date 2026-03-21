@@ -148,7 +148,7 @@ export default function ClosingShiftPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">
             Loading payment transactions...
           </p>
@@ -234,7 +234,7 @@ export default function ClosingShiftPage() {
 
       {/* Grand Totals Summary Bar */}
       {!hideExpectedAmount && !hasNoOpeningEntry && (
-        <div className="bg-gradient-to-r from-beveren-600 to-beveren-700 rounded-xl p-4 text-white">
+        <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-xl p-4 text-white">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="text-center">
               <div className="flex items-center justify-center space-x-1 mb-1">
@@ -270,6 +270,20 @@ export default function ClosingShiftPage() {
               </div>
             </div>
           </div>
+          {invoiceSummary != null &&
+            (invoiceSummary.total_bill_discount ?? 0) > 0 && (
+              <div className="mt-3 pt-3 border-t border-white/25 text-center text-sm">
+                <span className="opacity-90">
+                  Discounts on sales (cashier / session scope):{" "}
+                </span>
+                <span className="font-bold text-amber-200">
+                  {formatCurrency(
+                    invoiceSummary.total_bill_discount ?? 0,
+                    currency
+                  )}
+                </span>
+              </div>
+            )}
         </div>
       )}
 
@@ -366,7 +380,7 @@ export default function ClosingShiftPage() {
                     onChange={(e) =>
                       handleClosingAmountChange(stat.name, e.target.value)
                     }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
@@ -425,7 +439,7 @@ export default function ClosingShiftPage() {
             className={`px-6 py-2 rounded-lg font-medium transition-colors ${
               isCreating
                 ? "bg-gray-400 text-gray-200 cursor-not-allowed"
-                : "bg-beveren-600 text-white hover:bg-beveren-700"
+                : "bg-brand-600 text-white hover:bg-brand-700"
             }`}
           >
             {isCreating ? "Closing..." : "Close Shift"}
@@ -453,7 +467,7 @@ export default function ClosingShiftPage() {
                 />
                 <button
                   onClick={() => setShowCloseModal(true)}
-                  className="flex items-center space-x-2 px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors text-sm"
+                  className="flex items-center space-x-2 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm"
                 >
                   <MonitorX className="w-4 h-4" />
                   <span>Close</span>
@@ -477,7 +491,7 @@ export default function ClosingShiftPage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex pb-12">
       <div className="flex-1 flex flex-col overflow-hidden ml-20">
-        <div className="fixed top-0 left-20 right-0 z-50 bg-beveren-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="fixed top-0 left-20 right-0 z-50 bg-brand-50 dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
           <div className="px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -493,7 +507,7 @@ export default function ClosingShiftPage() {
               </div>
               <button
                 onClick={() => setShowCloseModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
               >
                 <MonitorX className="w-4 h-4" />
                 <span>Close</span>

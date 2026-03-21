@@ -76,7 +76,7 @@ return (
           <p className="text-[11px] text-gray-400 dark:text-gray-500 capitalize truncate mr-2">
             {item.category}
           </p>
-          <span className={`font-bold text-beveren-600 dark:text-beveren-400 whitespace-nowrap ${isMobile ? "text-sm" : "text-sm"}`}>
+          <span className={`font-bold text-brand-600 dark:text-brand-400 whitespace-nowrap ${isMobile ? "text-sm" : "text-sm"}`}>
             {formattedPrice}
           </span>
         </div>

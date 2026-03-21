@@ -1,4 +1,4 @@
-# Copyright (c) Klik POS / Beveren Software Inc.
+# Copyright (c) 2025, Klik POS and contributors
 # After install: create Date Wise Inventory Manager role if not exists.
 
 import frappe

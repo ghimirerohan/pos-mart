@@ -78,22 +78,22 @@ export default function SettingsPage() {
   const renderProfileSection = () => (
     <div className="space-y-6">
       {/* Profile Header */}
-      <div className="bg-gradient-to-r from-beveren-600 to-beveren-700 rounded-xl p-6 text-white">
+      <div className="bg-gradient-to-r from-brand-600 to-brand-700 rounded-xl p-6 text-white">
         <div className="flex items-center space-x-4">
           <div className="relative">
             <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
               <span className="text-2xl font-bold">{initials}</span>
             </div>
-            <button className="absolute bottom-0 right-0 bg-white text-beveren-600 rounded-full p-2 shadow-lg hover:bg-gray-50 transition-colors">
+            <button className="absolute bottom-0 right-0 bg-white text-brand-600 rounded-full p-2 shadow-lg hover:bg-gray-50 transition-colors">
               <Camera size={16} />
             </button>
           </div>
           <div className="flex-1">
             <h2 className="text-2xl font-bold">{displayName}</h2>
-            <p className="text-beveren-100 text-lg">{userEmail}</p>
+            <p className="text-brand-100 text-lg">{userEmail}</p>
             {/* <div className="flex items-center space-x-2 mt-2">
-              <Shield size={16} className="text-beveren-200" />
-              <span className="text-beveren-100 font-medium">{userRole}</span>
+              <Shield size={16} className="text-brand-200" />
+              <span className="text-brand-100 font-medium">{userRole}</span>
             </div> */}
           </div>
         </div>
@@ -175,7 +175,7 @@ export default function SettingsPage() {
                 console.log('Theme toggle clicked, current theme:', theme)
                 toggleTheme()
               }}
-              className="bg-beveren-600 text-white px-4 py-2 rounded-lg hover:bg-beveren-700 transition-colors"
+              className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors"
               type="button"
             >
               Switch to {theme === 'dark' ? 'Light' : 'Dark'}
@@ -205,7 +205,7 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={() => setLanguage(language === "en" ? "ar" : "en")}
-              className="bg-beveren-600 text-white px-4 py-2 rounded-lg hover:bg-beveren-700 transition-colors"
+              className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 transition-colors"
             >
               Switch to {language === "en" ? "Arabic" : "English"}
             </button>
@@ -265,10 +265,10 @@ export default function SettingsPage() {
           <div className="flex items-center space-x-4 mb-4">
             <button
               onClick={() => navigate('/pos')}
-              className="flex items-center space-x-2 text-gray-600 hover:text-beveren-600 dark:text-gray-300 dark:hover:text-beveren-400 transition-colors group"
+              className="flex items-center space-x-2 text-gray-600 hover:text-brand-600 dark:text-gray-300 dark:hover:text-brand-400 transition-colors group"
               type="button"
             >
-              <div className="p-2 rounded-lg bg-gray-100 group-hover:bg-beveren-50 dark:bg-gray-800 dark:group-hover:bg-beveren-900 transition-colors">
+              <div className="p-2 rounded-lg bg-gray-100 group-hover:bg-brand-50 dark:bg-gray-800 dark:group-hover:bg-brand-900 transition-colors">
                 <ArrowLeft size={20} />
               </div>
               <span className="font-medium">Back to POS</span>
@@ -291,7 +291,7 @@ export default function SettingsPage() {
                       onClick={() => setActiveSection(section.id)}
                       className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
                         activeSection === section.id
-                          ? 'bg-beveren-50 text-beveren-700 border border-beveren-200 dark:bg-beveren-900 dark:text-beveren-300 dark:border-beveren-700'
+                          ? 'bg-brand-50 text-brand-700 border border-brand-200 dark:bg-brand-900 dark:text-brand-300 dark:border-brand-700'
                           : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700'
                       }`}
                     >

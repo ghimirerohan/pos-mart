@@ -601,7 +601,7 @@ export default function ItemDetailPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-4 lg:pb-0 lg:ml-20 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-beveren-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
       </div>
     )
   }
@@ -640,7 +640,7 @@ export default function ItemDetailPage() {
               <ArrowLeft size={20} />
             </button>
             <div className="flex items-center space-x-2">
-              <Package className="text-beveren-600" size={24} />
+              <Package className="text-brand-600" size={24} />
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 {isEditing ? 'Edit Item' : 'Item Details'}
               </h1>
@@ -664,7 +664,7 @@ export default function ItemDetailPage() {
               <button
                 onClick={handleUpdate}
                 disabled={isSaving || isUpdatingStock}
-                className="flex items-center space-x-1 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors disabled:opacity-50"
+                className="flex items-center space-x-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors disabled:opacity-50"
               >
                 {(isSaving || isUpdatingStock) ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 <span>{isUpdatingStock ? 'Updating Stock...' : 'Update'}</span>
@@ -685,7 +685,7 @@ export default function ItemDetailPage() {
               {item.barcode && (
                 <button
                   onClick={() => setShowPrintDialog(true)}
-                  className="flex items-center space-x-1 px-3 py-2 border border-beveren-600 text-beveren-600 rounded-lg hover:bg-beveren-50 dark:hover:bg-beveren-900/20 transition-colors"
+                  className="flex items-center space-x-1 px-3 py-2 border border-brand-600 text-brand-600 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors"
                   title="Print Barcode Labels"
                 >
                   <Printer size={18} />
@@ -694,7 +694,7 @@ export default function ItemDetailPage() {
               )}
               <button
                 onClick={() => setIsEditing(true)}
-                className="flex items-center space-x-1 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                className="flex items-center space-x-1 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
               >
                 <Edit2 size={18} />
                 <span>Edit</span>
@@ -839,7 +839,7 @@ export default function ItemDetailPage() {
                         <Trash2 size={14} />
                       </button>
                     )}
-                    <label className="absolute bottom-0 right-0 p-2 bg-beveren-600 text-white rounded-full cursor-pointer hover:bg-beveren-700 shadow-lg">
+                    <label className="absolute bottom-0 right-0 p-2 bg-brand-600 text-white rounded-full cursor-pointer hover:bg-brand-700 shadow-lg">
                       <ImagePlus size={16} />
                       <input
                         type="file"
@@ -851,7 +851,7 @@ export default function ItemDetailPage() {
                     </label>
                   </div>
                 ) : (
-                  <label className="w-32 h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-beveren-500 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                  <label className="w-32 h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer hover:border-brand-500 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                     {isOptimizingImage ? (
                       <Loader2 size={24} className="animate-spin text-gray-400" />
                     ) : (

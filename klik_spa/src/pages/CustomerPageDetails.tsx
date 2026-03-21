@@ -293,7 +293,7 @@ export default function CustomerDetailsPage() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-beveren-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">Loading customer details...</p>
         </div>
       </div>
@@ -371,7 +371,7 @@ export default function CustomerDetailsPage() {
                   setSelectedCustomer(customer);
                   setShowAddModal(true);
                 }}
-                className="flex items-center space-x-2 px-3 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors text-sm"
+                className="flex items-center space-x-2 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm"
               >
                 <Edit className="w-4 h-4" />
                 <span>Edit</span>
@@ -386,7 +386,7 @@ export default function CustomerDetailsPage() {
           <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 mb-4">
             <div className="flex items-start justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 bg-beveren-600 rounded-full flex items-center justify-center">
+                <div className="w-12 h-12 bg-brand-600 rounded-full flex items-center justify-center">
                   <User className="w-6 h-6 text-white" />
                 </div>
                 <div className="space-y-1">
@@ -428,7 +428,7 @@ export default function CustomerDetailsPage() {
                     {customerMetrics.totalInvoices}
                   </p>
                 </div>
-                <FileText className="w-6 h-6 text-beveren-600" />
+                <FileText className="w-6 h-6 text-brand-600" />
               </div>
             </div>
 
@@ -458,7 +458,7 @@ export default function CustomerDetailsPage() {
                 <button
                   type="button"
                   onClick={() => setShowReceiveOutstandingModal(true)}
-                  className="mt-2 w-full py-2 text-sm font-medium text-beveren-600 dark:text-beveren-400 border border-beveren-600 dark:border-beveren-400 rounded-lg hover:bg-beveren-50 dark:hover:bg-beveren-900/20"
+                  className="mt-2 w-full py-2 text-sm font-medium text-brand-600 dark:text-brand-400 border border-brand-600 dark:border-brand-400 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/20"
                 >
                   Receive Outstanding
                 </button>
@@ -488,14 +488,14 @@ export default function CustomerDetailsPage() {
                   placeholder="Search invoices..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="all">All Status</option>
                   <option value="Draft">Draft</option>
@@ -509,7 +509,7 @@ export default function CustomerDetailsPage() {
                 <select
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="all">All Time</option>
                   <option value="today">Today</option>
@@ -581,7 +581,7 @@ export default function CustomerDetailsPage() {
                           <div className="flex space-x-2">
                             <button
                               onClick={() => handleViewInvoice(invoice)}
-                              className="text-beveren-600 hover:text-beveren-900 dark:text-beveren-400 dark:hover:text-beveren-300"
+                              className="text-brand-600 hover:text-brand-900 dark:text-brand-400 dark:hover:text-brand-300"
                             >
                               View
                             </button>
@@ -622,7 +622,7 @@ export default function CustomerDetailsPage() {
                 className={`px-4 py-2 rounded-lg font-medium transition-colors text-sm ${
                   isLoading
                     ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                    : 'bg-beveren-600 text-white hover:bg-beveren-700'
+                    : 'bg-brand-600 text-white hover:bg-brand-700'
                 }`}
               >
                 {isLoading ? (
@@ -736,7 +736,7 @@ export default function CustomerDetailsPage() {
                   setSelectedCustomer(customer);
                   setShowAddModal(true);
                 }}
-                className="flex items-center space-x-2 px-4 py-2 bg-beveren-600 text-white rounded-lg hover:bg-beveren-700 transition-colors"
+                className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
               >
                 <Edit className="w-4 h-4" />
                 <span>Update Customer</span>
@@ -751,7 +751,7 @@ export default function CustomerDetailsPage() {
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700 mb-6">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className="w-16 h-16 bg-beveren-600 rounded-full flex items-center justify-center">
+                  <div className="w-16 h-16 bg-brand-600 rounded-full flex items-center justify-center">
                     <User className="w-8 h-8 text-white" />
                   </div>
                   <div className="space-y-1">
@@ -821,7 +821,7 @@ export default function CustomerDetailsPage() {
                       {customerMetrics.totalInvoices}
                     </p>
                   </div>
-                  <FileText className="w-8 h-8 text-beveren-600" />
+                  <FileText className="w-8 h-8 text-brand-600" />
                 </div>
               </div>
 
@@ -848,7 +848,7 @@ export default function CustomerDetailsPage() {
                       <button
                         type="button"
                         onClick={() => setShowReceiveOutstandingModal(true)}
-                        className="mt-2 px-3 py-1.5 text-sm font-medium text-beveren-600 dark:text-beveren-400 border border-beveren-600 dark:border-beveren-400 rounded-lg hover:bg-beveren-50 dark:hover:bg-beveren-900/20"
+                        className="mt-2 px-3 py-1.5 text-sm font-medium text-brand-600 dark:text-brand-400 border border-brand-600 dark:border-brand-400 rounded-lg hover:bg-brand-50 dark:hover:bg-brand-900/20"
                       >
                         Receive Outstanding
                       </button>
@@ -881,13 +881,13 @@ export default function CustomerDetailsPage() {
                     placeholder="Search invoices..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
                 </div>
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="all">All Status</option>
                   <option value="Draft">Draft</option>
@@ -901,7 +901,7 @@ export default function CustomerDetailsPage() {
                 <select
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-beveren-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="all">All Time</option>
                   <option value="today">Today</option>
@@ -982,9 +982,9 @@ export default function CustomerDetailsPage() {
                             <div className="text-sm font-medium text-gray-900 dark:text-white">
                               {formatCurrency(invoice.totalAmount, invoice.currency)}
                             </div>
-                            {invoice.giftCardDiscount > 0 && (
+                            {(invoice.giftCardDiscount > 0 || (invoice.discount_amount ?? 0) > 0) && (
                               <div className="text-xs text-orange-600 dark:text-green-400">
-                                -{formatCurrency(invoice.giftCardDiscount, invoice.currency)} gift card
+                                -{formatCurrency(invoice.giftCardDiscount || invoice.discount_amount || 0, invoice.currency)} discount
                               </div>
                             )}
                             {invoice.amountDue > 0 && invoice.amountDue < invoice.totalAmount && (
@@ -1006,7 +1006,7 @@ export default function CustomerDetailsPage() {
                             <div className="flex space-x-2">
                               <button
                                 onClick={() => handleViewInvoice(invoice)}
-                                className="text-beveren-600 hover:text-beveren-900 dark:text-beveren-400 dark:hover:text-beveren-300"
+                                className="text-brand-600 hover:text-brand-900 dark:text-brand-400 dark:hover:text-brand-300"
                               >
                                 View
                               </button>
@@ -1048,7 +1048,7 @@ export default function CustomerDetailsPage() {
                 className={`px-6 py-3 rounded-lg font-medium transition-colors ${
                   isLoading
                     ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                    : 'bg-beveren-600 text-white hover:bg-beveren-700'
+                    : 'bg-brand-600 text-white hover:bg-brand-700'
                 }`}
               >
                 {isLoading ? (
