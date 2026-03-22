@@ -3,6 +3,8 @@
  * All amounts are treated as cents to avoid floating point errors
  */
 
+import { formatGroupedAmount } from './currency'
+
 /**
  * Convert dollars to cents (multiply by 100)
  */
@@ -59,10 +61,10 @@ export function roundCurrency(amount: number): number {
 }
 
 /**
- * Format currency amount to 2 decimal places string
+ * Format currency amount for display (grouped thousands, 2 decimals)
  */
 export function formatCurrencyAmount(amount: number): string {
-  return roundCurrency(amount).toFixed(2);
+  return formatGroupedAmount(roundCurrency(amount))
 }
 
 /**

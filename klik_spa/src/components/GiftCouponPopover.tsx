@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { Tag, X, Check, Gift } from "lucide-react"
 import type { GiftCoupon } from "../../types"
 import { usePOSDetails } from "../hooks/usePOSProfile"
+import { formatGroupedAmount } from "../utils/currency"
 
 // Empty coupons array - replace with real data when available
 const availableCoupons: GiftCoupon[] = []
@@ -159,7 +160,7 @@ const currency_symbol = posDetails?.currency_symbol
               />
               {couponAmount && (
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 dark:text-green-400 font-medium">
-                  -{currency_symbol}{couponAmount.toFixed(2)}
+                  -{currency_symbol}{formatGroupedAmount(couponAmount)}
                 </div>
               )}
             </div>
@@ -192,7 +193,7 @@ const currency_symbol = posDetails?.currency_symbol
               />
               {giftCardAmount && (
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 dark:text-green-400 font-medium">
-                  -{currency_symbol}{giftCardAmount.toFixed(2)}
+                  -{currency_symbol}{formatGroupedAmount(giftCardAmount)}
                 </div>
               )}
             </div>
@@ -226,7 +227,7 @@ const currency_symbol = posDetails?.currency_symbol
                   }`}
                 >
                   <div className="font-medium">{coupon.code}</div>
-                  <div className="text-green-600 dark:text-green-400">-{currency_symbol}{coupon.value.toFixed(2)}</div>
+                  <div className="text-green-600 dark:text-green-400">-{currency_symbol}{formatGroupedAmount(coupon.value)}</div>
                 </button>
               )
             })}

@@ -24,6 +24,7 @@ import {
 import { toast } from "react-toastify"
 import type { PurchaseCartItem, Supplier } from "../types/supplier"
 import AddSupplierModal from "./AddSupplierModal"
+import { formatGroupedAmount } from "../utils/currency"
 
 // ------------------------------------------------------------------
 // Image helpers (same logic as ItemsPage)
@@ -848,7 +849,7 @@ export default function QuickAddPurchaseItemModal({
                 <div className="flex items-center justify-between pt-2 border-t border-amber-200 dark:border-amber-800/30">
                   <span className="text-xs text-gray-600 dark:text-gray-400">Purchase Total</span>
                   <span className="text-sm font-bold text-gray-900 dark:text-white">
-                    {currencySymbol} {(buyingPrice * quantity).toFixed(2)}
+                    {currencySymbol} {formatGroupedAmount(buyingPrice * quantity)}
                   </span>
                 </div>
               )}

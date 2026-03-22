@@ -24,6 +24,7 @@ import { useAuth } from "../hooks/useAuth"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodePrintDialog from "../components/BarcodePrintDialog"
 import { toast } from "react-toastify"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface ItemDetails {
   item_code: string
@@ -500,8 +501,8 @@ export default function ItemDetailPage() {
       item.item_code,
       item.item_name,
       item.barcode || '',
-      item.standard_rate.toFixed(2),
-      item.valuation_rate.toFixed(2),
+      formatGroupedAmount(item.standard_rate),
+      formatGroupedAmount(item.valuation_rate),
       item.available_qty.toString(),
       item.stock_uom,
       item.shelf_life_in_days?.toString() || '',
@@ -1020,7 +1021,7 @@ export default function ItemDetailPage() {
                 />
               ) : (
                 <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-gray-900 dark:text-white">
-                  {item.standard_rate.toFixed(2)}
+                  {formatGroupedAmount(item.standard_rate)}
                 </div>
               )}
             </div>
@@ -1039,7 +1040,7 @@ export default function ItemDetailPage() {
                 />
               ) : (
                 <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-gray-900 dark:text-white">
-                  {item.valuation_rate.toFixed(2)}
+                  {formatGroupedAmount(item.valuation_rate)}
                 </div>
               )}
             </div>

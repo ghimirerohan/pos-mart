@@ -20,7 +20,7 @@ import {
 
 import BottomNavigation from "../components/BottomNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { formatCurrency } from "../utils/currency";
+import { formatCurrency, formatGroupedAmount } from "../utils/currency";
 import type { PurchaseInvoice } from "../../types";
 import { usePurchaseInvoices } from "../hooks/usePurchaseInvoices";
 import { useUserInfo } from "../hooks/useUserInfo";
@@ -410,8 +410,8 @@ const getStatusBadge = (status: string) => {
         invoice.id,
         invoice.supplier,
         invoice.date,
-        invoice.totalAmount.toFixed(2),
-        (invoice.outstandingAmount || 0).toFixed(2),
+        formatGroupedAmount(invoice.totalAmount),
+        formatGroupedAmount(invoice.outstandingAmount || 0),
         invoice.status,
         invoice.paymentMethod
       ]);

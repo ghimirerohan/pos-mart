@@ -2,6 +2,7 @@
 
 // import { useI18n } from "../hooks/useI18n"
 import type { MenuItem } from "../../types"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface ProductLineViewProps {
   items: MenuItem[]
@@ -54,7 +55,7 @@ export default function ProductLineView({ items, onAddToCart, isMobile = false, 
           {items.map((item) => {
             const isOutOfStock = item.available <= 0
             const isDisabled = isOutOfStock || scannerOnly
-            const formattedPrice = `${item.currency_symbol}${item.price.toFixed(2)}`
+            const formattedPrice = `${item.currency_symbol}${formatGroupedAmount(item.price)}`
 
             return (
               <div

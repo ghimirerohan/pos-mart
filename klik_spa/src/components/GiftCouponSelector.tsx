@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { X, Tag, Check } from "lucide-react"
 import type { GiftCoupon } from "../../types"
+import { formatGroupedAmount } from "../utils/currency"
 
 // Empty coupons array - replace with real data when available
 const availableCoupons: GiftCoupon[] = []
@@ -102,7 +103,7 @@ export default function GiftCouponSelector({ onClose, onApplyCoupon, appliedCoup
                     </div>
                   </div>
                   <div className="flex items-center">
-                    <span className="font-bold text-sm mr-2">${coupon.value.toFixed(2)}</span>
+                    <span className="font-bold text-sm mr-2">${formatGroupedAmount(coupon.value)}</span>
                     {isApplied && <Check size={16} className="text-green-500" />}
                   </div>
                 </div>

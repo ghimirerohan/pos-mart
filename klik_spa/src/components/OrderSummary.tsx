@@ -29,6 +29,7 @@ import { useCustomerPermission } from "../hooks/useCustomerPermission";
 import { useCartStore } from "../stores/cartStore";
 import ReceiveOutstandingModal from "./ReceiveOutstandingModal";
 import { billDiscountPayload, computeBillDiscountBreakdown } from "../utils/posDiscount";
+import { formatGroupedAmount } from "../utils/currency";
 
 
 interface OrderSummaryProps {
@@ -1332,7 +1333,7 @@ export default function OrderSummary({
                       <div className="flex items-center space-x-1">
                         <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
                           <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-                            Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                            Due: {currency_symbol}{formatGroupedAmount(customerStats?.total_outstanding || 0)}
                           </span>
                         </div>
                         <button
@@ -1470,7 +1471,7 @@ export default function OrderSummary({
                     <div className="flex items-center space-x-1">
                       <div className="px-2 py-1 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md">
                         <span className="text-xs font-semibold text-red-600 dark:text-red-400">
-                          Due: {currency_symbol}{(customerStats?.total_outstanding || 0).toFixed(2)}
+                          Due: {currency_symbol}{formatGroupedAmount(customerStats?.total_outstanding || 0)}
                         </span>
                       </div>
                       <button
@@ -1606,18 +1607,18 @@ export default function OrderSummary({
                           <div className="flex items-center space-x-2">
                             <span className="text-gray-400 line-through text-xs">
                               {currency_symbol}
-                              {item.price.toFixed(2)}
+                              {formatGroupedAmount(item.price)}
                             </span>
 
                             <span className="text-brand-600 dark:text-brand-400 font-semibold">
                               {currency_symbol}
-                              {discountedPrice.toFixed(2)}
+                              {formatGroupedAmount(discountedPrice)}
                             </span>
                           </div>
                         ) : (
                           <div className="text-brand-600 dark:text-brand-400 font-semibold">
                             {currency_symbol}
-                            {item.price.toFixed(2)}
+                            {formatGroupedAmount(item.price)}
                           </div>
                         )}
                       </div>
@@ -1663,7 +1664,7 @@ export default function OrderSummary({
                         <div>
                           <p className="text-gray-400 line-through text-xs">
                             {currency_symbol}
-                            {originalTotal.toFixed(2)}
+                            {formatGroupedAmount(originalTotal)}
                           </p>
                           <p
                             className={`text-brand-600 dark:text-brand-400 font-semibold ${
@@ -1671,7 +1672,7 @@ export default function OrderSummary({
                             }`}
                           >
                             {currency_symbol}
-                            {discountedTotal.toFixed(2)}
+                            {formatGroupedAmount(discountedTotal)}
                           </p>
                         </div>
                       ) : (
@@ -1681,7 +1682,7 @@ export default function OrderSummary({
                           }`}
                         >
                           {currency_symbol}
-                          {discountedTotal.toFixed(2)}
+                          {formatGroupedAmount(discountedTotal)}
                         </p>
                       )}
                     </div>
@@ -1826,11 +1827,11 @@ export default function OrderSummary({
                                 itemDiscount.discountAmount > 0 &&
                                 " + "}
                               {itemDiscount.discountAmount > 0 &&
-                                `${itemDiscount.discountAmount.toFixed(2)} off`}
+                                `${formatGroupedAmount(itemDiscount.discountAmount)} off`}
                             </span>
                             <span className="text-xs font-semibold text-green-800 dark:text-green-300">
                               Save $
-                              {(originalTotal - discountedTotal).toFixed(2)}
+                              {formatGroupedAmount(originalTotal - discountedTotal)}
                             </span>
                           </div>
                         </div>
@@ -1897,7 +1898,7 @@ export default function OrderSummary({
                 <span>Subtotal</span>
                 <span>
                   {currency_symbol}
-                  {subtotal.toFixed(2)}
+                  {formatGroupedAmount(subtotal)}
                 </span>
               </div>
               {couponDiscount > 0 && (
@@ -1905,7 +1906,7 @@ export default function OrderSummary({
                   <span>Coupons</span>
                   <span>
                     −{currency_symbol}
-                    {couponDiscount.toFixed(2)}
+                    {formatGroupedAmount(couponDiscount)}
                   </span>
                 </div>
               )}
@@ -1919,7 +1920,7 @@ export default function OrderSummary({
                   </span>
                   <span>
                     −{currency_symbol}
-                    {billBreakdown.billDiscountAmount.toFixed(2)}
+                    {formatGroupedAmount(billBreakdown.billDiscountAmount)}
                   </span>
                 </div>
               )}
@@ -1927,7 +1928,7 @@ export default function OrderSummary({
                 <span>Before tax</span>
                 <span>
                   {currency_symbol}
-                  {total.toFixed(2)}
+                  {formatGroupedAmount(total)}
                 </span>
               </div>
             </div>
@@ -1994,7 +1995,7 @@ export default function OrderSummary({
               isMobile ? "py-3 text-base" : "py-2 text-sm"
             }`}
           >
-            {isValidatingStock ? "Verifying stock..." : `Checkout ${currency_symbol}${total.toFixed(2)}`}
+            {isValidatingStock ? "Verifying stock..." : `Checkout ${currency_symbol}${formatGroupedAmount(total)}`}
           </button>
         </div>
       )}

@@ -37,6 +37,7 @@ import { useUSBBarcodeScanner } from "../hooks/useUSBBarcodeScanner"
 import { useProducts } from "../hooks/useProducts"
 import { useAuth } from "../hooks/useAuth"
 import { toast } from "react-toastify"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface UOMConversion {
   uom: string
@@ -868,8 +869,8 @@ export default function ItemsPage() {
         escapeCSV(item.item_code),
         escapeCSV(item.item_name),
         escapeCSV(item.barcode),
-        escapeCSV(item.selling_price?.toFixed(2) || '0.00'),
-        escapeCSV(item.buying_price?.toFixed(2) || '0.00'),
+        escapeCSV(formatGroupedAmount(item.selling_price ?? 0)),
+        escapeCSV(formatGroupedAmount(item.buying_price ?? 0)),
         escapeCSV(item.stock_qty?.toString() || '0'),
         escapeCSV(item.uom),
         escapeCSV(item.shelf_life_in_days?.toString() || ''),
@@ -1204,7 +1205,7 @@ export default function ItemsPage() {
                               <span className="text-xs text-gray-500 dark:text-gray-400">Buy</span>
                             </div>
                             <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
-                              {item.buying_price ? `${item.buying_price.toFixed(2)}` : '—'}
+                              {item.buying_price ? formatGroupedAmount(item.buying_price) : '—'}
                             </p>
                           </div>
                           
@@ -1215,7 +1216,7 @@ export default function ItemsPage() {
                               <span className="text-xs text-gray-500 dark:text-gray-400">Sell</span>
                             </div>
                             <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                              {item.price ? `${item.price.toFixed(2)}` : '—'}
+                              {item.price ? formatGroupedAmount(item.price) : '—'}
                             </p>
                           </div>
                         </div>

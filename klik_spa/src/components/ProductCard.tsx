@@ -2,6 +2,7 @@
 
 // import { useI18n } from "../hooks/useI18n"
 import type { MenuItem } from "../../types"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface ProductCardProps {
   item: MenuItem
@@ -16,7 +17,7 @@ export default function ProductCard({ item, onAddToCart, isMobile = false, scann
   const isDisabled = isOutOfStock || scannerOnly
 
   // Format price based on currency
-  const formattedPrice = `${item.currency_symbol}${item.price.toFixed(2)}`
+  const formattedPrice = `${item.currency_symbol}${formatGroupedAmount(item.price)}`
 
 return (
     <div

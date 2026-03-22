@@ -113,28 +113,50 @@ export const getCurrencySymbol = (currency: string): string => {
   return symbol || currency; // Return currency code if symbol not found
 };
 
+/** Number part only, with thousands separators (e.g. 12,584.97). NPR and all POS amounts. */
+const amountFormatter = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
+/**
+ * Format a numeric amount with thousands separators and 2 decimal places.
+ * Use for any on-screen money display (with or without a separate currency symbol).
+ */
+export function formatGroupedAmount(amount: number): string {
+  const n = Number(amount)
+  if (amount !== 0 && (amount === null || amount === undefined || Number.isNaN(n))) {
+    return '0.00'
+  }
+  return amountFormatter.format(n)
+}
+
 /**
  * Format amount with currency symbol
  * @param amount - Amount to format
  * @param currency - Currency code
- * @returns Formatted string (e.g., "SAR 100.00", "$50.00")
+ * @returns Formatted string (e.g., "₨ 12,584.97", "$1,234.56")
  */
 export const formatCurrency = (amount: number, currency?: string): string => {
-  if (!amount && amount !== 0) return '0.00';
+  if (!amount && amount !== 0) {
+    return `${getCurrencySymbol(currency || 'USD')} ${formatGroupedAmount(0)}`
+  }
 
-  const symbol = getCurrencySymbol(currency || 'USD');
-  return `${symbol} ${amount.toFixed(2)}`;
-};
+  const symbol = getCurrencySymbol(currency || 'USD')
+  return `${symbol} ${formatGroupedAmount(Number(amount))}`
+}
 
 /**
  * Format amount with currency symbol (compact version)
  * @param amount
  * @param currency
- * @returns Formatted string (e.g., "SAR100.00", "$50.00")
+ * @returns Formatted string (e.g., "₨12,584.97", "$1,234.56")
  */
 export const formatCurrencyCompact = (amount: number, currency?: string): string => {
-  if (!amount && amount !== 0) return '0.00';
+  if (!amount && amount !== 0) {
+    return `${getCurrencySymbol(currency || 'USD')}${formatGroupedAmount(0)}`
+  }
 
-  const symbol = getCurrencySymbol(currency || 'USD');
-  return `${symbol}${amount.toFixed(2)}`;
-};
+  const symbol = getCurrencySymbol(currency || 'USD')
+  return `${symbol}${formatGroupedAmount(Number(amount))}`
+}

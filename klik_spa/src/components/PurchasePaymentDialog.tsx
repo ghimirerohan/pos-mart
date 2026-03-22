@@ -16,6 +16,7 @@ import type { PurchaseCartItem, Supplier, CreatePurchaseInvoiceData } from "../t
 import { toast } from "react-toastify";
 import { usePOSDetails } from "../hooks/usePOSProfile";
 import { useProducts } from "../hooks/useProducts";
+import { formatGroupedAmount } from "../utils/currency";
 
 interface PurchasePaymentDialogProps {
   isOpen: boolean;
@@ -548,7 +549,7 @@ export default function PurchasePaymentDialog({
                       <span className="text-gray-600 dark:text-gray-400">Subtotal</span>
                       <span className="text-gray-900 dark:text-white">
                         {currency_symbol}
-                        {subtotal.toFixed(2)}
+                        {formatGroupedAmount(subtotal)}
                       </span>
                     </div>
                     {taxAmount > 0 && (
@@ -556,7 +557,7 @@ export default function PurchasePaymentDialog({
                         <span className="text-gray-600 dark:text-gray-400">Tax</span>
                         <span className="text-gray-900 dark:text-white">
                           {currency_symbol}
-                          {taxAmount.toFixed(2)}
+                          {formatGroupedAmount(taxAmount)}
                         </span>
                       </div>
                     )}
@@ -564,7 +565,7 @@ export default function PurchasePaymentDialog({
                       <span className="text-gray-900 dark:text-white">Total</span>
                       <span className="text-amber-600 dark:text-amber-400">
                         {currency_symbol}
-                        {grandTotal.toFixed(2)}
+                        {formatGroupedAmount(grandTotal)}
                       </span>
                     </div>
                   </div>
@@ -585,7 +586,7 @@ export default function PurchasePaymentDialog({
                     <>
                       <Check size={20} />
                       Complete Purchase {currency_symbol}
-                      {grandTotal.toFixed(2)}
+                      {formatGroupedAmount(grandTotal)}
                     </>
                   )}
                 </button>
@@ -632,12 +633,12 @@ export default function PurchasePaymentDialog({
                       </p>
                       <p className="text-gray-500 dark:text-gray-400">
                         {item.quantity} x {currency_symbol}
-                        {item.purchase_price.toFixed(2)}
+                        {formatGroupedAmount(item.purchase_price)}
                       </p>
                     </div>
                     <p className="text-gray-900 dark:text-white font-medium">
                       {currency_symbol}
-                      {(item.quantity * item.purchase_price).toFixed(2)}
+                      {formatGroupedAmount(item.quantity * item.purchase_price)}
                     </p>
                   </div>
                 ))}
@@ -649,7 +650,7 @@ export default function PurchasePaymentDialog({
                   <span className="text-gray-600 dark:text-gray-400">Subtotal</span>
                   <span className="text-gray-900 dark:text-white">
                     {currency_symbol}
-                    {subtotal.toFixed(2)}
+                    {formatGroupedAmount(subtotal)}
                   </span>
                 </div>
                 {taxAmount > 0 && (
@@ -657,7 +658,7 @@ export default function PurchasePaymentDialog({
                     <span className="text-gray-600 dark:text-gray-400">Tax</span>
                     <span className="text-gray-900 dark:text-white">
                       {currency_symbol}
-                      {taxAmount.toFixed(2)}
+                      {formatGroupedAmount(taxAmount)}
                     </span>
                   </div>
                 )}
@@ -665,7 +666,7 @@ export default function PurchasePaymentDialog({
                   <span className="text-gray-900 dark:text-white">Total</span>
                   <span className="text-amber-600 dark:text-amber-400">
                     {currency_symbol}
-                    {grandTotal.toFixed(2)}
+                    {formatGroupedAmount(grandTotal)}
                   </span>
                 </div>
               </div>
@@ -685,7 +686,7 @@ export default function PurchasePaymentDialog({
                         </span>
                         <span className="text-gray-900 dark:text-white">
                           {currency_symbol}
-                          {pm.amount.toFixed(2)}
+                          {formatGroupedAmount(pm.amount)}
                         </span>
                       </div>
                     ))}

@@ -1,6 +1,8 @@
 // exportUtils.ts
 // Utility functions for exporting data to CSV/Excel format
 
+import { formatGroupedAmount } from './currency'
+
 export interface ExportableInvoice {
   name: string;
   customer: string;
@@ -74,7 +76,7 @@ export function exportInvoicesToCSV(invoices: ExportableInvoice[], filename?: st
 }
 
 export function formatCurrencyForExport(amount: number, currency: string = 'SAR'): string {
-  return `${amount.toFixed(2)} ${currency}`;
+  return `${formatGroupedAmount(amount)} ${currency}`;
 }
 
 export function formatDateForExport(dateString: string): string {

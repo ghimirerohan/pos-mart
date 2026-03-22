@@ -13,7 +13,7 @@ import "nepali-datepicker-reactjs/dist/index.css";
 import BottomNavigation from "../components/BottomNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useUserInfo } from "../hooks/useUserInfo";
-import { formatCurrency } from "../utils/currency";
+import { formatCurrency, formatGroupedAmount } from "../utils/currency";
 import { toast } from "react-toastify";
 
 const PAGE_SIZE = 100;
@@ -608,7 +608,7 @@ export default function DateWiseInventoryPage() {
                               }
                               if (val == null) val = "";
                               if (floatFields.has(f) && typeof val === "number") {
-                                val = Number.isInteger(val) ? val : (val as number).toFixed(2);
+                                val = formatGroupedAmount(val as number);
                               }
                               if (f === "stock_value" || f === "opening_stock_value" || f === "valuation_rate") {
                                 const num = Number(val);

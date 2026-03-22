@@ -42,6 +42,7 @@ import DisplayPrintPreview from "../utils/invoicePrint";
 import { handlePrintInvoice, handlePrintWithThermal } from "../utils/printHandler";
 import { sendEmails, sendWhatsAppMessage, sendSMSMessage } from "../services/useSharing";
 import { clearDraftInvoiceCache, getOriginalDraftInvoiceId } from "../utils/draftInvoiceCache";
+import { formatGroupedAmount } from "../utils/currency";
 // import { deleteDraftInvoice } from "../services/salesInvoice";
 import {
   fetchWhatsAppTemplates,
@@ -848,7 +849,7 @@ export default function PaymentDialog({
 
       // Check if the absolute value exceeds the limit
       if (Math.abs(parsed) > maxAllowedRoundoff) {
-        toast.error(`Roundoff amount cannot exceed ${maxAllowedRoundoff.toFixed(2)}. Write-off limit is ${writeOffLimit}.`);
+        toast.error(`Roundoff amount cannot exceed ${formatGroupedAmount(maxAllowedRoundoff)}. Write-off limit is ${writeOffLimit}.`);
         return;
       }
 

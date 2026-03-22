@@ -15,6 +15,7 @@ import type { SalesInvoice } from "../../types";
 import { useInvoiceDetails } from "../hooks/useInvoiceDetails";
 import { createSalesReturn } from "../services/salesInvoice";
 import { toast } from "react-toastify";
+import { formatGroupedAmount } from "../utils/currency";
 
 interface InvoiceViewModalProps {
   invoice: SalesInvoice | null;
@@ -206,10 +207,10 @@ export default function InvoiceViewModal({
                               {item.qty}
                             </td>
                             <td className="px-6 py-4 text-gray-900 dark:text-white">
-                              ${Number(item.rate ?? 0).toFixed(2)}
+                              ${formatGroupedAmount(Number(item.rate ?? 0))}
                             </td>
                             <td className="px-6 py-4 font-semibold text-gray-900 dark:text-white">
-                              ${Number(item.amount ?? 0).toFixed(2)}
+                              ${formatGroupedAmount(Number(item.amount ?? 0))}
                             </td>
                           </tr>
                         ))}

@@ -3,6 +3,8 @@
  * Uses WebUSB API for direct USB communication with ESC/POS commands
  */
 
+import { formatGroupedAmount } from '../utils/currency'
+
 // ESC/POS Command Constants
 const ESC = 0x1b
 const GS = 0x1d
@@ -299,7 +301,7 @@ class ThermalPrinterService {
           const priceCommands: number[] = []
           priceCommands.push(LF)
           priceCommands.push(GS, 0x21, 0x11) // Double width and height
-          const priceText = `Rs.${data.price.toFixed(2)}`
+          const priceText = `Rs.${formatGroupedAmount(data.price)}`
           const priceBytes = new TextEncoder().encode(priceText)
           priceCommands.push(...priceBytes)
           priceCommands.push(LF)
@@ -406,7 +408,7 @@ class ThermalPrinterService {
 
       // Print price if enabled
       if (config.showPrice && data.price !== undefined && data.price > 0) {
-        const priceText = `Rs.${data.price.toFixed(2)}`
+        const priceText = `Rs.${formatGroupedAmount(data.price)}`
         const priceX = Math.floor((labelWidthDots - priceText.length * 16) / 2)
         commands.push(`TEXT ${Math.max(8, priceX)},${yPos},"3",0,1,1,"${priceText}"`)
       }

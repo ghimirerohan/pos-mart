@@ -17,6 +17,7 @@ import { PurchaseHistoryInfoButton } from "./ItemPurchaseHistoryPopover";
 import { usePurchaseCartStore } from "../stores/purchaseCartStore";
 import { toast } from "react-toastify";
 import { usePOSDetails } from "../hooks/usePOSProfile";
+import { formatGroupedAmount } from "../utils/currency";
 
 interface PurchaseOrderSummaryProps {
   cartItems: PurchaseCartItem[];
@@ -384,7 +385,7 @@ export default function PurchaseOrderSummary({
                       </div>
                       <div className="text-sm text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                         {currency_symbol}
-                        {item.purchase_price.toFixed(2)}
+                        {formatGroupedAmount(item.purchase_price)}
                       </div>
                     </div>
 
@@ -411,7 +412,7 @@ export default function PurchaseOrderSummary({
                     <div className="text-right min-w-[70px] px-2">
                       <p className="text-amber-600 dark:text-amber-400 font-semibold text-sm">
                         {currency_symbol}
-                        {itemTotal.toFixed(2)}
+                        {formatGroupedAmount(itemTotal)}
                       </p>
                     </div>
 
@@ -528,7 +529,7 @@ export default function PurchaseOrderSummary({
             <span className="text-gray-600 dark:text-gray-400">Subtotal</span>
             <span className="font-semibold text-gray-900 dark:text-white">
               {currency_symbol}
-              {subtotal.toFixed(2)}
+              {formatGroupedAmount(subtotal)}
             </span>
           </div>
 
@@ -572,7 +573,7 @@ export default function PurchaseOrderSummary({
             }`}
           >
             Complete Purchase {currency_symbol}
-            {subtotal.toFixed(2)}
+            {formatGroupedAmount(subtotal)}
           </button>
         </div>
       )}

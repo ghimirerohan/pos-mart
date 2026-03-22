@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { X, Info, Loader2, Package, TrendingDown } from "lucide-react";
 import { usePOSDetails } from "../hooks/usePOSProfile";
+import { formatGroupedAmount } from "../utils/currency";
 
 interface PurchaseHistoryRecord {
   supplier: string;
@@ -201,7 +202,7 @@ export default function ItemPurchaseHistoryModal({
                   <div className={`col-span-3 text-right text-lg font-bold ${
                     index === 0 ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"
                   }`}>
-                    {currency_symbol}{record.purchase_rate.toFixed(2)}
+                    {currency_symbol}{formatGroupedAmount(record.purchase_rate)}
                   </div>
                   <div className="col-span-4 text-right text-sm text-gray-500 dark:text-gray-400 self-center">
                     {formatDate(record.posting_date, record.posting_time)}

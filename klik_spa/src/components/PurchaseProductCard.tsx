@@ -1,6 +1,7 @@
 "use client"
 
 import type { MenuItem } from "../../types"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface PurchaseProductCardProps {
   item: MenuItem & { buying_price?: number }
@@ -22,7 +23,7 @@ export default function PurchaseProductCard({
   
   // Use buying_price if available, otherwise fallback to price
   const purchasePrice = item.buying_price || item.price || 0
-  const formattedPrice = `${item.currency_symbol || '₨'}${purchasePrice.toFixed(2)}`
+  const formattedPrice = `${item.currency_symbol || '₨'}${formatGroupedAmount(purchasePrice)}`
   
   // Current stock - 0 or actual value
   const currentStock = item.available || 0

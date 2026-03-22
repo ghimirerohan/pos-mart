@@ -2,6 +2,7 @@
 
 import { useI18n } from "../hooks/useI18n"
 import type { CartItem } from "../../types"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface CartItemRowProps {
   item: CartItem
@@ -54,7 +55,7 @@ export default function CartItemRow({ item, onUpdateQty }: CartItemRowProps) {
       </div>
 
       <div className="text-gray-800 dark:text-gray-200 font-semibold text-sm whitespace-nowrap flex-shrink-0">
-        ₨ {(item.price * qty).toFixed(2)}
+        ₨ {formatGroupedAmount(item.price * qty)}
       </div>
     </div>
   )

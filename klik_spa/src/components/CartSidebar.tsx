@@ -3,6 +3,7 @@
 import { useI18n } from "../hooks/useI18n"
 import type { CartItem } from "../../types"
 import CartItemRow from "./CartItemRow"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface CartSidebarProps {
   cartItems: CartItem[]
@@ -37,15 +38,15 @@ export default function CartSidebar({ cartItems, onUpdateQty, subtotal, vat, tot
           <div className="space-y-2">
             <div className="flex justify-between">
               <span>{t("SUBTOTAL")}</span>
-              <span>₨ {subtotal.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>{t("VAT")} (5%)</span>
-              <span>₨ {vat.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(vat)}</span>
             </div>
             <div className="flex justify-between font-bold text-lg border-t pt-2">
               <span>{t("TOTAL")}</span>
-              <span>₨ {total.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(total)}</span>
             </div>
           </div>
 

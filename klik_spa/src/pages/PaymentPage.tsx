@@ -4,6 +4,7 @@ import { useI18n } from "../hooks/useI18n"
 import NavBar from "../components/NavBar"
 import PaymentMethodCard from "../components/PaymentMethodCard"
 import QRCodeDisplay from "../components/QRCodeDisplay"
+import { formatGroupedAmount } from "../utils/currency"
 
 interface InvoiceData {
   invoiceId: string
@@ -120,10 +121,10 @@ export default function PaymentScreen() {
                 <div>
                   <div className="font-medium">{isRTL ? item.nameAr : item.nameEn}</div>
                   <div className="text-sm text-gray-600">
-                    {item.qty} × ₨ {item.unitPrice.toFixed(2)}
+                    {item.qty} × ₨ {formatGroupedAmount(item.unitPrice)}
                   </div>
                 </div>
-                <div className="font-semibold">₨ {item.lineTotal.toFixed(2)}</div>
+                <div className="font-semibold">₨ {formatGroupedAmount(item.lineTotal)}</div>
               </div>
             ))}
           </div>
@@ -131,15 +132,15 @@ export default function PaymentScreen() {
           <div className="border-t pt-4 mt-4">
             <div className="flex justify-between py-1">
               <span>{t("SUBTOTAL")}</span>
-              <span>₨ {invoiceData.subtotal.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(invoiceData.subtotal)}</span>
             </div>
             <div className="flex justify-between py-1">
               <span>{t("VAT")} (5%)</span>
-              <span>₨ {invoiceData.vat.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(invoiceData.vat)}</span>
             </div>
             <div className="flex justify-between py-2 font-bold text-lg border-t">
               <span>{t("TOTAL")}</span>
-              <span>₨ {invoiceData.total.toFixed(2)}</span>
+              <span>₨ {formatGroupedAmount(invoiceData.total)}</span>
             </div>
           </div>
 
