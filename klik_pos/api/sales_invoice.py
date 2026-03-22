@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 from datetime import date
 
 import erpnext
@@ -167,6 +168,462 @@ def get_sales_invoices(
 
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Error fetching sales invoices")
+		return {"success": False, "error": str(e)}
+
+
+def _build_dashboard_date_bounds(time_range):
+	"""Return (start_date, end_date) for week/month/today; None if unknown."""
+	tday = getdate(today())
+	tr = (time_range or "today").lower().strip()
+	if tr == "today":
+		return tday, tday
+	if tr == "week":
+		wd = tday.weekday()
+		days_since_sunday = (wd + 1) % 7
+		start_d = add_days(tday, -days_since_sunday)
+		end_d = add_days(start_d, 6)
+		return start_d, end_d
+	if tr == "month":
+		return get_first_day(tday), get_last_day(tday)
+	return tday, tday
+
+
+def _dashboard_parse_hour(posting_time):
+	"""Extract hour 0-23 from posting_time (timedelta, time, or string)."""
+	if posting_time is None:
+		return 0
+	if hasattr(posting_time, "total_seconds"):
+		sec = int(posting_time.total_seconds()) % 86400
+		return sec // 3600
+	s = str(posting_time)
+	parts = s.split(":")
+	try:
+		return int(parts[0]) if parts else 0
+	except ValueError:
+		return 0
+
+
+def _empty_dashboard_analytics():
+	return {
+		"summary": {
+			"total_revenue": 0.0,
+			"total_cost": 0.0,
+			"gross_profit": 0.0,
+			"gross_margin_pct": 0.0,
+			"total_transactions": 0,
+			"avg_order_value": 0.0,
+			"total_items_sold": 0.0,
+			"total_bill_discount": 0.0,
+			"total_line_discount": 0.0,
+			"total_discounts": 0.0,
+			"discount_invoice_count": 0,
+			"currency": frappe.defaults.get_defaults().get("currency") or "USD",
+		},
+		"products": [],
+		"products_top": [],
+		"customers": [],
+		"customers_top": [],
+		"transactions": [],
+		"sales_by_hour": [],
+		"discount_top_items": [],
+		"payment_methods": [],
+		"zatca_breakdown": [],
+		"cashiers": [],
+	}
+
+
+@frappe.whitelist(allow_guest=True)
+def get_dashboard_analytics(time_range="today", cashier_name=None, payment_method="all"):
+	"""
+	Aggregated sales analytics for the POS dashboard: revenue, cost, margin, profit,
+	product/customer/transaction breakdowns, hourly series (today), and discount summary.
+
+	Args:
+		time_range: today | week | month | session
+		cashier_name: full name or 'all'
+		payment_method: mode of payment or 'all'
+	"""
+	try:
+		user_roles = frappe.get_roles()
+		is_admin = "Administrator" in user_roles or "System Manager" in user_roles
+		current_opening_entry = get_current_pos_opening_entry()
+
+		conditions = [
+			"si.docstatus = 1",
+			"IFNULL(si.is_return, 0) = 0",
+			"si.custom_pos_opening_entry IS NOT NULL",
+			"si.custom_pos_opening_entry != ''",
+		]
+		params = []
+
+		tr = (time_range or "today").lower().strip()
+		if tr == "session":
+			if is_admin:
+				pass
+			elif current_opening_entry:
+				conditions.append("si.custom_pos_opening_entry = %s")
+				params.append(current_opening_entry)
+			else:
+				return {"success": True, **_empty_dashboard_analytics()}
+		else:
+			bounds = _build_dashboard_date_bounds(tr)
+			if bounds:
+				start_d, end_d = bounds
+				conditions.append("si.posting_date BETWEEN %s AND %s")
+				params.extend([start_d, end_d])
+
+		if not is_admin:
+			from klik_pos.klik_pos.utils import get_current_pos_profile
+
+			pp = get_current_pos_profile()
+			conditions.append("si.pos_profile = %s")
+			params.append(pp.name)
+
+		if cashier_name and str(cashier_name).lower() not in ("all", ""):
+			cashier_user_ids = _get_user_ids_by_full_name(cashier_name)
+			if not cashier_user_ids:
+				return {"success": True, **_empty_dashboard_analytics()}
+			if len(cashier_user_ids) == 1:
+				conditions.append("si.owner = %s")
+				params.append(cashier_user_ids[0])
+			else:
+				ph = ",".join(["%s"] * len(cashier_user_ids))
+				conditions.append(f"si.owner IN ({ph})")
+				params.extend(cashier_user_ids)
+
+		pm = (payment_method or "all").strip()
+		if pm.lower() != "all":
+			conditions.append(
+				"(EXISTS (SELECT 1 FROM `tabSales Invoice Payment` sip "
+				"WHERE sip.parent = si.name AND sip.mode_of_payment = %s) "
+				"OR EXISTS (SELECT 1 FROM `tabPayment Entry Reference` per "
+				"INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent AND pe.docstatus = 1 "
+				"WHERE per.reference_doctype = 'Sales Invoice' AND per.reference_name = si.name "
+				"AND pe.mode_of_payment = %s))"
+			)
+			params.extend([pm, pm])
+
+		where_clause = " AND ".join(conditions)
+
+		inv_sql = f"""
+			SELECT si.name, si.owner, si.customer, si.customer_name, si.posting_date, si.posting_time,
+				si.base_grand_total, si.discount_amount, si.currency, si.status
+			FROM `tabSales Invoice` si
+			WHERE {where_clause}
+		"""
+		invoices = frappe.db.sql(inv_sql, tuple(params), as_dict=True)
+
+		if not invoices:
+			return {"success": True, **_empty_dashboard_analytics()}
+
+		names = [r.name for r in invoices]
+		inv_by_name = {r.name: r for r in invoices}
+
+		all_lines = []
+		chunk = 400
+		for i in range(0, len(names), chunk):
+			part = names[i : i + chunk]
+			ph = ",".join(["%s"] * len(part))
+			lines = frappe.db.sql(
+				f"""
+				SELECT parent, item_code, item_name, qty, rate, amount,
+					IFNULL(incoming_rate, 0) AS incoming_rate,
+					IFNULL(discount_amount, 0) AS item_discount_amount,
+					IFNULL(discount_percentage, 0) AS item_discount_percentage,
+					IFNULL(net_rate, 0) AS net_rate,
+					IFNULL(net_amount, 0) AS net_amount
+				FROM `tabSales Invoice Item`
+				WHERE parent IN ({ph})
+				""",
+				tuple(part),
+				as_dict=True,
+			)
+			all_lines.extend(lines)
+
+		currency = (invoices[0].get("currency") or "").strip() or (
+			frappe.defaults.get_defaults().get("currency") or "USD"
+		)
+
+		total_revenue = sum(flt(inv.base_grand_total) for inv in invoices)
+		total_cost = sum(flt(l.qty) * flt(l.incoming_rate) for l in all_lines)
+		gross_profit = sum(flt(l.amount) - flt(l.qty) * flt(l.incoming_rate) for l in all_lines)
+		gross_margin_pct = (gross_profit / total_revenue * 100.0) if total_revenue else 0.0
+
+		total_transactions = len(invoices)
+		avg_order_value = (total_revenue / total_transactions) if total_transactions else 0.0
+		total_items_sold = sum(flt(l.qty) for l in all_lines)
+
+		total_bill_discount = sum(flt(inv.discount_amount) for inv in invoices)
+		total_line_discount = sum(flt(l.item_discount_amount) for l in all_lines)
+		discount_invoice_count = sum(1 for inv in invoices if flt(inv.discount_amount) > 0)
+		total_discounts = total_bill_discount + total_line_discount
+
+		item_agg = defaultdict(
+			lambda: {
+				"item_code": "",
+				"item_name": "",
+				"qty_sold": 0.0,
+				"revenue": 0.0,
+				"cost": 0.0,
+				"discount": 0.0,
+			}
+		)
+		for line in all_lines:
+			k = line.item_code or ""
+			row = item_agg[k]
+			row["item_code"] = k
+			row["item_name"] = line.item_name or k
+			q = flt(line.qty)
+			row["qty_sold"] += q
+			row["revenue"] += flt(line.amount)
+			row["cost"] += q * flt(line.incoming_rate)
+			row["discount"] += flt(line.item_discount_amount)
+
+		products = []
+		for k, row in item_agg.items():
+			rev = row["revenue"]
+			prof = rev - row["cost"]
+			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			products.append(
+				{
+					"item_code": row["item_code"],
+					"item_name": row["item_name"],
+					"qty_sold": row["qty_sold"],
+					"revenue": rev,
+					"cost": row["cost"],
+					"gross_profit": prof,
+					"margin_pct": margin_pct,
+					"discount": row["discount"],
+				}
+			)
+		products.sort(key=lambda x: x["revenue"], reverse=True)
+		products_top = products[:10]
+
+		cust_agg = defaultdict(
+			lambda: {
+				"customer": "",
+				"customer_name": "",
+				"transaction_count": 0,
+				"qty_bought": 0.0,
+				"revenue": 0.0,
+				"cost": 0.0,
+			}
+		)
+		inv_lines = defaultdict(list)
+		for line in all_lines:
+			inv_lines[line.parent].append(line)
+
+		for inv in invoices:
+			cust_key = inv.customer or inv.customer_name or ""
+			row = cust_agg[cust_key]
+			row["customer"] = inv.customer or ""
+			row["customer_name"] = inv.customer_name or cust_key or _("Walk-in")
+			row["transaction_count"] += 1
+			row["revenue"] += flt(inv.base_grand_total)
+			for line in inv_lines.get(inv.name, []):
+				q = flt(line.qty)
+				row["qty_bought"] += q
+				row["cost"] += q * flt(line.incoming_rate)
+
+		customers = []
+		for k, row in cust_agg.items():
+			rev = row["revenue"]
+			prof = rev - row["cost"]
+			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			customers.append(
+				{
+					"customer": row["customer"],
+					"customer_name": row["customer_name"],
+					"transaction_count": row["transaction_count"],
+					"qty_bought": row["qty_bought"],
+					"revenue": rev,
+					"cost": row["cost"],
+					"gross_profit": prof,
+					"margin_pct": margin_pct,
+				}
+			)
+		customers.sort(key=lambda x: x["revenue"], reverse=True)
+		customers_top = customers[:10]
+
+		transactions = []
+		for inv in sorted(invoices, key=lambda x: (x.posting_date, str(x.posting_time)), reverse=True):
+			lines_i = inv_lines.get(inv.name, [])
+			cost_i = sum(flt(l.qty) * flt(l.incoming_rate) for l in lines_i)
+			rev_i = flt(inv.base_grand_total)
+			prof_i = rev_i - cost_i
+			margin_i = (prof_i / rev_i * 100.0) if rev_i else 0.0
+			transactions.append(
+				{
+					"name": inv.name,
+					"customer_name": inv.customer_name or "",
+					"posting_date": str(inv.posting_date),
+					"posting_time": str(inv.posting_time) if inv.posting_time is not None else "",
+					"revenue": rev_i,
+					"cost": cost_i,
+					"gross_profit": prof_i,
+					"margin_pct": margin_i,
+					"discount_amount": flt(inv.discount_amount),
+				}
+			)
+
+		cashier_data = {}
+		for inv in invoices:
+			owner = inv.get("owner") or ""
+			if owner not in cashier_data:
+				cashier_data[owner] = {
+					"qty_sold": 0.0,
+					"transaction_count": 0,
+					"customer_keys": set(),
+					"revenue": 0.0,
+					"discount": 0.0,
+					"cost": 0.0,
+				}
+			cd = cashier_data[owner]
+			cd["transaction_count"] += 1
+			cd["revenue"] += flt(inv.base_grand_total)
+			cd["discount"] += flt(inv.discount_amount)
+			cd["customer_keys"].add(inv.customer or inv.customer_name or "")
+			for line in inv_lines.get(inv.name, []):
+				q = flt(line.qty)
+				cd["qty_sold"] += q
+				cd["cost"] += q * flt(line.incoming_rate)
+				cd["discount"] += flt(line.get("item_discount_amount") or 0)
+
+		cashier_owner_ids = [o for o in cashier_data if o]
+		cashier_name_map = _batch_fetch_cashier_names(cashier_owner_ids)
+		cashiers_list = []
+		for owner, cd in cashier_data.items():
+			rev = cd["revenue"]
+			cost = cd["cost"]
+			prof = rev - cost
+			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			cashiers_list.append(
+				{
+					"owner": owner,
+					"cashier_name": cashier_name_map.get(owner, owner),
+					"qty_sold": cd["qty_sold"],
+					"transaction_count": cd["transaction_count"],
+					"unique_customers": len(cd["customer_keys"]),
+					"revenue": rev,
+					"discount": cd["discount"],
+					"cost": cost,
+					"gross_profit": prof,
+					"margin_pct": margin_pct,
+				}
+			)
+		cashiers_list.sort(key=lambda x: x["revenue"], reverse=True)
+
+		inv_profit = defaultdict(float)
+		for line in all_lines:
+			inv_profit[line.parent] += flt(line.amount) - flt(line.qty) * flt(line.incoming_rate)
+
+		hourly = {h: {"hour": f"{h:02d}:00", "revenue": 0.0, "profit": 0.0} for h in range(24)}
+		for inv in invoices:
+			h = _dashboard_parse_hour(inv.posting_time)
+			h = max(0, min(23, h))
+			hourly[h]["revenue"] += flt(inv.base_grand_total)
+			hourly[h]["profit"] += inv_profit[inv.name]
+
+		sales_by_hour = [hourly[h] for h in range(24)]
+
+		discount_by_item = sorted(
+			[
+				{
+					"item_code": p["item_code"],
+					"item_name": p["item_name"],
+					"discount": p["discount"],
+				}
+				for p in products
+				if p["discount"] > 0
+			],
+			key=lambda x: x["discount"],
+			reverse=True,
+		)[:10]
+
+		unpaid_statuses = {"Unpaid", "Overdue", "Partly Paid", "Pending", "Draft"}
+		pm_map = _batch_fetch_payment_methods(names)
+		method_totals = defaultdict(lambda: {"amount": 0.0, "transactions": 0})
+		for inv in invoices:
+			payments = pm_map.get(inv.name, [])
+			inv_total = flt(inv.base_grand_total)
+			if not payments:
+				if inv.get("status") in unpaid_statuses:
+					mk = "Credit"
+				else:
+					mk = "-"
+				method_totals[mk]["amount"] += inv_total
+				method_totals[mk]["transactions"] += 1
+				continue
+			for idx, p in enumerate(payments):
+				mk = p.get("mode_of_payment") or "-"
+				method_totals[mk]["amount"] += flt(p.get("amount"))
+				if idx == 0:
+					method_totals[mk]["transactions"] += 1
+
+		pm_total_amt = sum(v["amount"] for v in method_totals.values())
+		payment_methods_out = [
+			{
+				"method": method,
+				"amount": data["amount"],
+				"transactions": data["transactions"],
+				"percentage": (data["amount"] / pm_total_amt * 100.0) if pm_total_amt else 0.0,
+			}
+			for method, data in sorted(method_totals.items(), key=lambda x: -x[1]["amount"])
+		]
+
+		zatca_breakdown = []
+		sales_invoice_meta = frappe.get_meta("Sales Invoice")
+		has_zatca_status = any(
+			df.fieldname == "custom_zatca_submit_status" for df in sales_invoice_meta.fields
+		)
+		if has_zatca_status:
+			zsql = f"""
+				SELECT IFNULL(si.custom_zatca_submit_status, 'Draft') AS status, COUNT(*) AS cnt
+				FROM `tabSales Invoice` si
+				WHERE {where_clause}
+				GROUP BY IFNULL(si.custom_zatca_submit_status, 'Draft')
+			"""
+			zrows = frappe.db.sql(zsql, tuple(params), as_dict=True)
+			ztotal = sum(int(r.cnt) for r in zrows) or 1
+			zatca_breakdown = [
+				{
+					"status": r.status or "Draft",
+					"count": int(r.cnt),
+					"percentage": int(r.cnt) / ztotal * 100.0,
+				}
+				for r in zrows
+			]
+			zatca_breakdown.sort(key=lambda x: -x["count"])
+
+		return {
+			"success": True,
+			"summary": {
+				"total_revenue": total_revenue,
+				"total_cost": total_cost,
+				"gross_profit": gross_profit,
+				"gross_margin_pct": gross_margin_pct,
+				"total_transactions": total_transactions,
+				"avg_order_value": avg_order_value,
+				"total_items_sold": total_items_sold,
+				"total_bill_discount": total_bill_discount,
+				"total_line_discount": total_line_discount,
+				"total_discounts": total_discounts,
+				"discount_invoice_count": discount_invoice_count,
+				"currency": currency,
+			},
+			"products": products,
+			"products_top": products_top,
+			"customers": customers,
+			"customers_top": customers_top,
+			"transactions": transactions,
+			"sales_by_hour": sales_by_hour,
+			"discount_top_items": discount_by_item,
+			"payment_methods": payment_methods_out,
+			"zatca_breakdown": zatca_breakdown,
+			"cashiers": cashiers_list,
+		}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "get_dashboard_analytics")
 		return {"success": False, "error": str(e)}
 
 
@@ -343,7 +800,12 @@ def _batch_fetch_items(invoice_names):
 
 	placeholders = ",".join(["%s"] * len(invoice_names))
 	items_query = f"""
-		SELECT parent, item_code, qty, rate, amount
+		SELECT parent, item_code, item_name, qty, rate, amount,
+			IFNULL(incoming_rate, 0) AS incoming_rate,
+			IFNULL(discount_amount, 0) AS discount_amount,
+			IFNULL(discount_percentage, 0) AS discount_percentage,
+			IFNULL(net_rate, 0) AS net_rate,
+			IFNULL(net_amount, 0) AS net_amount
 		FROM `tabSales Invoice Item`
 		WHERE parent IN ({placeholders})
 	"""
@@ -357,10 +819,16 @@ def _batch_fetch_items(invoice_names):
 		items_map[item.parent].append(
 			{
 				"item_code": item.item_code,
+				"item_name": item.item_name,
 				"qty": item.qty,
 				"rate": item.rate,
 				"amount": item.amount,
 				"quantity": item.qty,
+				"incoming_rate": flt(item.incoming_rate),
+				"discount_amount": flt(item.discount_amount),
+				"discount_percentage": flt(item.discount_percentage),
+				"net_rate": flt(item.net_rate),
+				"net_amount": flt(item.net_amount),
 			}
 		)
 

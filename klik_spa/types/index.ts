@@ -107,7 +107,12 @@ export interface SalesInvoiceItem {
   description?: string
   returned_qty?: number
   available_qty?: number
-
+  /** ERPNext valuation / cost rate at posting */
+  incoming_rate?: number
+  discount_percentage?: number
+  discount_amount?: number
+  net_rate?: number
+  net_amount?: number
 }
 
 export interface SalesInvoice {
