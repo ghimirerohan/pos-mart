@@ -725,6 +725,50 @@ def delete_draft_purchase_invoice(invoice_id):
 		return {"success": False, "error": str(e)}
 
 
+def _resolve_pos_purchase_batch_no(item_code, client_batch, item_doc):
+	"""
+	Resolve batch for a purchase line. If batch tracked and no valid batch passed,
+	auto-create a Batch with expiry from Item.shelf_life_in_days.
+	"""
+	from frappe.utils import add_days, cint, nowdate
+
+	if not item_doc.get("has_batch_no"):
+		return None
+
+	cb = (client_batch or "").strip()
+	if cb and frappe.db.exists("Batch", cb):
+		return cb
+
+	shelf = cint(getattr(item_doc, "shelf_life_in_days", None) or item_doc.get("shelf_life_in_days") or 0)
+	expiry_date = None
+	if shelf > 0:
+		expiry_date = add_days(nowdate(), shelf)
+
+	if cb and not frappe.db.exists("Batch", cb):
+		batch_doc = frappe.get_doc(
+			{
+				"doctype": "Batch",
+				"batch_id": cb,
+				"item": item_code,
+				"expiry_date": expiry_date,
+			}
+		)
+		batch_doc.insert(ignore_permissions=True)
+		return batch_doc.name
+
+	new_id = f"BATCH-{item_code[:10]}-{frappe.generate_hash(length=6).upper()}"
+	batch_doc = frappe.get_doc(
+		{
+			"doctype": "Batch",
+			"batch_id": new_id,
+			"item": item_code,
+			"expiry_date": expiry_date,
+		}
+	)
+	batch_doc.insert(ignore_permissions=True)
+	return batch_doc.name
+
+
 @frappe.whitelist()
 def create_purchase_invoice(data):
 	"""
@@ -827,9 +871,11 @@ def create_purchase_invoice(data):
 			else:
 				item_data["uom"] = item_doc.stock_uom
 
-			# Add batch if item has batch tracking
-			if batch and item_doc.has_batch_no:
-				item_data["batch_no"] = batch
+			# Batch-tracked items: assign existing batch or auto-create with shelf-life expiry
+			if item_doc.has_batch_no:
+				batch_no = _resolve_pos_purchase_batch_no(item_code, batch, item_doc)
+				if batch_no:
+					item_data["batch_no"] = batch_no
 
 			# Add serial numbers if item has serial tracking
 			if serial and item_doc.has_serial_no:

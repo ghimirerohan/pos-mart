@@ -183,6 +183,218 @@ def _summarize_by_item_warehouse(data, to_date):
 	return summarized
 
 
+def _fetch_batch_purchase_rates_in_period(pairs, from_date, to_date, company):
+	"""
+	(item_code, batch_no) -> unit rate from the earliest submitted Purchase Invoice
+	**in [from_date, to_date]** for that company. Used only for Date Wise Inventory
+	so batch cost pairs with in-period purchases; if no PI in range, callers should
+	use sales-line incoming_rate (COGS tied to those sales, not older buys).
+	"""
+	if not pairs:
+		return {}
+	from frappe.utils import flt, getdate
+
+	best = {}  # (ic, bn) -> (posting_date, rate)
+	pairs_list = list(pairs)
+	chunk_size = 150
+	for i in range(0, len(pairs_list), chunk_size):
+		chunk = pairs_list[i : i + chunk_size]
+		ors = " OR ".join(["(pii.item_code = %s AND pii.batch_no = %s)"] * len(chunk))
+		params = [from_date, to_date, company]
+		for ic, bn in chunk:
+			params.extend([ic, bn])
+		rows = frappe.db.sql(
+			f"""
+			SELECT pii.item_code, pii.batch_no, IFNULL(pii.rate, 0) AS rate, pi.posting_date
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+			WHERE pi.posting_date BETWEEN %s AND %s AND pi.company = %s
+				AND ({ors})
+			""",
+			tuple(params),
+			as_dict=True,
+		)
+		for r in rows:
+			key = ((r.get("item_code") or "").strip(), (r.get("batch_no") or "").strip())
+			if not key[0] or not key[1]:
+				continue
+			pd = r.get("posting_date")
+			rate = flt(r.get("rate"))
+			if key not in best or getdate(pd) < getdate(best[key][0]):
+				best[key] = (pd, rate)
+	return {k: v[1] for k, v in best.items()}
+
+
+def _enrich_with_financials(summarized, from_date, to_date, company):
+	"""
+	Per (item_code, warehouse) in the AD date range:
+	- buy_amount: PI lines in range (informational; not used for margin).
+	- sale_amount: SI net sales in range.
+	- gross_profit / margin_pct: sale_amount minus COGS from **those SI lines only**;
+	  unit cost = batch PI rate only if that batch was purchased in the same date range,
+	  otherwise incoming_rate on the sales line (aligned with period sales, not all-time PI).
+	"""
+	if not summarized:
+		return summarized
+
+	from frappe.utils import flt
+
+	from klik_pos.api.sales_invoice import (
+		_collect_item_batch_pairs_from_lines,
+		_margin_on_sales_pct,
+		_resolve_line_unit_cost,
+	)
+
+	key_set = set()
+	keys = []
+	for row in summarized:
+		ic = (row.get("item_code") or "").strip()
+		wh = (row.get("warehouse") or "").strip()
+		if not ic or not wh:
+			continue
+		k = (ic, wh)
+		if k not in key_set:
+			key_set.add(k)
+			keys.append(k)
+
+	if not keys:
+		for row in summarized:
+			row["buy_amount"] = 0.0
+			row["sale_amount"] = 0.0
+			row["gross_profit"] = 0.0
+			row["margin_pct"] = 0.0
+		return summarized
+
+	buy_rows = frappe.db.sql(
+		"""
+		SELECT pii.item_code, pii.warehouse,
+			SUM(pii.qty * IFNULL(pii.rate, 0)) AS buy_amount
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+		WHERE pi.posting_date BETWEEN %s AND %s AND pi.company = %s
+		GROUP BY pii.item_code, pii.warehouse
+		""",
+		(from_date, to_date, company),
+		as_dict=True,
+	)
+	buy_map = {}
+	for r in buy_rows:
+		k = ((r.get("item_code") or "").strip(), (r.get("warehouse") or "").strip())
+		if k in key_set:
+			buy_map[k] = flt(r.get("buy_amount"))
+
+	sale_rows = frappe.db.sql(
+		"""
+		SELECT sii.item_code, sii.warehouse,
+			SUM(IFNULL(sii.base_net_amount, IFNULL(sii.net_amount, 0))) AS sale_amount
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent AND si.docstatus = 1
+		WHERE IFNULL(si.is_return, 0) = 0
+			AND si.posting_date BETWEEN %s AND %s AND si.company = %s
+		GROUP BY sii.item_code, sii.warehouse
+		""",
+		(from_date, to_date, company),
+		as_dict=True,
+	)
+	sale_map = {}
+	for r in sale_rows:
+		k = ((r.get("item_code") or "").strip(), (r.get("warehouse") or "").strip())
+		if k in key_set:
+			sale_map[k] = flt(r.get("sale_amount"))
+
+	lines_by_key = {}
+	chunk_size = 200
+	for i in range(0, len(keys), chunk_size):
+		chunk = keys[i : i + chunk_size]
+		cond_parts = []
+		cparams = []
+		for ic, wh in chunk:
+			cond_parts.append("(sii.item_code = %s AND sii.warehouse = %s)")
+			cparams.extend([ic, wh])
+		wheres = " OR ".join(cond_parts)
+		q = f"""
+		SELECT sii.item_code, sii.warehouse, sii.qty,
+			IFNULL(sii.incoming_rate, 0) AS incoming_rate,
+			IFNULL(sii.batch_no, '') AS batch_no,
+			IFNULL(sii.base_net_amount, 0) AS base_net_amount,
+			IFNULL(sii.net_amount, 0) AS net_amount
+		FROM `tabSales Invoice Item` sii
+		INNER JOIN `tabSales Invoice` si ON si.name = sii.parent AND si.docstatus = 1
+		WHERE IFNULL(si.is_return, 0) = 0
+			AND si.posting_date BETWEEN %s AND %s AND si.company = %s
+			AND ({wheres})
+		"""
+		params = (from_date, to_date, company) + tuple(cparams)
+		for line in frappe.db.sql(q, params, as_dict=True):
+			k = ((line.get("item_code") or "").strip(), (line.get("warehouse") or "").strip())
+			lines_by_key.setdefault(k, []).append(line)
+
+	all_lines = []
+	for lines in lines_by_key.values():
+		all_lines.extend(lines)
+	batch_map = _fetch_batch_purchase_rates_in_period(
+		_collect_item_batch_pairs_from_lines(all_lines),
+		from_date,
+		to_date,
+		company,
+	)
+
+	profit_map = {}
+	margin_map = {}
+	for k in keys:
+		lines = lines_by_key.get(k, [])
+		sale_rev = flt(sale_map.get(k, 0.0))
+		total_cogs = 0.0
+		for line in lines:
+			uc = _resolve_line_unit_cost(line, batch_map)
+			total_cogs += flt(line.get("qty")) * uc
+		# Profit uses the same sale_amount aggregate as the grid (SI net in period only)
+		profit_map[k] = sale_rev - total_cogs
+		margin_map[k] = _margin_on_sales_pct(sale_rev, total_cogs)
+
+	for row in summarized:
+		ic = (row.get("item_code") or "").strip()
+		wh = (row.get("warehouse") or "").strip()
+		if not ic or not wh:
+			row["buy_amount"] = 0.0
+			row["sale_amount"] = 0.0
+			row["gross_profit"] = 0.0
+			row["margin_pct"] = 0.0
+			continue
+		k = (ic, wh)
+		row["buy_amount"] = round(flt(buy_map.get(k, 0.0)), 2)
+		sale_amt = round(flt(sale_map.get(k, 0.0)), 2)
+		row["sale_amount"] = sale_amt
+		# Profit and margin only apply when there is sale revenue in the period
+		if abs(sale_amt) < 1e-6:
+			row["gross_profit"] = 0.0
+			row["margin_pct"] = 0.0
+		else:
+			row["gross_profit"] = round(flt(profit_map.get(k, 0.0)), 2)
+			row["margin_pct"] = round(flt(margin_map.get(k, 0.0)), 2)
+
+	return summarized
+
+
+def _build_response_columns():
+	"""Column metadata for list/PDF (no date or warehouse in the grid)."""
+	return [
+		{"label": _("Item Code"), "fieldname": "item_code", "fieldtype": "Data", "width": 120},
+		{"label": _("Item Name"), "fieldname": "item_name", "fieldtype": "Data", "width": 180},
+		{"label": _("Opening Qty"), "fieldname": "opening_qty", "fieldtype": "Float", "width": 100},
+		{"label": _("Opening Value"), "fieldname": "opening_stock_value", "fieldtype": "Currency", "width": 110},
+		{"label": _("In Qty"), "fieldname": "in_qty", "fieldtype": "Float", "width": 90},
+		{"label": _("Out Qty"), "fieldname": "out_qty", "fieldtype": "Float", "width": 90},
+		{"label": _("Balance Qty"), "fieldname": "qty_after_transaction", "fieldtype": "Float", "width": 100},
+		{"label": _("Valuation Rate"), "fieldname": "valuation_rate", "fieldtype": "Currency", "width": 110},
+		{"label": _("Stock Value"), "fieldname": "stock_value", "fieldtype": "Currency", "width": 110},
+		{"label": _("Buy Amount"), "fieldname": "buy_amount", "fieldtype": "Currency", "width": 110},
+		{"label": _("Sale Amount"), "fieldname": "sale_amount", "fieldtype": "Currency", "width": 110},
+		{"label": _("Gross Profit"), "fieldname": "gross_profit", "fieldtype": "Currency", "width": 110},
+		{"label": _("Margin %"), "fieldname": "margin_pct", "fieldtype": "Float", "width": 90},
+	]
+
+
 def _cache_key(filters, page, page_size, user):
 	raw = json.dumps(
 		{
@@ -238,7 +450,7 @@ def get_data(filters=None, page=1, page_size=None, skip_cache=0):
 		frappe.throw(_("Stock Ledger report is not available. Is ERPNext installed?"))
 
 	try:
-		columns, data = stock_ledger_execute(report_filters)
+		_columns_ledger, data = stock_ledger_execute(report_filters)
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Date Wise Inventory get_data")
 		frappe.throw(_("Stock report failed: {0}").format(str(e)))
@@ -253,27 +465,13 @@ def get_data(filters=None, page=1, page_size=None, skip_cache=0):
 	to_date = report_filters["to_date"]
 	data = _summarize_by_item_warehouse(data, to_date)
 
-	# Convert date column to BS and date-only (no time) for list view
-	for row in data:
-		if "date" in row and row["date"] is not None:
-			row["date"] = _ad_to_bs_date_only(row["date"])
+	try:
+		data = _enrich_with_financials(data, from_date, to_date, company)
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "Date Wise Inventory financials")
+		frappe.throw(_("Financial enrichment failed: {0}").format(str(e)))
 
-	# Date column: show as date only (we converted values to BS date-only)
-	for c in columns:
-		if c.get("fieldname") == "date":
-			c["fieldtype"] = "Date"
-			c["label"] = _("Date (BS)")
-			break
-
-	# Add opening column to columns if not present
-	col_names = [c.get("fieldname") for c in columns]
-	if "opening_qty" not in col_names:
-		# Insert after Balance Qty or before Warehouse
-		insert_idx = next((i for i, c in enumerate(columns) if c.get("fieldname") == "qty_after_transaction"), len(columns))
-		columns.insert(insert_idx, {"label": _("Opening Qty"), "fieldname": "opening_qty", "fieldtype": "Float", "width": 100})
-	if "opening_stock_value" not in col_names:
-		insert_idx = next((i for i, c in enumerate(columns) if c.get("fieldname") == "stock_value"), len(columns))
-		columns.insert(insert_idx, {"label": _("Opening Value"), "fieldname": "opening_stock_value", "fieldtype": "Currency", "width": 110})
+	columns = _build_response_columns()
 
 	total_count = len(data)
 	if total_count > MAX_ROWS:
@@ -508,18 +706,14 @@ def export_pdf(filters=None):
 	except ImportError:
 		frappe.throw(_("Stock Ledger report is not available."))
 
-	columns, data = stock_ledger_execute(report_filters)
+	_ledger_cols, data = stock_ledger_execute(report_filters)
 	from_date = report_filters["from_date"]
 	to_date = report_filters["to_date"]
 	data = _enrich_with_opening(data, from_date)
 
 	# Summarize: one row per (item_code, warehouse), same as list view
 	data = _summarize_by_item_warehouse(data, to_date)
-
-	# Convert date column to BS date-only for PDF
-	for row in data:
-		if "date" in row and row["date"] is not None:
-			row["date"] = _ad_to_bs_date_only(row["date"])
+	data = _enrich_with_financials(data, from_date, to_date, company)
 
 	# Cap for PDF
 	if len(data) > 5000:
@@ -529,29 +723,47 @@ def export_pdf(filters=None):
 	from_bs = _ad_to_bs_date_only(report_filters["from_date"])
 	to_bs = _ad_to_bs_date_only(report_filters["to_date"])
 
-	# Build HTML table
 	col_order = [
-		"date", "item_code", "item_name", "warehouse",
-		"opening_qty", "in_qty", "out_qty", "qty_after_transaction",
+		"item_code", "item_name",
+		"opening_qty", "opening_stock_value", "in_qty", "out_qty", "qty_after_transaction",
 		"valuation_rate", "stock_value",
+		"buy_amount", "sale_amount", "gross_profit", "margin_pct",
 	]
 	headers = [
-		_("Date (BS)"), _("Item Code"), _("Item Name"), _("Warehouse"),
-		_("Opening Qty"), _("In Qty"), _("Out Qty"), _("Balance Qty"),
+		_("Item Code"), _("Item Name"),
+		_("Opening Qty"), _("Opening Value"), _("In Qty"), _("Out Qty"), _("Balance Qty"),
 		_("Valuation Rate"), _("Stock Value"),
+		_("Buy Amount"), _("Sale Amount"), _("Gross Profit"), _("Margin %"),
 	]
+	rs_fields = frozenset(
+		{
+			"opening_stock_value",
+			"valuation_rate",
+			"stock_value",
+			"buy_amount",
+			"sale_amount",
+			"gross_profit",
+		}
+	)
+
+	def _fmt_pdf_cell(key, val):
+		from frappe.utils import flt
+
+		if val is None:
+			return ""
+		if key == "margin_pct":
+			return f"{flt(val):.2f}%"
+		if key in rs_fields:
+			return f"Rs. {flt(val):,.2f}"
+		if hasattr(val, "isoformat"):
+			return val.isoformat() if callable(val.isoformat) else str(val)
+		return str(val)
 
 	rows = []
 	for row in data:
 		cells = []
-		for i, key in enumerate(col_order):
-			val = row.get(key)
-			if val is None:
-				val = ""
-			elif hasattr(val, "isoformat"):
-				val = val.isoformat() if hasattr(val, "isoformat") else str(val)
-			else:
-				val = str(val)
+		for key in col_order:
+			val = _fmt_pdf_cell(key, row.get(key))
 			cells.append(f"<td>{frappe.utils.escape_html(val)}</td>")
 		rows.append("<tr>" + "".join(cells) + "</tr>")
 

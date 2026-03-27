@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { 
   Package, 
@@ -25,6 +25,7 @@ import {
   Boxes,
   TrendingUp,
   TrendingDown,
+  Percent,
   ChevronRight,
   Download,
   Ban,
@@ -269,12 +270,16 @@ export default function ItemsPage() {
   const {
     products,
     isLoading: productsLoading,
+    isLoadingMore: productsLoadingMore,
     isSearching,
     error: productsError,
     refetch: refetchProducts,
     searchProducts,
     clearSearch,
     totalCount,
+    hasMore: catalogHasMore,
+    loadMoreProducts,
+    searchQuery: catalogSearchQuery,
   } = useProducts()
   
   // Auth hook for authentication state
@@ -840,6 +845,14 @@ export default function ItemsPage() {
         return
       }
       
+      const marginPctForExport = (buy: number, sell: number): string => {
+        const b = Number(buy)
+        const s = Number(sell)
+        if (!Number.isFinite(s) || s <= 0 || !Number.isFinite(b)) return ''
+        const pct = ((s - b) / s) * 100
+        return Number.isFinite(pct) ? `${pct.toFixed(1)}%` : ''
+      }
+
       // CSV headers
       const headers = [
         'Item Code',
@@ -847,6 +860,7 @@ export default function ItemsPage() {
         'Barcode',
         'Selling Price',
         'Buying Price',
+        'Margin %',
         'Stock Qty',
         'UOM',
         'Shelf Life (Days)',
@@ -871,6 +885,7 @@ export default function ItemsPage() {
         escapeCSV(item.barcode),
         escapeCSV(formatGroupedAmount(item.selling_price ?? 0)),
         escapeCSV(formatGroupedAmount(item.buying_price ?? 0)),
+        escapeCSV(marginPctForExport(item.buying_price ?? 0, item.selling_price ?? 0)),
         escapeCSV(item.stock_qty?.toString() || '0'),
         escapeCSV(item.uom),
         escapeCSV(item.shelf_life_in_days?.toString() || ''),
@@ -938,6 +953,52 @@ export default function ItemsPage() {
     }
     return items
   }, [items, inactiveItems, localSearchQuery, showInactiveOnly])
+
+  const catalogInfiniteScroll =
+    !showInactiveOnly && !catalogSearchQuery.trim()
+
+  const itemsLoadMoreRef = useRef<HTMLDivElement>(null)
+
+  const handleItemsLoadMore = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      const entry = entries[0]
+      if (
+        entry?.isIntersecting &&
+        catalogInfiniteScroll &&
+        catalogHasMore &&
+        !productsLoadingMore &&
+        !productsLoading
+      ) {
+        void loadMoreProducts()
+      }
+    },
+    [
+      catalogInfiniteScroll,
+      catalogHasMore,
+      productsLoadingMore,
+      productsLoading,
+      loadMoreProducts,
+    ]
+  )
+
+  useEffect(() => {
+    if (!catalogInfiniteScroll || filteredItems.length === 0) {
+      return
+    }
+
+    const el = itemsLoadMoreRef.current
+    if (!el) {
+      return
+    }
+
+    const observer = new IntersectionObserver(handleItemsLoadMore, {
+      root: null,
+      rootMargin: "200px",
+      threshold: 0,
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [catalogInfiniteScroll, handleItemsLoadMore, filteredItems.length, catalogHasMore])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-4 lg:pb-0 lg:ml-20">
@@ -1066,7 +1127,12 @@ export default function ItemsPage() {
                     Showing {filteredItems.length} inactive item{filteredItems.length !== 1 ? 's' : ''}
                   </span>
                 ) : (
-                  <>Showing {filteredItems.length} of {totalCount} items</>
+                  <>
+                    Showing {filteredItems.length} of {totalCount} items
+                    {catalogInfiniteScroll && catalogHasMore
+                      ? " · scroll for more"
+                      : ""}
+                  </>
                 )}
               </div>
             )}
@@ -1109,11 +1175,12 @@ export default function ItemsPage() {
                       : 'No items yet. Add your first item!'}
                 </div>
               ) : (
-                filteredItems.map((item) => {
+                <>
+                {filteredItems.map((item) => {
                   const isInactive = showInactiveOnly || (item as any).disabled === 1
                   return (
                     <div
-                      key={item.name}
+                      key={item.item_code}
                       onClick={() => navigate(`/items/${encodeURIComponent(item.item_code)}`)}
                       className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
                         isInactive
@@ -1176,11 +1243,11 @@ export default function ItemsPage() {
                           ? 'border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800/30' 
                           : 'border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50'
                       }`}>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-4 gap-2 sm:gap-3">
                           {/* Stock */}
-                          <div className="text-center">
+                          <div className="text-center min-w-0">
                             <div className="flex items-center justify-center mb-1">
-                              <Boxes size={14} className={`mr-1 ${
+                              <Boxes size={14} className={`mr-1 flex-shrink-0 ${
                                 isInactive ? 'text-gray-400' : (item.available || 0) > 0 ? 'text-green-500' : 'text-red-400'
                               }`} />
                               <span className="text-xs text-gray-500 dark:text-gray-400">Stock</span>
@@ -1199,31 +1266,76 @@ export default function ItemsPage() {
                           </div>
                           
                           {/* Buying Price */}
-                          <div className="text-center border-x border-gray-200 dark:border-gray-600">
+                          <div className="text-center min-w-0 border-x border-gray-200 dark:border-gray-600">
                             <div className="flex items-center justify-center mb-1">
-                              <TrendingDown size={14} className={`mr-1 ${isInactive ? 'text-gray-400' : 'text-blue-500'}`} />
+                              <TrendingDown size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-blue-500'}`} />
                               <span className="text-xs text-gray-500 dark:text-gray-400">Buy</span>
                             </div>
-                            <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
+                            <p className={`text-sm font-bold truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
                               {item.buying_price ? formatGroupedAmount(item.buying_price) : '—'}
                             </p>
                           </div>
                           
                           {/* Selling Price */}
-                          <div className="text-center">
+                          <div className="text-center min-w-0">
                             <div className="flex items-center justify-center mb-1">
-                              <TrendingUp size={14} className={`mr-1 ${isInactive ? 'text-gray-400' : 'text-emerald-500'}`} />
+                              <TrendingUp size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-emerald-500'}`} />
                               <span className="text-xs text-gray-500 dark:text-gray-400">Sell</span>
                             </div>
-                            <p className={`text-sm font-bold ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            <p className={`text-sm font-bold truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                               {item.price ? formatGroupedAmount(item.price) : '—'}
+                            </p>
+                          </div>
+
+                          {/* Margin %: (sell − buy) / sell */}
+                          <div className="text-center min-w-0 border-l border-gray-200 dark:border-gray-600">
+                            <div className="flex items-center justify-center mb-1">
+                              <Percent size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-violet-500'}`} />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Margin</span>
+                            </div>
+                            <p className={`text-sm font-bold ${
+                              isInactive
+                                ? 'text-gray-500 dark:text-gray-500'
+                                : item.buying_price && item.price
+                                  ? (item.price - item.buying_price) / item.price >= 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-red-500 dark:text-red-400'
+                                  : 'text-gray-500 dark:text-gray-400'
+                            }`}>
+                              {item.buying_price && item.price
+                                ? `${(((item.price - item.buying_price) / item.price) * 100).toFixed(1)}%`
+                                : '—'}
                             </p>
                           </div>
                         </div>
                       </div>
                     </div>
                   )
-                })
+                })}
+                {catalogInfiniteScroll && (
+                  <div
+                    ref={itemsLoadMoreRef}
+                    className="py-4 flex flex-col items-center justify-center gap-2 min-h-[3rem]"
+                  >
+                    {productsLoadingMore && (
+                      <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+                        <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
+                        <span>Loading more items...</span>
+                      </div>
+                    )}
+                    {!productsLoadingMore && catalogHasMore && (
+                      <span className="text-sm text-gray-400 dark:text-gray-500">
+                        Showing {filteredItems.length} of {totalCount} · scroll for more
+                      </span>
+                    )}
+                    {!catalogHasMore && products.length > 0 && totalCount > 0 && (
+                      <span className="text-sm text-gray-400 dark:text-gray-500">
+                        All {products.length} items loaded
+                      </span>
+                    )}
+                  </div>
+                )}
+                </>
               )}
             </div>
           </div>
@@ -1715,7 +1827,7 @@ export default function ItemsPage() {
               {form.sellingPrice > 0 && form.buyingPrice > 0 && (
                 <div className="mt-3 text-sm">
                   <span className={`${form.sellingPrice >= form.buyingPrice ? 'text-green-600' : 'text-red-600'}`}>
-                    Margin: {((form.sellingPrice - form.buyingPrice) / form.buyingPrice * 100).toFixed(1)}%
+                    Margin: {((form.sellingPrice - form.buyingPrice) / form.sellingPrice * 100).toFixed(1)}%
                   </span>
                 </div>
               )}

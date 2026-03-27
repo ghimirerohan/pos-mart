@@ -10,6 +10,7 @@ export type CustomerSortKey = "transaction_count" | "revenue" | "gross_profit" |
 interface TopCustomersTableProps {
   customers: DashboardCustomerRow[]
   currency: string
+  scopeLabel?: string
 }
 
 const SORT_OPTIONS: { value: CustomerSortKey; label: string }[] = [
@@ -19,7 +20,7 @@ const SORT_OPTIONS: { value: CustomerSortKey; label: string }[] = [
   { value: "margin_pct", label: "Margin %" },
 ]
 
-export function TopCustomersTable({ customers, currency }: TopCustomersTableProps) {
+export function TopCustomersTable({ customers, currency, scopeLabel }: TopCustomersTableProps) {
   const [sortBy, setSortBy] = useState<CustomerSortKey>("revenue")
 
   const top10 = useMemo(() => {
@@ -58,9 +59,14 @@ export function TopCustomersTable({ customers, currency }: TopCustomersTableProp
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Users className="w-5 h-5 text-brand-600 shrink-0" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top 10 customers</h3>
+          {scopeLabel ? (
+            <span className="text-xs font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+              {scopeLabel}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <label htmlFor="top-customers-sort" className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -110,7 +116,9 @@ export function TopCustomersTable({ customers, currency }: TopCustomersTableProp
                     <th className="pb-2 pr-2 text-right">Txns</th>
                     <th className="pb-2 pr-2 text-right hidden sm:table-cell">Revenue</th>
                     <th className="pb-2 pr-2 text-right hidden md:table-cell">Profit</th>
-                    <th className="pb-2 text-right">Margin</th>
+                    <th className="pb-2 text-right" title="(revenue − cost) ÷ revenue">
+                      Margin %
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="text-gray-900 dark:text-gray-100">

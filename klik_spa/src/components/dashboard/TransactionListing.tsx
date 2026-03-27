@@ -18,7 +18,9 @@ export function TransactionListing({ transactions, currency }: TransactionListin
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[480px] sm:max-h-[600px]">
       <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Transactions</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Per-invoice revenue, cost, profit, and discount</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Per-invoice net sales (excl. tax), COGS, profit, markup % on cost, and bill discount
+        </p>
       </div>
       <div ref={scrollRef} className="overflow-auto flex-1 p-2 sm:p-4">
         {transactions.length === 0 ? (
@@ -34,7 +36,9 @@ export function TransactionListing({ transactions, currency }: TransactionListin
                   <th className="py-2 px-2 text-right">Revenue</th>
                   <th className="py-2 px-2 text-right hidden lg:table-cell">Cost</th>
                   <th className="py-2 px-2 text-right">Profit</th>
-                  <th className="py-2 px-2 text-right">Margin</th>
+                  <th className="py-2 px-2 text-right" title="(revenue − cost) ÷ revenue">
+                    Margin %
+                  </th>
                   <th className="py-2 px-2 text-right hidden sm:table-cell">Discount</th>
                 </tr>
               </thead>

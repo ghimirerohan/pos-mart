@@ -18,7 +18,9 @@ export function CustomerSalesListing({ customers, currency }: CustomerSalesListi
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[420px] sm:max-h-[520px]">
       <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Customer sales</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Revenue, cost, and margin by customer</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Net sales (excl. tax), COGS, profit, and markup % on cost by customer
+        </p>
       </div>
       <div ref={scrollRef} className="overflow-auto flex-1 p-2 sm:p-4">
         {customers.length === 0 ? (
@@ -34,7 +36,9 @@ export function CustomerSalesListing({ customers, currency }: CustomerSalesListi
                   <th className="py-2 px-2 text-right hidden sm:table-cell">Revenue</th>
                   <th className="py-2 px-2 text-right hidden md:table-cell">Cost</th>
                   <th className="py-2 px-2 text-right">Profit</th>
-                  <th className="py-2 px-2 text-right">Margin</th>
+                  <th className="py-2 px-2 text-right" title="(revenue − cost) ÷ revenue">
+                    Margin %
+                  </th>
                 </tr>
               </thead>
               <tbody className="text-gray-900 dark:text-gray-100">

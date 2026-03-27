@@ -21,7 +21,16 @@ export default function RetailPOSLayout() {
   const [appliedCoupons, setAppliedCoupons] = useState<GiftCoupon[]>([])
 
   // Use professional data management
-  const { products: menuItems, isLoading: loading, error, refetch } = useProducts()
+  const {
+    products: menuItems,
+    isLoading: loading,
+    isLoadingMore,
+    error,
+    refetch,
+    loadMoreProducts,
+    hasMore,
+    totalCount,
+  } = useProducts()
 
   // Get POS details including scanner-only setting
   const { posDetails } = usePOSDetails()
@@ -190,6 +199,10 @@ export default function RetailPOSLayout() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         scannerOnly={useScannerOnly}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={loadMoreProducts}
+        totalCount={totalCount}
       />
     )
   }
@@ -209,6 +222,10 @@ export default function RetailPOSLayout() {
           onSearchChange={setSearchQuery}
           onAddToCart={handleAddToCart}
           scannerOnly={useScannerOnly}
+          hasMore={hasMore}
+          isLoadingMore={isLoadingMore}
+          onLoadMore={loadMoreProducts}
+          totalCount={totalCount}
         />
       </div>
 

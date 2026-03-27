@@ -19,8 +19,10 @@ function emptyData(currency = "USD"): DashboardAnalyticsData {
     },
     products: [],
     products_top: [],
+    products_top_alltime: [],
     customers: [],
     customers_top: [],
+    customers_top_alltime: [],
     transactions: [],
     sales_by_hour: [],
     discount_top_items: [],
@@ -53,6 +55,7 @@ export function useDashboardAnalytics(
       if (paymentFilter && paymentFilter !== "all") {
         params.set("payment_method", paymentFilter)
       }
+      params.set("include_alltime_top10", "1")
 
       const res = await fetch(
         `/api/method/klik_pos.api.sales_invoice.get_dashboard_analytics?${params.toString()}`,
@@ -75,8 +78,10 @@ export function useDashboardAnalytics(
         summary: d.summary,
         products: d.products ?? [],
         products_top: d.products_top ?? [],
+        products_top_alltime: d.products_top_alltime ?? [],
         customers: d.customers ?? [],
         customers_top: d.customers_top ?? [],
+        customers_top_alltime: d.customers_top_alltime ?? [],
         transactions: d.transactions ?? [],
         sales_by_hour: d.sales_by_hour ?? [],
         discount_top_items: d.discount_top_items ?? [],

@@ -203,6 +203,78 @@ def _dashboard_parse_hour(posting_time):
 		return 0
 
 
+def _line_net_sales_base(line) -> float:
+	"""Net line sales in company currency (after discounts, before tax). Prefer base_net_amount."""
+	b = flt(line.get("base_net_amount"))
+	if abs(b) > 1e-12:
+		return b
+	return flt(line.get("net_amount"))
+
+
+def _collect_item_batch_pairs_from_lines(lines):
+	"""Distinct (item_code, batch_no) for batch cost lookup."""
+	pairs = set()
+	for l in lines:
+		ic = (l.get("item_code") or "").strip()
+		bn = (l.get("batch_no") or "").strip()
+		if ic and bn:
+			pairs.add((ic, bn))
+	return pairs
+
+
+def _fetch_batch_purchase_rates(pairs: set) -> dict:
+	"""
+	Map (item_code, batch_no) -> purchase rate per unit from earliest submitted Purchase Invoice
+	for that batch (POS / standard PI lines with batch_no).
+	"""
+	if not pairs:
+		return {}
+	best = {}  # (ic, bn) -> (posting_date, rate)
+	pairs_list = list(pairs)
+	chunk_size = 150
+	for i in range(0, len(pairs_list), chunk_size):
+		chunk = pairs_list[i : i + chunk_size]
+		ors = " OR ".join(["(pii.item_code = %s AND pii.batch_no = %s)"] * len(chunk))
+		params = []
+		for ic, bn in chunk:
+			params.extend([ic, bn])
+		rows = frappe.db.sql(
+			f"""
+			SELECT pii.item_code, pii.batch_no, IFNULL(pii.rate, 0) AS rate, pi.posting_date
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+			WHERE {ors}
+			""",
+			tuple(params),
+			as_dict=True,
+		)
+		for r in rows:
+			key = ((r.get("item_code") or "").strip(), (r.get("batch_no") or "").strip())
+			if not key[0] or not key[1]:
+				continue
+			pd = r.get("posting_date")
+			rate = flt(r.get("rate"))
+			if key not in best or getdate(pd) < getdate(best[key][0]):
+				best[key] = (pd, rate)
+	return {k: v[1] for k, v in best.items()}
+
+
+def _resolve_line_unit_cost(line, batch_rate_map: dict) -> float:
+	"""Unit COGS: PI purchase rate for (item, batch) when known; else SI incoming_rate (valuation)."""
+	ic = (line.get("item_code") or "").strip()
+	bn = (line.get("batch_no") or "").strip()
+	if bn and (ic, bn) in batch_rate_map:
+		return flt(batch_rate_map[(ic, bn)])
+	return flt(line.get("incoming_rate"))
+
+
+def _margin_on_sales_pct(revenue: float, cost: float) -> float:
+	rev = flt(revenue)
+	if abs(rev) <= 1e-12:
+		return 0.0
+	return (flt(revenue) - flt(cost)) / rev * 100.0
+
+
 def _empty_dashboard_analytics():
 	return {
 		"summary": {
@@ -221,8 +293,10 @@ def _empty_dashboard_analytics():
 		},
 		"products": [],
 		"products_top": [],
+		"products_top_alltime": [],
 		"customers": [],
 		"customers_top": [],
+		"customers_top_alltime": [],
 		"transactions": [],
 		"sales_by_hour": [],
 		"discount_top_items": [],
@@ -233,15 +307,27 @@ def _empty_dashboard_analytics():
 
 
 @frappe.whitelist(allow_guest=True)
-def get_dashboard_analytics(time_range="today", cashier_name=None, payment_method="all"):
+def get_dashboard_analytics(
+	time_range="today", cashier_name=None, payment_method="all", include_alltime_top10=1
+):
 	"""
 	Aggregated sales analytics for the POS dashboard: revenue, cost, margin, profit,
 	product/customer/transaction breakdowns, hourly series (today), and discount summary.
+
+	Revenue and per-line sales use **net amounts before tax** (``base_net_total`` /
+	``base_net_amount``).
+
+	Cost per unit: **Purchase Invoice rate** for ``(item_code, batch_no)`` when a submitted
+	PI line exists for that batch (earliest posting wins); otherwise **incoming_rate**
+	(ERPNext valuation at sale). ``margin_pct`` is **margin on sales**:
+	``(revenue - cost) / revenue * 100``.
 
 	Args:
 		time_range: today | week | month | session
 		cashier_name: full name or 'all'
 		payment_method: mode of payment or 'all'
+		include_alltime_top10: if truthy, include ``products_top_alltime`` / ``customers_top_alltime``
+			(all POS invoices for profile, no date/cashier/payment filter).
 	"""
 	try:
 		user_roles = frappe.get_roles()
@@ -307,7 +393,8 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 
 		inv_sql = f"""
 			SELECT si.name, si.owner, si.customer, si.customer_name, si.posting_date, si.posting_time,
-				si.base_grand_total, si.discount_amount, si.currency, si.status
+				si.base_grand_total, IFNULL(si.base_net_total, 0) AS base_net_total,
+				si.discount_amount, si.currency, si.status
 			FROM `tabSales Invoice` si
 			WHERE {where_clause}
 		"""
@@ -317,7 +404,6 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			return {"success": True, **_empty_dashboard_analytics()}
 
 		names = [r.name for r in invoices]
-		inv_by_name = {r.name: r for r in invoices}
 
 		all_lines = []
 		chunk = 400
@@ -328,10 +414,12 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 				f"""
 				SELECT parent, item_code, item_name, qty, rate, amount,
 					IFNULL(incoming_rate, 0) AS incoming_rate,
+					IFNULL(batch_no, '') AS batch_no,
 					IFNULL(discount_amount, 0) AS item_discount_amount,
 					IFNULL(discount_percentage, 0) AS item_discount_percentage,
 					IFNULL(net_rate, 0) AS net_rate,
-					IFNULL(net_amount, 0) AS net_amount
+					IFNULL(net_amount, 0) AS net_amount,
+					IFNULL(base_net_amount, 0) AS base_net_amount
 				FROM `tabSales Invoice Item`
 				WHERE parent IN ({ph})
 				""",
@@ -340,13 +428,19 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			)
 			all_lines.extend(lines)
 
+		batch_rate_map = _fetch_batch_purchase_rates(_collect_item_batch_pairs_from_lines(all_lines))
+
 		currency = (invoices[0].get("currency") or "").strip() or (
 			frappe.defaults.get_defaults().get("currency") or "USD"
 		)
 
-		total_revenue = sum(flt(inv.base_grand_total) for inv in invoices)
-		total_cost = sum(flt(l.qty) * flt(l.incoming_rate) for l in all_lines)
-		gross_profit = sum(flt(l.amount) - flt(l.qty) * flt(l.incoming_rate) for l in all_lines)
+		# Net sales (excl. tax); COGS = qty * unit cost (PI batch rate or incoming_rate).
+		total_revenue = sum(flt(inv.get("base_net_total")) for inv in invoices)
+		total_cost = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map) for l in all_lines)
+		gross_profit = sum(
+			_line_net_sales_base(l) - flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map)
+			for l in all_lines
+		)
 		gross_margin_pct = (gross_profit / total_revenue * 100.0) if total_revenue else 0.0
 
 		total_transactions = len(invoices)
@@ -374,23 +468,25 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			row["item_code"] = k
 			row["item_name"] = line.item_name or k
 			q = flt(line.qty)
+			uc = _resolve_line_unit_cost(line, batch_rate_map)
 			row["qty_sold"] += q
-			row["revenue"] += flt(line.amount)
-			row["cost"] += q * flt(line.incoming_rate)
+			row["revenue"] += _line_net_sales_base(line)
+			row["cost"] += q * uc
 			row["discount"] += flt(line.item_discount_amount)
 
 		products = []
 		for k, row in item_agg.items():
 			rev = row["revenue"]
-			prof = rev - row["cost"]
-			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			cost = row["cost"]
+			prof = rev - cost
+			margin_pct = _margin_on_sales_pct(rev, cost)
 			products.append(
 				{
 					"item_code": row["item_code"],
 					"item_name": row["item_name"],
 					"qty_sold": row["qty_sold"],
 					"revenue": rev,
-					"cost": row["cost"],
+					"cost": cost,
 					"gross_profit": prof,
 					"margin_pct": margin_pct,
 					"discount": row["discount"],
@@ -419,17 +515,18 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			row["customer"] = inv.customer or ""
 			row["customer_name"] = inv.customer_name or cust_key or _("Walk-in")
 			row["transaction_count"] += 1
-			row["revenue"] += flt(inv.base_grand_total)
+			row["revenue"] += flt(inv.get("base_net_total"))
 			for line in inv_lines.get(inv.name, []):
 				q = flt(line.qty)
 				row["qty_bought"] += q
-				row["cost"] += q * flt(line.incoming_rate)
+				row["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map)
 
 		customers = []
 		for k, row in cust_agg.items():
 			rev = row["revenue"]
-			prof = rev - row["cost"]
-			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			cost = row["cost"]
+			prof = rev - cost
+			margin_pct = _margin_on_sales_pct(rev, cost)
 			customers.append(
 				{
 					"customer": row["customer"],
@@ -437,7 +534,7 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 					"transaction_count": row["transaction_count"],
 					"qty_bought": row["qty_bought"],
 					"revenue": rev,
-					"cost": row["cost"],
+					"cost": cost,
 					"gross_profit": prof,
 					"margin_pct": margin_pct,
 				}
@@ -448,10 +545,10 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 		transactions = []
 		for inv in sorted(invoices, key=lambda x: (x.posting_date, str(x.posting_time)), reverse=True):
 			lines_i = inv_lines.get(inv.name, [])
-			cost_i = sum(flt(l.qty) * flt(l.incoming_rate) for l in lines_i)
-			rev_i = flt(inv.base_grand_total)
+			cost_i = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map) for l in lines_i)
+			rev_i = flt(inv.get("base_net_total"))
 			prof_i = rev_i - cost_i
-			margin_i = (prof_i / rev_i * 100.0) if rev_i else 0.0
+			margin_i = _margin_on_sales_pct(rev_i, cost_i)
 			transactions.append(
 				{
 					"name": inv.name,
@@ -480,13 +577,13 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 				}
 			cd = cashier_data[owner]
 			cd["transaction_count"] += 1
-			cd["revenue"] += flt(inv.base_grand_total)
+			cd["revenue"] += flt(inv.get("base_net_total"))
 			cd["discount"] += flt(inv.discount_amount)
 			cd["customer_keys"].add(inv.customer or inv.customer_name or "")
 			for line in inv_lines.get(inv.name, []):
 				q = flt(line.qty)
 				cd["qty_sold"] += q
-				cd["cost"] += q * flt(line.incoming_rate)
+				cd["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map)
 				cd["discount"] += flt(line.get("item_discount_amount") or 0)
 
 		cashier_owner_ids = [o for o in cashier_data if o]
@@ -496,7 +593,7 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			rev = cd["revenue"]
 			cost = cd["cost"]
 			prof = rev - cost
-			margin_pct = (prof / rev * 100.0) if rev else 0.0
+			margin_pct = _margin_on_sales_pct(rev, cost)
 			cashiers_list.append(
 				{
 					"owner": owner,
@@ -515,13 +612,14 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 
 		inv_profit = defaultdict(float)
 		for line in all_lines:
-			inv_profit[line.parent] += flt(line.amount) - flt(line.qty) * flt(line.incoming_rate)
+			uc = _resolve_line_unit_cost(line, batch_rate_map)
+			inv_profit[line.parent] += _line_net_sales_base(line) - flt(line.qty) * uc
 
 		hourly = {h: {"hour": f"{h:02d}:00", "revenue": 0.0, "profit": 0.0} for h in range(24)}
 		for inv in invoices:
 			h = _dashboard_parse_hour(inv.posting_time)
 			h = max(0, min(23, h))
-			hourly[h]["revenue"] += flt(inv.base_grand_total)
+			hourly[h]["revenue"] += flt(inv.get("base_net_total"))
 			hourly[h]["profit"] += inv_profit[inv.name]
 
 		sales_by_hour = [hourly[h] for h in range(24)]
@@ -595,6 +693,139 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			]
 			zatca_breakdown.sort(key=lambda x: -x["count"])
 
+		products_top_alltime = []
+		customers_top_alltime = []
+		_do_alltime = str(include_alltime_top10).lower() not in ("0", "false", "no")
+		if _do_alltime:
+			at_conditions = [
+				"si.docstatus = 1",
+				"IFNULL(si.is_return, 0) = 0",
+				"si.custom_pos_opening_entry IS NOT NULL",
+				"si.custom_pos_opening_entry != ''",
+			]
+			at_params = []
+			if not is_admin:
+				from klik_pos.klik_pos.utils import get_current_pos_profile
+
+				_pp = get_current_pos_profile()
+				at_conditions.append("si.pos_profile = %s")
+				at_params.append(_pp.name)
+			at_where = " AND ".join(at_conditions)
+			at_inv_sql = f"""
+				SELECT si.name, si.customer, si.customer_name,
+					IFNULL(si.base_net_total, 0) AS base_net_total
+				FROM `tabSales Invoice` si
+				WHERE {at_where}
+			"""
+			at_invoices = frappe.db.sql(at_inv_sql, tuple(at_params), as_dict=True)
+			if at_invoices:
+				at_names = [r.name for r in at_invoices]
+				at_lines = []
+				for j in range(0, len(at_names), chunk):
+					part = at_names[j : j + chunk]
+					ph = ",".join(["%s"] * len(part))
+					at_lines.extend(
+						frappe.db.sql(
+							f"""
+							SELECT parent, item_code, item_name, qty,
+								IFNULL(incoming_rate, 0) AS incoming_rate,
+								IFNULL(batch_no, '') AS batch_no,
+								IFNULL(discount_amount, 0) AS item_discount_amount,
+								IFNULL(base_net_amount, 0) AS base_net_amount,
+								IFNULL(net_amount, 0) AS net_amount
+							FROM `tabSales Invoice Item`
+							WHERE parent IN ({ph})
+							""",
+							tuple(part),
+							as_dict=True,
+						)
+					)
+				at_batch_map = _fetch_batch_purchase_rates(_collect_item_batch_pairs_from_lines(at_lines))
+				at_item_agg = defaultdict(
+					lambda: {
+						"item_code": "",
+						"item_name": "",
+						"qty_sold": 0.0,
+						"revenue": 0.0,
+						"cost": 0.0,
+						"discount": 0.0,
+					}
+				)
+				for line in at_lines:
+					_k = line.item_code or ""
+					_row = at_item_agg[_k]
+					_row["item_code"] = _k
+					_row["item_name"] = line.item_name or _k
+					_q = flt(line.qty)
+					_uc = _resolve_line_unit_cost(line, at_batch_map)
+					_row["qty_sold"] += _q
+					_row["revenue"] += _line_net_sales_base(line)
+					_row["cost"] += _q * _uc
+					_row["discount"] += flt(line.item_discount_amount)
+				_at_products = []
+				for _k, _row in at_item_agg.items():
+					_rev = _row["revenue"]
+					_cost = _row["cost"]
+					_prof = _rev - _cost
+					_at_products.append(
+						{
+							"item_code": _row["item_code"],
+							"item_name": _row["item_name"],
+							"qty_sold": _row["qty_sold"],
+							"revenue": _rev,
+							"cost": _cost,
+							"gross_profit": _prof,
+							"margin_pct": _margin_on_sales_pct(_rev, _cost),
+							"discount": _row["discount"],
+						}
+					)
+				_at_products.sort(key=lambda x: x["revenue"], reverse=True)
+				products_top_alltime = _at_products[:10]
+
+				at_inv_lines = defaultdict(list)
+				for line in at_lines:
+					at_inv_lines[line.parent].append(line)
+				at_cust_agg = defaultdict(
+					lambda: {
+						"customer": "",
+						"customer_name": "",
+						"transaction_count": 0,
+						"qty_bought": 0.0,
+						"revenue": 0.0,
+						"cost": 0.0,
+					}
+				)
+				for inv in at_invoices:
+					_ck = inv.customer or inv.customer_name or ""
+					_cr = at_cust_agg[_ck]
+					_cr["customer"] = inv.customer or ""
+					_cr["customer_name"] = inv.customer_name or _ck or _("Walk-in")
+					_cr["transaction_count"] += 1
+					_cr["revenue"] += flt(inv.get("base_net_total"))
+					for line in at_inv_lines.get(inv.name, []):
+						_q = flt(line.qty)
+						_cr["qty_bought"] += _q
+						_cr["cost"] += _q * _resolve_line_unit_cost(line, at_batch_map)
+				_at_customers = []
+				for _ck, _row in at_cust_agg.items():
+					_rev = _row["revenue"]
+					_cost = _row["cost"]
+					_prof = _rev - _cost
+					_at_customers.append(
+						{
+							"customer": _row["customer"],
+							"customer_name": _row["customer_name"],
+							"transaction_count": _row["transaction_count"],
+							"qty_bought": _row["qty_bought"],
+							"revenue": _rev,
+							"cost": _cost,
+							"gross_profit": _prof,
+							"margin_pct": _margin_on_sales_pct(_rev, _cost),
+						}
+					)
+				_at_customers.sort(key=lambda x: x["revenue"], reverse=True)
+				customers_top_alltime = _at_customers[:10]
+
 		return {
 			"success": True,
 			"summary": {
@@ -613,8 +844,10 @@ def get_dashboard_analytics(time_range="today", cashier_name=None, payment_metho
 			},
 			"products": products,
 			"products_top": products_top,
+			"products_top_alltime": products_top_alltime,
 			"customers": customers,
 			"customers_top": customers_top,
+			"customers_top_alltime": customers_top_alltime,
 			"transactions": transactions,
 			"sales_by_hour": sales_by_hour,
 			"discount_top_items": discount_by_item,

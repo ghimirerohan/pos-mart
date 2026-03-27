@@ -31,9 +31,9 @@ interface ProductProviderProps {
   children: ReactNode;
 }
 
-// Pagination configuration
-const PAGE_SIZE = 1000; // Initial load size
-const LOAD_MORE_SIZE = 500; // Size for subsequent loads
+// Pagination configuration (smaller pages; load more on scroll — see ProductGrid, ItemsPage, POS layouts)
+const PAGE_SIZE = 80;
+const LOAD_MORE_SIZE = 80;
 
 export function ProductProvider({ children }: ProductProviderProps) {
   const { isAuthenticated, loading: authLoading } = useAuth();
@@ -220,7 +220,6 @@ export function ProductProvider({ children }: ProductProviderProps) {
     setIsLoading(true);
     setError(null);
     setSearchQuery(''); // Clear search on initial fetch
-    backgroundLoadStartedRef.current = false; // Reset background load flag
 
     try {
       const result = await fetchProductsFromAPI(PAGE_SIZE, 0);
@@ -245,90 +244,6 @@ export function ProductProvider({ children }: ProductProviderProps) {
       setIsLoading(false);
     }
   };
-
-  // Ref to track if background loading has been started
-  const backgroundLoadStartedRef = useRef(false);
-
-  // Auto-load remaining items in background after initial load
-  useEffect(() => {
-    // Only auto-load once after initial load completes:
-    // - Initial load just finished (isLoading is false)
-    // - Not searching
-    // - Has more items to load
-    // - Haven't started background load yet
-    if (isLoading || isLoadingMore || searchQuery || !hasMore || backgroundLoadStartedRef.current) {
-      return;
-    }
-
-    // Mark as started to prevent re-triggering
-    backgroundLoadStartedRef.current = true;
-
-    // Small delay to let UI render first batch
-    const timer = setTimeout(() => {
-      const loadRemaining = async () => {
-        // Use functional state updates to always get latest values
-        let offset = currentOffset;
-        let stillHasMore = hasMore;
-        let targetTotal = totalCount;
-
-        while (stillHasMore && !searchQuery) {
-          try {
-            // Check if we've reached the target
-            if (offset >= targetTotal) {
-              break;
-            }
-
-            console.log(`[Background] Loading more items from offset ${offset}...`);
-            const result = await fetchProductsFromAPI(LOAD_MORE_SIZE, offset);
-
-            if (result.items.length === 0) {
-              break;
-            }
-
-            setProducts(prev => {
-              // Avoid duplicates
-              const existingIds = new Set(prev.map(p => p.id));
-              const newItems = result.items.filter(item => !existingIds.has(item.id));
-              return [...prev, ...newItems];
-            });
-
-            offset += result.items.length;
-            stillHasMore = result.has_more;
-            setHasMore(result.has_more);
-            setCurrentOffset(offset);
-
-            // Update target total if it changed
-            if (result.total_count > targetTotal) {
-              targetTotal = result.total_count;
-            }
-
-            console.log(`[Background] Loaded ${result.items.length} more items. Total: ${offset} of ${targetTotal}`);
-
-            // Small delay between batches to avoid overwhelming the server
-            await new Promise(resolve => setTimeout(resolve, 100));
-          } catch (error) {
-            console.error('[Background] Error loading more items:', error);
-            break;
-          }
-        }
-
-        console.log(`[Background] Finished loading all items. Total: ${offset}`);
-      };
-
-      loadRemaining();
-    }, 500); // Wait 500ms after initial load
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [isLoading, hasMore, searchQuery, currentOffset, totalCount]); // Trigger when initial load completes
-
-  // Reset background load flag when search changes or products are refetched
-  useEffect(() => {
-    if (searchQuery) {
-      backgroundLoadStartedRef.current = false;
-    }
-  }, [searchQuery]);
 
   // Load more products (infinite scroll)
   const loadMoreProducts = useCallback(async () => {

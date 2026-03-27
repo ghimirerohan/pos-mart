@@ -11,6 +11,8 @@ interface TopItemsTableProps {
   /** Full product list; top 10 by selected metric are shown */
   products: DashboardProductRow[]
   currency: string
+  /** e.g. "All-time" — shown as a badge next to the title */
+  scopeLabel?: string
 }
 
 const SORT_OPTIONS: { value: ItemSortKey; label: string }[] = [
@@ -20,7 +22,7 @@ const SORT_OPTIONS: { value: ItemSortKey; label: string }[] = [
   { value: "margin_pct", label: "Margin %" },
 ]
 
-export function TopItemsTable({ products, currency }: TopItemsTableProps) {
+export function TopItemsTable({ products, currency, scopeLabel }: TopItemsTableProps) {
   const [sortBy, setSortBy] = useState<ItemSortKey>("revenue")
 
   const top10 = useMemo(() => {
@@ -59,9 +61,14 @@ export function TopItemsTable({ products, currency }: TopItemsTableProps) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Package className="w-5 h-5 text-brand-600 shrink-0" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Top 10 items</h3>
+          {scopeLabel ? (
+            <span className="text-xs font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+              {scopeLabel}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <label htmlFor="top-items-sort" className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -111,12 +118,14 @@ export function TopItemsTable({ products, currency }: TopItemsTableProps) {
                     <th className="pb-2 pr-2 text-right">Qty</th>
                     <th className="pb-2 pr-2 text-right hidden sm:table-cell">Revenue</th>
                     <th className="pb-2 pr-2 text-right hidden md:table-cell">Profit</th>
-                    <th className="pb-2 text-right">Margin</th>
+                    <th className="pb-2 text-right" title="(revenue − cost) ÷ revenue">
+                      Margin %
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="text-gray-900 dark:text-gray-100">
                   {top10.map((p, i) => (
-                    <tr key={p.item_code || i} className="border-b border-gray-100 dark:border-gray-700/80">
+                    <tr key={`${p.item_code}-${i}`} className="border-b border-gray-100 dark:border-gray-700/80">
                       <td className="py-2 pr-2 font-medium text-brand-600">{i + 1}</td>
                       <td className="py-2 pr-2 max-w-[140px] truncate" title={p.item_name}>
                         {p.item_name || p.item_code}

@@ -42,7 +42,7 @@ export function DiscountSummary({ summary, topItems }: DiscountSummaryProps) {
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-gray-600 dark:text-gray-400">% of revenue</span>
+          <span className="text-gray-600 dark:text-gray-400">% of net sales</span>
           <span className="font-semibold text-amber-600 dark:text-amber-400">{pctOfRev.toFixed(1)}%</span>
         </div>
         <div className="flex justify-between">

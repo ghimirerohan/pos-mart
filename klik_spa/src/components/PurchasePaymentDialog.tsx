@@ -12,7 +12,7 @@ import {
   Image as ImageIcon,
   Loader2,
 } from "lucide-react";
-import type { PurchaseCartItem, Supplier, CreatePurchaseInvoiceData } from "../types/supplier";
+import type { PurchaseCartItem, CreatePurchaseInvoiceData } from "../types/supplier";
 import { toast } from "react-toastify";
 import { usePOSDetails } from "../hooks/usePOSProfile";
 import { useProducts } from "../hooks/useProducts";
@@ -22,7 +22,6 @@ interface PurchasePaymentDialogProps {
   isOpen: boolean;
   onClose: (completed?: boolean) => void;
   cartItems: PurchaseCartItem[];
-  selectedSupplier: Supplier;
   onCompletePayment: () => void;
   isMobile?: boolean;
 }
@@ -32,11 +31,33 @@ interface PaymentMethod {
   amount: number;
 }
 
+/** Captured before cart clears so the success summary stays accurate */
+interface PurchaseCompletionSnapshot {
+  items: {
+    cart_row_id?: string;
+    id: string;
+    name: string;
+    quantity: number;
+    purchase_price: number;
+    supplier?: { id: string; supplier_name: string } | null;
+  }[];
+  subtotal: number;
+  taxAmount: number;
+  grandTotal: number;
+  paymentMethods: PaymentMethod[];
+  isCreditPurchase: boolean;
+  invoiceGroups: {
+    invoice_name: string;
+    supplier_name: string;
+    total: number;
+    item_count: number;
+  }[];
+}
+
 export default function PurchasePaymentDialog({
   isOpen,
   onClose,
   cartItems,
-  selectedSupplier,
   onCompletePayment,
   isMobile = false,
 }: PurchasePaymentDialogProps) {
@@ -70,6 +91,8 @@ export default function PurchasePaymentDialog({
       setIsCreditPurchase(false);
       setIsComplete(false);
       setCreatedInvoice(null);
+      setCompletionSnapshot(null);
+      setInvoiceProgress(null);
       setAttachmentFile(null);
       setAttachmentPreview(null);
       setUploadedFileUrl(null);
@@ -100,6 +123,9 @@ export default function PurchasePaymentDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [createdInvoice, setCreatedInvoice] = useState<string | null>(null);
+  const [invoiceProgress, setInvoiceProgress] = useState<string | null>(null);
+  const [completionSnapshot, setCompletionSnapshot] =
+    useState<PurchaseCompletionSnapshot | null>(null);
 
   // Tax state
   const [selectedTaxTemplate, setSelectedTaxTemplate] = useState<string>("");
@@ -268,79 +294,164 @@ export default function PurchasePaymentDialog({
     if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
 
-  // Complete purchase
   const handleCompletePurchase = async () => {
     setIsProcessing(true);
+    setInvoiceProgress(null);
 
     try {
-      // Upload attachment if present
       let fileUrl = uploadedFileUrl;
       if (attachmentFile && !fileUrl) {
         fileUrl = await uploadFile(attachmentFile);
         setUploadedFileUrl(fileUrl);
       }
 
-      // Prepare invoice data
-      const invoiceData: CreatePurchaseInvoiceData = {
-        supplier: { id: selectedSupplier.id },
-        items: cartItems.map((item) => ({
-          id: item.id,
-          quantity: item.quantity,
-          purchase_price: item.purchase_price,
-          selling_price: item.selling_price,
-          original_purchase_price: item.original_purchase_price,
-          original_selling_price: item.original_selling_price,
-          uom: item.uom,
-          batch: item.batch,
-          serial: item.serial,
-        })),
-        paymentMethods: isCreditPurchase
+      const bySupplier = new Map<string, PurchaseCartItem[]>();
+      for (const item of cartItems) {
+        const sid = item.supplier?.id;
+        if (!sid) {
+          throw new Error("Every line must have a supplier");
+        }
+        const list = bySupplier.get(sid) || [];
+        list.push(item);
+        bySupplier.set(sid, list);
+      }
+
+      const groups = Array.from(bySupplier.entries());
+      const createdNames: string[] = [];
+      const failures: string[] = [];
+      const successfulGroups: PurchaseCompletionSnapshot["invoiceGroups"] = [];
+
+      for (let i = 0; i < groups.length; i++) {
+        const [supplierId, items] = groups[i];
+        setInvoiceProgress(`Creating invoice ${i + 1} of ${groups.length}…`);
+
+        const groupSubtotal = items.reduce(
+          (s, it) => s + it.purchase_price * it.quantity,
+          0
+        );
+        const groupTax =
+          subtotal > 0 ? taxAmount * (groupSubtotal / subtotal) : 0;
+        const groupGrand = groupSubtotal + groupTax;
+        const ratio = grandTotal > 0 ? groupGrand / grandTotal : 1;
+
+        let scaledPayments = isCreditPurchase
           ? []
-          : paymentMethods.filter((pm) => pm.amount > 0),
-        isCreditPurchase,
-        taxTemplate: selectedTaxTemplate || undefined,
-        attachment: fileUrl ? { file_url: fileUrl } : undefined,
-      };
+          : paymentMethods
+              .filter((pm) => pm.amount > 0)
+              .map((pm) => ({
+                mode_of_payment: pm.mode_of_payment,
+                amount: Math.round(pm.amount * ratio * 100) / 100,
+              }));
 
-      // Create purchase invoice
-      const response = await fetch("/api/method/klik_pos.api.purchase_invoice.create_purchase_invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: invoiceData }),
-        credentials: "include",
-      });
+        if (!isCreditPurchase && scaledPayments.length > 0) {
+          const sumScaled = scaledPayments.reduce((a, p) => a + p.amount, 0);
+          const diff = Math.round((groupGrand - sumScaled) * 100) / 100;
+          if (Math.abs(diff) >= 0.01) {
+            scaledPayments = scaledPayments.map((p, idx) =>
+              idx === 0 ? { ...p, amount: Math.round((p.amount + diff) * 100) / 100 } : p
+            );
+          }
+        }
 
-      const result = await response.json();
+        const invoiceData: CreatePurchaseInvoiceData = {
+          supplier: { id: supplierId },
+          items: items.map((item) => ({
+            id: item.id,
+            quantity: item.quantity,
+            purchase_price: item.purchase_price,
+            selling_price: item.selling_price,
+            original_purchase_price: item.original_purchase_price,
+            original_selling_price: item.original_selling_price,
+            uom: item.uom,
+            batch: item.batch,
+            serial: item.serial,
+          })),
+          paymentMethods: scaledPayments,
+          isCreditPurchase,
+          taxTemplate: selectedTaxTemplate || undefined,
+          attachment: fileUrl ? { file_url: fileUrl } : undefined,
+        };
 
-      if (result.message?.success) {
-        setCreatedInvoice(result.message.invoice_name);
+        const response = await fetch(
+          "/api/method/klik_pos.api.purchase_invoice.create_purchase_invoice",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: invoiceData }),
+            credentials: "include",
+          }
+        );
+
+        const result = await response.json();
+
+        if (result.message?.success && result.message.invoice_name) {
+          createdNames.push(result.message.invoice_name);
+          successfulGroups.push({
+            invoice_name: result.message.invoice_name,
+            supplier_name:
+              items[0]?.supplier?.supplier_name || String(supplierId),
+            total: groupGrand,
+            item_count: items.length,
+          });
+        } else {
+          failures.push(
+            `${supplierId}: ${result.message?.error || "Unknown error"}`
+          );
+        }
+      }
+
+      if (failures.length > 0 && createdNames.length === 0) {
+        throw new Error(failures.join("; "));
+      }
+
+      if (createdNames.length > 0) {
+        setCompletionSnapshot({
+          items: cartItems.map((it) => ({
+            cart_row_id: it.cart_row_id,
+            id: it.id,
+            name: it.name,
+            quantity: it.quantity,
+            purchase_price: it.purchase_price,
+            supplier: it.supplier
+              ? { id: it.supplier.id, supplier_name: it.supplier.supplier_name }
+              : null,
+          })),
+          subtotal,
+          taxAmount,
+          grandTotal,
+          paymentMethods: paymentMethods.map((pm) => ({ ...pm })),
+          isCreditPurchase,
+          invoiceGroups: successfulGroups,
+        });
+        setCreatedInvoice(createdNames.join(", "));
         setIsComplete(true);
-        toast.success(`Purchase Invoice ${result.message.invoice_name} created successfully!`);
-        
-        // Clear cart immediately on success
+        if (failures.length > 0) {
+          toast.warning(
+            `Created ${createdNames.length} invoice(s). Some failed: ${failures.join("; ")}`
+          );
+        } else {
+          toast.success(
+            createdNames.length > 1
+              ? `Created ${createdNames.length} purchase invoices`
+              : `Purchase Invoice ${createdNames[0]} created`
+          );
+        }
         onCompletePayment();
-        
-        // Refresh stock data - use both methods to ensure update
         try {
-          // First try refreshStockOnly for quick update
-          if (refreshStockOnly) {
-            await refreshStockOnly();
-          }
-          // Then do a full refetch to ensure all data is current
-          if (refetchProducts) {
-            await refetchProducts();
-          }
+          if (refreshStockOnly) await refreshStockOnly();
+          if (refetchProducts) await refetchProducts();
         } catch (refreshError) {
           console.error("Error refreshing stock:", refreshError);
         }
-      } else {
-        throw new Error(result.message?.error || "Failed to create purchase invoice");
       }
     } catch (error) {
       console.error("Error creating purchase invoice:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to create purchase invoice");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create purchase invoice"
+      );
     } finally {
       setIsProcessing(false);
+      setInvoiceProgress(null);
     }
   };
 
@@ -352,6 +463,15 @@ export default function PurchasePaymentDialog({
   };
 
   if (!isOpen) return null;
+
+  /** After checkout the parent clears the cart; keep showing captured totals and lines */
+  const displayItems = completionSnapshot?.items ?? cartItems;
+  const displaySubtotal = completionSnapshot?.subtotal ?? subtotal;
+  const displayTax = completionSnapshot?.taxAmount ?? taxAmount;
+  const displayGrand = completionSnapshot?.grandTotal ?? grandTotal;
+  const displayPayments = completionSnapshot?.paymentMethods ?? paymentMethods;
+  const displayCredit = completionSnapshot?.isCreditPurchase ?? isCreditPurchase;
+  const displayInvoiceGroups = completionSnapshot?.invoiceGroups ?? null;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
@@ -385,10 +505,19 @@ export default function PurchasePaymentDialog({
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
                   Purchase Complete!
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-2">
-                  Invoice: {createdInvoice}
+                <p className="text-gray-500 dark:text-gray-400 mb-2 text-center px-2">
+                  {completionSnapshot && completionSnapshot.invoiceGroups.length > 1
+                    ? `${completionSnapshot.invoiceGroups.length} invoices: ${createdInvoice}`
+                    : `Invoice: ${createdInvoice}`}
                 </p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 text-center">
+                {completionSnapshot && (
+                  <p className="text-base text-gray-700 dark:text-gray-300 text-center font-medium">
+                    {completionSnapshot.isCreditPurchase
+                      ? "Recorded on credit — payment still pending."
+                      : `You paid ${currency_symbol}${formatGroupedAmount(completionSnapshot.grandTotal)} in total.`}
+                  </p>
+                )}
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center mt-2">
                   Stock has been updated. Prices will reflect the new values.
                 </p>
                 <button
@@ -580,7 +709,7 @@ export default function PurchasePaymentDialog({
                   {isProcessing ? (
                     <>
                       <Loader2 size={20} className="animate-spin" />
-                      Processing...
+                      {invoiceProgress || "Processing…"}
                     </>
                   ) : (
                     <>
@@ -611,32 +740,80 @@ export default function PurchasePaymentDialog({
                 </p>
               </div>
 
-              {/* Supplier Details */}
+              {/* Invoices / suppliers (snapshot keeps this after cart clears) */}
               <div className="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-                <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  {selectedSupplier.supplier_name}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+                  {displayInvoiceGroups && displayInvoiceGroups.length > 0
+                    ? displayInvoiceGroups.length > 1
+                      ? "One invoice per supplier"
+                      : "Invoice"
+                    : "Suppliers"}
                 </p>
-                {selectedSupplier.contact?.phone && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {selectedSupplier.contact.phone}
-                  </p>
+                {displayInvoiceGroups && displayInvoiceGroups.length > 0 ? (
+                  <ul className="text-sm space-y-2">
+                    {displayInvoiceGroups.map((g) => (
+                      <li
+                        key={g.invoice_name}
+                        className="rounded-md bg-gray-50 dark:bg-gray-700/40 p-2 border border-gray-100 dark:border-gray-600"
+                      >
+                        <p
+                          className="font-medium text-gray-900 dark:text-white truncate"
+                          title={g.supplier_name}
+                        >
+                          {g.supplier_name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {g.item_count} line{g.item_count === 1 ? "" : "s"} · {g.invoice_name}
+                        </p>
+                        <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-1">
+                          {currency_symbol}
+                          {formatGroupedAmount(g.total)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <ul className="text-sm font-medium text-gray-900 dark:text-white space-y-0.5">
+                    {Array.from(
+                      new Map(
+                        displayItems
+                          .filter((it) => it.supplier?.id)
+                          .map((it) => [
+                            it.supplier!.id,
+                            it.supplier!.supplier_name,
+                          ])
+                      ).entries()
+                    ).map(([id, name]) => (
+                      <li key={id} className="truncate" title={name}>
+                        {name}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
 
               {/* Items */}
               <div className="space-y-2 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
-                {cartItems.map((item) => (
-                  <div key={item.id} className="flex justify-between text-xs">
-                    <div className="flex-1">
-                      <p className="text-gray-900 dark:text-white font-medium">
+                {displayItems.map((item) => (
+                  <div
+                    key={item.cart_row_id ?? item.id}
+                    className="flex justify-between text-xs"
+                  >
+                    <div className="flex-1 min-w-0 pr-2">
+                      <p className="text-gray-900 dark:text-white font-medium truncate">
                         {item.name}
                       </p>
                       <p className="text-gray-500 dark:text-gray-400">
-                        {item.quantity} x {currency_symbol}
+                        {item.quantity} × {currency_symbol}
                         {formatGroupedAmount(item.purchase_price)}
+                        {item.supplier?.supplier_name && (
+                          <span className="block text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                            From: {item.supplier.supplier_name}
+                          </span>
+                        )}
                       </p>
                     </div>
-                    <p className="text-gray-900 dark:text-white font-medium">
+                    <p className="text-gray-900 dark:text-white font-medium shrink-0">
                       {currency_symbol}
                       {formatGroupedAmount(item.quantity * item.purchase_price)}
                     </p>
@@ -650,15 +827,15 @@ export default function PurchasePaymentDialog({
                   <span className="text-gray-600 dark:text-gray-400">Subtotal</span>
                   <span className="text-gray-900 dark:text-white">
                     {currency_symbol}
-                    {formatGroupedAmount(subtotal)}
+                    {formatGroupedAmount(displaySubtotal)}
                   </span>
                 </div>
-                {taxAmount > 0 && (
+                {displayTax > 0 && (
                   <div className="flex justify-between text-xs">
                     <span className="text-gray-600 dark:text-gray-400">Tax</span>
                     <span className="text-gray-900 dark:text-white">
                       {currency_symbol}
-                      {formatGroupedAmount(taxAmount)}
+                      {formatGroupedAmount(displayTax)}
                     </span>
                   </div>
                 )}
@@ -666,18 +843,18 @@ export default function PurchasePaymentDialog({
                   <span className="text-gray-900 dark:text-white">Total</span>
                   <span className="text-amber-600 dark:text-amber-400">
                     {currency_symbol}
-                    {formatGroupedAmount(grandTotal)}
+                    {formatGroupedAmount(displayGrand)}
                   </span>
                 </div>
               </div>
 
               {/* Payment Method Info */}
-              {!isCreditPurchase && paymentMethods.some((pm) => pm.amount > 0) && (
+              {!displayCredit && displayPayments.some((pm) => pm.amount > 0) && (
                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
                   <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                    Payment Methods:
+                    How you paid:
                   </p>
-                  {paymentMethods
+                  {displayPayments
                     .filter((pm) => pm.amount > 0)
                     .map((pm, index) => (
                       <div key={index} className="flex justify-between text-xs">
@@ -693,7 +870,7 @@ export default function PurchasePaymentDialog({
                 </div>
               )}
 
-              {isCreditPurchase && (
+              {displayCredit && (
                 <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
                   <p className="text-xs text-amber-600 dark:text-amber-400 font-medium text-center">
                     Credit Purchase - Payment Pending

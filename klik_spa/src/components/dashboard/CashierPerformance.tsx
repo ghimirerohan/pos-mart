@@ -34,7 +34,9 @@ export function CashierPerformance({ cashiers, currency }: CashierPerformancePro
                 <th className="py-2 px-2 text-right hidden md:table-cell">Revenue</th>
                 <th className="py-2 px-2 text-right hidden lg:table-cell">Discount</th>
                 <th className="py-2 px-2 text-right">Profit</th>
-                <th className="py-2 px-2 text-right">Margin</th>
+                <th className="py-2 px-2 text-right" title="(revenue − cost) ÷ revenue">
+                  Margin %
+                </th>
               </tr>
             </thead>
             <tbody className="text-gray-900 dark:text-gray-100">

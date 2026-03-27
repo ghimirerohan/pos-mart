@@ -56,8 +56,14 @@ export interface CreateSupplierData {
  * Purchase Cart Item - extends base cart item with purchase-specific fields
  */
 export interface PurchaseCartItem {
+  /** ERP item code (same as legacy `id` for API payloads). */
   id: string
   item_code: string
+  /**
+   * Stable row identity for the purchase cart. `id` is the SKU; multiple lines
+   * of the same SKU (future) or bad data must not share one supplier update.
+   */
+  cart_row_id?: string
   name: string
   category: string
   image: string
@@ -80,6 +86,9 @@ export interface PurchaseCartItem {
   
   // Display fields
   currency_symbol?: string
+
+  /** Per-line supplier (required at checkout). New lines copy `selectedSupplier` from store when set. */
+  supplier?: { id: string; supplier_name: string } | null
 }
 
 /**
@@ -138,6 +147,8 @@ export interface CreatePurchaseInvoiceData {
 export interface PurchaseInvoiceResponse {
   success: boolean
   invoice_name?: string
+  /** When multiple PIs are created in one flow */
+  invoice_names?: string[]
   invoice_id?: string
   invoice?: PurchaseInvoice
   payment_entry?: string

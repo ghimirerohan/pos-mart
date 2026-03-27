@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ClipboardList,
@@ -6,6 +6,9 @@ import {
   FileDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown,
   Calendar,
 } from "lucide-react";
 import { NepaliDatePicker } from "nepali-datepicker-reactjs";
@@ -13,7 +16,7 @@ import "nepali-datepicker-reactjs/dist/index.css";
 import BottomNavigation from "../components/BottomNavigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useUserInfo } from "../hooks/useUserInfo";
-import { formatCurrency, formatGroupedAmount } from "../utils/currency";
+import { formatGroupedAmount } from "../utils/currency";
 import { toast } from "react-toastify";
 
 const PAGE_SIZE = 100;
@@ -89,6 +92,57 @@ interface FilterOption {
   label: string;
 }
 
+const RS_MONEY_FIELDS = new Set([
+  "opening_stock_value",
+  "valuation_rate",
+  "stock_value",
+  "buy_amount",
+  "sale_amount",
+  "gross_profit",
+]);
+
+const SORT_NUMERIC_FIELDS = new Set([
+  "opening_qty",
+  "opening_stock_value",
+  "in_qty",
+  "out_qty",
+  "qty_after_transaction",
+  "valuation_rate",
+  "stock_value",
+  "buy_amount",
+  "sale_amount",
+  "gross_profit",
+  "margin_pct",
+]);
+
+function rsAmount(amount: number): string {
+  return `Rs. ${formatGroupedAmount(amount)}`;
+}
+
+function compareInventoryRows(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  field: string,
+  dir: "asc" | "desc"
+): number {
+  const mult = dir === "asc" ? 1 : -1;
+  const va = a[field];
+  const vb = b[field];
+  if (SORT_NUMERIC_FIELDS.has(field)) {
+    const na = typeof va === "number" ? va : Number(va);
+    const nb = typeof vb === "number" ? vb : Number(vb);
+    const aOk = !Number.isNaN(na);
+    const bOk = !Number.isNaN(nb);
+    if (!aOk && !bOk) return 0;
+    if (!aOk) return 1 * mult;
+    if (!bOk) return -1 * mult;
+    return (na - nb) * mult;
+  }
+  const sa = String(va ?? "").toLowerCase();
+  const sb = String(vb ?? "").toLowerCase();
+  return sa.localeCompare(sb) * mult;
+}
+
 export default function DateWiseInventoryPage() {
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 1024px)");
@@ -108,6 +162,8 @@ export default function DateWiseInventoryPage() {
   const [loadingDefaults, setLoadingDefaults] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasRequested, setHasRequested] = useState(false);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [companies, setCompanies] = useState<FilterOption[]>([]);
   const [itemGroups, setItemGroups] = useState<FilterOption[]>([]);
@@ -357,6 +413,54 @@ export default function DateWiseInventoryPage() {
     }
   };
 
+  const totalPages = data ? Math.max(1, Math.ceil(data.total_count / PAGE_SIZE)) : 0;
+  const displayColumns = data?.columns ?? [];
+  const displayFields = [
+    "item_code",
+    "item_name",
+    "opening_qty",
+    "opening_stock_value",
+    "in_qty",
+    "out_qty",
+    "qty_after_transaction",
+    "valuation_rate",
+    "stock_value",
+    "buy_amount",
+    "sale_amount",
+    "gross_profit",
+    "margin_pct",
+  ];
+  const floatFields = new Set([
+    "opening_qty",
+    "in_qty",
+    "out_qty",
+    "qty_after_transaction",
+    "opening_stock_value",
+    "valuation_rate",
+    "stock_value",
+    "buy_amount",
+    "sale_amount",
+    "gross_profit",
+    "margin_pct",
+  ]);
+
+  const visibleFields = displayFields.filter((f) => displayColumns.some((c) => c.fieldname === f));
+
+  const sortedResult = useMemo(() => {
+    const rows = data?.result ?? [];
+    if (!sortKey || rows.length === 0) return rows;
+    return [...rows].sort((a, b) => compareInventoryRows(a, b, sortKey, sortDir));
+  }, [data?.result, sortKey, sortDir]);
+
+  const handleSortHeader = (field: string) => {
+    if (sortKey === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(field);
+      setSortDir("asc");
+    }
+  };
+
   if (userInfoLoading || !userInfo) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
@@ -382,17 +486,12 @@ export default function DateWiseInventoryPage() {
     );
   }
 
-  const totalPages = data ? Math.max(1, Math.ceil(data.total_count / PAGE_SIZE)) : 0;
-  const displayColumns = data?.columns ?? [];
-  const displayFields = ["date", "item_code", "item_name", "warehouse", "opening_qty", "in_qty", "out_qty", "qty_after_transaction", "valuation_rate", "stock_value"];
-  const floatFields = new Set(["opening_qty", "in_qty", "out_qty", "qty_after_transaction", "valuation_rate", "stock_value", "opening_stock_value"]);
-
   const selectClass =
     "w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-2 text-sm";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-brand-50 to-brand-100 dark:from-gray-900 dark:to-gray-800 pb-4 lg:pb-8">
-      <div className={`p-4 ${isMobile ? "pt-6 pl-14" : "pt-8"} max-w-7xl mx-auto lg:pl-24`}>
+      <div className={`p-4 ${isMobile ? "pt-6 pl-14" : "pt-8"} w-full max-w-none lg:pl-24`}>
         <div className="flex items-center gap-2 mb-6">
           <ClipboardList className="w-8 h-8 text-brand-600" />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Date Wise Inventory</h1>
@@ -571,58 +670,75 @@ export default function DateWiseInventoryPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700/50">
-                      {displayFields
-                        .filter((f) => displayColumns.some((c) => c.fieldname === f))
-                        .map((f) => {
-                          const col = displayColumns.find((c) => c.fieldname === f);
-                          return (
-                            <th
-                              key={f}
-                              className="px-4 py-3 text-left font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600"
+                      {visibleFields.map((f) => {
+                        const col = displayColumns.find((c) => c.fieldname === f);
+                        const active = sortKey === f;
+                        return (
+                          <th
+                            key={f}
+                            className="px-4 py-3 text-left font-medium text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleSortHeader(f)}
+                              className="inline-flex items-center gap-1.5 hover:text-brand-600 dark:hover:text-brand-400 text-left w-full min-w-0"
                             >
-                              {col?.label ?? f}
-                            </th>
-                          );
-                        })}
+                              <span className="truncate">{col?.label ?? f}</span>
+                              {active ? (
+                                sortDir === "asc" ? (
+                                  <ChevronUp className="w-4 h-4 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
+                                )
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 shrink-0 opacity-40" aria-hidden />
+                              )}
+                            </button>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
-                    {data.result.length === 0 ? (
+                    {sortedResult.length === 0 ? (
                       <tr>
-                        <td colSpan={displayFields.length} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={Math.max(1, visibleFields.length)} className="px-4 py-8 text-center text-gray-500">
                           No data. Set dates and click Get Data.
                         </td>
                       </tr>
                     ) : (
-                      data.result.map((row, idx) => (
+                      sortedResult.map((row, idx) => (
                         <tr
                           key={idx}
                           className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                         >
-                          {displayFields
-                            .filter((f) => displayColumns.some((c) => c.fieldname === f))
-                            .map((f) => {
-                              let val = row[f];
+                          {visibleFields.map((f) => {
+                              let val: unknown = row[f];
                               if (val != null && typeof val === "object" && "isoformat" in (val as object)) {
                                 val = (val as { isoformat: () => string }).isoformat?.() ?? String(val);
                               }
                               if (val == null) val = "";
-                              if (floatFields.has(f) && typeof val === "number") {
-                                val = formatGroupedAmount(val as number);
-                              }
-                              if (f === "stock_value" || f === "opening_stock_value" || f === "valuation_rate") {
+                              let display: string;
+                              if (f === "margin_pct") {
+                                const num = typeof val === "number" ? val : Number(val);
+                                display = Number.isNaN(num) ? String(val) : `${formatGroupedAmount(num)}%`;
+                              } else if (RS_MONEY_FIELDS.has(f)) {
+                                const num = typeof val === "number" ? val : Number(val);
+                                display = Number.isNaN(num) ? String(val) : rsAmount(num);
+                              } else if (floatFields.has(f) && typeof val === "number") {
+                                display = formatGroupedAmount(val as number);
+                              } else if (floatFields.has(f)) {
                                 const num = Number(val);
-                                if (!Number.isNaN(num)) val = formatCurrency(num);
-                              }
-                              if (f === "date" && typeof val === "string" && (val.includes("T") || val.includes(" "))) {
-                                val = val.slice(0, 10);
+                                display = Number.isNaN(num) ? String(val) : formatGroupedAmount(num);
+                              } else {
+                                display = String(val);
                               }
                               return (
                                 <td
                                   key={f}
                                   className="px-4 py-2 text-gray-900 dark:text-gray-200 whitespace-nowrap"
                                 >
-                                  {String(val)}
+                                  {display}
                                 </td>
                               );
                             })}

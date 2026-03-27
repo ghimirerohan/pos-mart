@@ -9,6 +9,7 @@ import {
   UserPlus,
   Truck,
   ChevronRight,
+  ArrowUp,
 } from "lucide-react";
 import type { PurchaseCartItem, Supplier } from "../types/supplier";
 import PurchasePaymentDialog from "./PurchasePaymentDialog";
@@ -18,6 +19,11 @@ import { usePurchaseCartStore } from "../stores/purchaseCartStore";
 import { toast } from "react-toastify";
 import { usePOSDetails } from "../hooks/usePOSProfile";
 import { formatGroupedAmount } from "../utils/currency";
+
+/** Cart line identity (not SKU). `id` is item_code; supplier/quantity edits must target one row. */
+function purchaseRowKey(item: PurchaseCartItem): string {
+  return item.cart_row_id ?? item.id;
+}
 
 interface PurchaseOrderSummaryProps {
   cartItems: PurchaseCartItem[];
@@ -102,16 +108,23 @@ export default function PurchaseOrderSummary({
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
   // Get store actions
-  const { 
-    selectedSupplier, 
+  const {
+    selectedSupplier,
     setSelectedSupplier,
     updatePurchasePrice,
     updateSellingPrice,
     updateBatch,
     updateSerial,
+    setItemSupplier,
+    copySupplierFromAbove,
   } = usePurchaseCartStore();
 
-  // Search suppliers
+  const [supplierPickerLineId, setSupplierPickerLineId] = useState<string | null>(null);
+  const [lastSupplierLoadingId, setLastSupplierLoadingId] = useState<string | null>(null);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [pickerSuppliers, setPickerSuppliers] = useState<Supplier[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+
   const searchSuppliers = useCallback(async (search: string) => {
     setLoadingSuppliers(true);
     try {
@@ -133,13 +146,38 @@ export default function PurchaseOrderSummary({
     }
   }, []);
 
-  // Load suppliers on mount and when search changes
+  const searchPickerSuppliers = useCallback(async (search: string) => {
+    setPickerLoading(true);
+    try {
+      const response = await fetch(
+        `/api/method/klik_pos.api.supplier.get_suppliers?search=${encodeURIComponent(search)}&limit=20`,
+        { method: "GET", credentials: "include" }
+      );
+      const data = await response.json();
+      if (data.message?.success) {
+        setPickerSuppliers(data.message.data || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPickerLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       searchSuppliers(supplierSearch);
     }, 300);
     return () => clearTimeout(timer);
   }, [supplierSearch, searchSuppliers]);
+
+  useEffect(() => {
+    if (!supplierPickerLineId) return;
+    const timer = setTimeout(() => {
+      searchPickerSuppliers(pickerSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pickerSearch, supplierPickerLineId, searchPickerSuppliers]);
 
   // Toggle item expansion
   const toggleItemExpansion = (itemId: string) => {
@@ -154,11 +192,16 @@ export default function PurchaseOrderSummary({
     });
   };
 
-  // Handle supplier selection
   const handleSelectSupplier = (supplier: Supplier) => {
     setSelectedSupplier(supplier);
     setShowSupplierDropdown(false);
     setSupplierSearch("");
+  };
+
+  const assignSupplierToLine = (lineId: string, supplier: Supplier) => {
+    setItemSupplier(lineId, supplier);
+    setSupplierPickerLineId(null);
+    setPickerSearch("");
   };
 
   // Handle new supplier saved
@@ -183,17 +226,53 @@ export default function PurchaseOrderSummary({
     0
   );
 
-  // Handle checkout validation
   const validateForCheckout = (): boolean => {
-    if (!selectedSupplier) {
-      toast.error("Please select a supplier before checkout");
-      return false;
-    }
     if (cartItems.length === 0) {
       toast.error("Cart is empty");
       return false;
     }
+    const missing = cartItems.filter((it) => !it.supplier?.id);
+    if (missing.length > 0) {
+      toast.error("Assign a supplier to every line (use Last / pick supplier)");
+      return false;
+    }
     return true;
+  };
+
+  const applyLastBoughtSupplier = async (lineId: string, itemCode: string) => {
+    setLastSupplierLoadingId(lineId);
+    try {
+      const res = await fetch(
+        `/api/method/klik_pos.api.item.get_last_bought_supplier?item_code=${encodeURIComponent(itemCode)}`,
+        { credentials: "include" }
+      );
+      const json = await res.json();
+      const msg = json.message;
+      if (!msg?.success) {
+        toast.error(msg?.error || "Could not load last supplier");
+        return;
+      }
+      const d = msg.data;
+      if (!d?.supplier) {
+        toast.info(msg.message || "No previous purchase for this item");
+        return;
+      }
+      setItemSupplier(lineId, {
+        id: d.supplier,
+        name: d.supplier,
+        supplier_name: d.supplier_name || d.supplier,
+        supplier_type: "Company",
+        supplier_group: "",
+        country: "",
+        total_orders: 0,
+        total_spent: 0,
+      });
+      toast.success("Supplier set from last purchase");
+    } catch {
+      toast.error("Failed to load last supplier");
+    } finally {
+      setLastSupplierLoadingId(null);
+    }
   };
 
   // Handle clear cart
@@ -215,9 +294,11 @@ export default function PurchaseOrderSummary({
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700">
-      {/* Header with Supplier Selection */}
+      {/* Default supplier — applied to newly added lines */}
       <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-        {/* Supplier Search */}
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          Default supplier for <span className="font-medium">new</span> lines. Each line can use a different supplier; checkout creates one purchase invoice per supplier.
+        </p>
         <div className="relative">
           <div className="flex items-center">
             <div className="relative flex-1">
@@ -227,7 +308,7 @@ export default function PurchaseOrderSummary({
               />
               <input
                 type="text"
-                placeholder="Search suppliers... (name, email, or phone)"
+                placeholder="Default supplier search..."
                 value={supplierSearch}
                 onChange={(e) => {
                   setSupplierSearch(e.target.value);
@@ -309,11 +390,10 @@ export default function PurchaseOrderSummary({
           </div>
         )}
 
-        {/* Supplier Required Warning */}
-        {!selectedSupplier && cartItems.length > 0 && (
-          <div className="mt-3 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-700">
-            <p className="text-xs text-red-600 dark:text-red-400 font-medium">
-              ⚠️ Supplier selection is required for purchase
+        {cartItems.length > 0 && (
+          <div className="mt-3 p-2 bg-amber-50/80 dark:bg-amber-900/15 rounded-lg border border-amber-200 dark:border-amber-800/40">
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              Set supplier on each line (or use default above). All lines need a supplier before checkout.
             </p>
           </div>
         )}
@@ -333,25 +413,26 @@ export default function PurchaseOrderSummary({
               </p>
             </div>
           ) : (
-            cartItems.map((item) => {
+            cartItems.map((item, idx) => {
               const itemTotal = item.purchase_price * item.quantity;
+              const aboveHasSupplier = idx > 0 && Boolean(cartItems[idx - 1]?.supplier?.id);
 
               return (
                 <div
-                  key={item.id}
+                  key={purchaseRowKey(item)}
                   className="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden border border-amber-100 dark:border-amber-800/30"
                 >
                   {/* Main item row */}
                   <div className="flex items-center p-3">
                     {/* Expand Arrow */}
                     <button
-                      onClick={() => toggleItemExpansion(item.id)}
+                      onClick={() => toggleItemExpansion(purchaseRowKey(item))}
                       className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-800/30 flex items-center justify-center hover:bg-amber-200 dark:hover:bg-amber-700/50 transition-all mr-2"
                     >
                       <ChevronRight
                         size={14}
                         className={`text-amber-600 dark:text-amber-400 transform transition-transform ${
-                          expandedItems.has(item.id) ? "rotate-90" : ""
+                          expandedItems.has(purchaseRowKey(item)) ? "rotate-90" : ""
                         }`}
                       />
                     </button>
@@ -387,12 +468,107 @@ export default function PurchaseOrderSummary({
                         {currency_symbol}
                         {formatGroupedAmount(item.purchase_price)}
                       </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`text-[10px] uppercase tracking-wide ${
+                            item.supplier?.id
+                              ? "text-gray-500 dark:text-gray-400"
+                              : "text-amber-700 dark:text-amber-300 font-semibold"
+                          }`}
+                        >
+                          Supplier
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSupplierPickerLineId((cur) =>
+                              cur === purchaseRowKey(item) ? null : purchaseRowKey(item)
+                            );
+                            if (supplierPickerLineId !== purchaseRowKey(item)) {
+                              setPickerSearch("");
+                              searchPickerSuppliers("");
+                            }
+                          }}
+                          className={`text-xs max-w-[140px] truncate px-2 py-0.5 rounded border ${
+                            item.supplier?.id
+                              ? "border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200"
+                              : "border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-200"
+                          }`}
+                          title="Choose supplier"
+                        >
+                          {item.supplier?.supplier_name || "Choose…"}
+                        </button>
+                        <button
+                          type="button"
+                          title="Last bought supplier"
+                          disabled={lastSupplierLoadingId === purchaseRowKey(item)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void applyLastBoughtSupplier(purchaseRowKey(item), item.item_code);
+                          }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-50"
+                        >
+                          {lastSupplierLoadingId === purchaseRowKey(item) ? "…" : "Last"}
+                        </button>
+                        <button
+                          type="button"
+                          title="Copy supplier from line above"
+                          disabled={!aboveHasSupplier}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copySupplierFromAbove(purchaseRowKey(item));
+                          }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-0.5"
+                        >
+                          <ArrowUp size={10} />
+                          Above
+                        </button>
+                      </div>
+                      {supplierPickerLineId === purchaseRowKey(item) && (
+                        <div
+                          className="mt-2 p-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-white dark:bg-gray-800 z-20"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="relative mb-2">
+                            <Search
+                              size={12}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"
+                            />
+                            <input
+                              type="text"
+                              value={pickerSearch}
+                              onChange={(e) => setPickerSearch(e.target.value)}
+                              placeholder="Search supplier…"
+                              className="w-full pl-7 pr-2 py-1 text-xs border rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
+                            />
+                          </div>
+                          <div className="max-h-32 overflow-y-auto space-y-0.5">
+                            {pickerLoading ? (
+                              <p className="text-xs text-gray-500 p-1">Loading…</p>
+                            ) : pickerSuppliers.length === 0 ? (
+                              <p className="text-xs text-gray-500 p-1">No suppliers</p>
+                            ) : (
+                              pickerSuppliers.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => assignSupplierToLine(purchaseRowKey(item), s)}
+                                  className="w-full text-left text-xs px-2 py-1 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30 truncate"
+                                >
+                                  {s.supplier_name}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Quantity Controls */}
                     <div className="flex items-center space-x-1">
                       <button
-                        onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
+                        onClick={() => onUpdateQuantity(purchaseRowKey(item), item.quantity - 1)}
                         className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center hover:bg-gray-300 dark:hover:bg-gray-500"
                       >
                         <Minus size={14} className="text-gray-600 dark:text-gray-300" />
@@ -401,7 +577,7 @@ export default function PurchaseOrderSummary({
                         {item.quantity}
                       </span>
                       <button
-                        onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
+                        onClick={() => onUpdateQuantity(purchaseRowKey(item), item.quantity + 1)}
                         className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-800/50 flex items-center justify-center hover:bg-amber-200 dark:hover:bg-amber-700"
                       >
                         <Plus size={14} className="text-amber-600 dark:text-amber-400" />
@@ -419,7 +595,9 @@ export default function PurchaseOrderSummary({
                     {/* Remove */}
                     <button
                       onClick={() =>
-                        onRemoveItem ? onRemoveItem(item.id) : onUpdateQuantity(item.id, 0)
+                        onRemoveItem
+                          ? onRemoveItem(purchaseRowKey(item))
+                          : onUpdateQuantity(purchaseRowKey(item), 0)
                       }
                       className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500"
                     >
@@ -428,19 +606,19 @@ export default function PurchaseOrderSummary({
                   </div>
 
                   {/* Expanded Details - Purchase & Selling Price Editors */}
-                  {expandedItems.has(item.id) && (
+                  {expandedItems.has(purchaseRowKey(item)) && (
                     <div className="border-t border-amber-100 dark:border-amber-800/30 px-3 py-3 bg-white dark:bg-gray-800/50">
                       {/* Price Editors Row */}
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <PriceInput
                           value={item.purchase_price}
-                          onChange={(price) => updatePurchasePrice(item.id, price)}
+                          onChange={(price) => updatePurchasePrice(purchaseRowKey(item), price)}
                           label="Buy"
                           currencySymbol={currency_symbol}
                         />
                         <PriceInput
                           value={item.selling_price}
-                          onChange={(price) => updateSellingPrice(item.id, price)}
+                          onChange={(price) => updateSellingPrice(purchaseRowKey(item), price)}
                           label="Sell"
                           currencySymbol={currency_symbol}
                         />
@@ -457,7 +635,7 @@ export default function PurchaseOrderSummary({
                             min="1"
                             value={item.quantity}
                             onChange={(e) =>
-                              onUpdateQuantity(item.id, parseInt(e.target.value) || 1)
+                              onUpdateQuantity(purchaseRowKey(item), parseInt(e.target.value) || 1)
                             }
                             className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                           />
@@ -475,17 +653,19 @@ export default function PurchaseOrderSummary({
                         </div>
                       </div>
 
-                      {/* Batch and Serial Row */}
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                        Batch-tracked items: a new batch is created automatically when you complete purchase, with expiry from the item&apos;s shelf life (if set).
+                      </p>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                            Batch
+                            Batch (optional override)
                           </label>
                           <input
                             type="text"
                             value={item.batch || ""}
-                            onChange={(e) => updateBatch(item.id, e.target.value)}
-                            placeholder="Enter batch"
+                            onChange={(e) => updateBatch(purchaseRowKey(item), e.target.value)}
+                            placeholder="Leave empty for auto"
                             className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                           />
                         </div>
@@ -496,7 +676,7 @@ export default function PurchaseOrderSummary({
                           <input
                             type="text"
                             value={item.serial || ""}
-                            onChange={(e) => updateSerial(item.id, e.target.value)}
+                            onChange={(e) => updateSerial(purchaseRowKey(item), e.target.value)}
                             placeholder="Enter serial"
                             className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                           />
@@ -547,9 +727,9 @@ export default function PurchaseOrderSummary({
                   setShowPaymentDialog(true);
                 }
               }}
-              disabled={!selectedSupplier}
+              disabled={cartItems.some((it) => !it.supplier?.id)}
               className={`px-3 py-2 rounded-lg font-medium transition-colors text-sm ${
-                selectedSupplier
+                !cartItems.some((it) => !it.supplier?.id)
                   ? "bg-amber-600 text-white hover:bg-amber-700"
                   : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}
@@ -565,9 +745,9 @@ export default function PurchaseOrderSummary({
                 setShowPaymentDialog(true);
               }
             }}
-            disabled={!selectedSupplier}
+            disabled={cartItems.some((it) => !it.supplier?.id)}
             className={`w-full py-3 rounded-xl font-semibold transition-colors ${
-              selectedSupplier
+              !cartItems.some((it) => !it.supplier?.id)
                 ? "bg-amber-600 text-white hover:bg-amber-700"
                 : "bg-gray-300 text-gray-500 cursor-not-allowed"
             }`}
@@ -587,12 +767,11 @@ export default function PurchaseOrderSummary({
       )}
 
       {/* Payment Dialog */}
-      {showPaymentDialog && selectedSupplier && (
+      {showPaymentDialog && (
         <PurchasePaymentDialog
           isOpen={showPaymentDialog}
           onClose={() => setShowPaymentDialog(false)}
           cartItems={cartItems}
-          selectedSupplier={selectedSupplier}
           onCompletePayment={handleCompletePayment}
           isMobile={isMobile}
         />

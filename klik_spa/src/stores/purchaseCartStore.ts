@@ -3,6 +3,19 @@ import { persist } from 'zustand/middleware'
 import type { PurchaseCartItem, Supplier } from '../types/supplier'
 import { toast } from 'react-toastify'
 
+function newPurchaseRowId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `pr-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
+
+/** Match store actions to the correct cart line (row id preferred over SKU id). */
+function lineKeyMatches(item: PurchaseCartItem, key: string): boolean {
+  if (item.cart_row_id) return item.cart_row_id === key
+  return item.id === key
+}
+
 interface PurchaseCartState {
   cartItems: PurchaseCartItem[]
   selectedSupplier: Supplier | null
@@ -19,6 +32,8 @@ interface PurchaseCartState {
   removeItem: (id: string) => void
   clearCart: () => void
   setSelectedSupplier: (supplier: Supplier | null) => void
+  setItemSupplier: (id: string, supplier: Supplier | null) => void
+  copySupplierFromAbove: (id: string) => void
   
   // Computed values
   getSubtotal: () => number
@@ -36,24 +51,30 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       addToCart: (item) => {
         const state = get();
         const existingItem = state.cartItems.find((cartItem) => cartItem.id === item.id);
+        const defaultSup =
+          state.selectedSupplier &&
+          ({
+            id: state.selectedSupplier.id,
+            supplier_name: state.selectedSupplier.supplier_name,
+          } as const);
 
         if (existingItem) {
-          // Increment quantity for existing item
           set((state) => ({
             cartItems: state.cartItems.map((cartItem) =>
               cartItem.id === item.id
                 ? { ...cartItem, quantity: cartItem.quantity + 1 }
                 : cartItem
-            )
+            ),
           }));
         } else {
-          // Add new item with quantity 1
           const newItem: PurchaseCartItem = {
             ...item,
+            cart_row_id: item.cart_row_id ?? newPurchaseRowId(),
             quantity: 1,
+            supplier: item.supplier ?? defaultSup ?? null,
           };
           set((state) => ({
-            cartItems: [...state.cartItems, newItem]
+            cartItems: [...state.cartItems, newItem],
           }));
         }
       },
@@ -61,24 +82,30 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       addToCartWithQuantity: (item, quantity) => {
         const state = get();
         const existingItem = state.cartItems.find((cartItem) => cartItem.id === item.id);
+        const defaultSup =
+          state.selectedSupplier &&
+          ({
+            id: state.selectedSupplier.id,
+            supplier_name: state.selectedSupplier.supplier_name,
+          } as const);
 
         if (existingItem) {
-          // Add quantity to existing item
           set((state) => ({
             cartItems: state.cartItems.map((cartItem) =>
               cartItem.id === item.id
                 ? { ...cartItem, quantity: cartItem.quantity + quantity }
                 : cartItem
-            )
+            ),
           }));
         } else {
-          // Add new item with specified quantity
           const newItem: PurchaseCartItem = {
             ...item,
+            cart_row_id: item.cart_row_id ?? newPurchaseRowId(),
             quantity,
+            supplier: item.supplier ?? defaultSup ?? null,
           };
           set((state) => ({
-            cartItems: [...state.cartItems, newItem]
+            cartItems: [...state.cartItems, newItem],
           }));
         }
       },
@@ -86,14 +113,14 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       updateQuantity: (id, quantity) => {
         if (quantity <= 0) {
           set((state) => ({
-            cartItems: state.cartItems.filter((item) => item.id !== id)
+            cartItems: state.cartItems.filter((item) => !lineKeyMatches(item, id))
           }));
           return;
         }
 
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id ? { ...item, quantity } : item
+            lineKeyMatches(item, id) ? { ...item, quantity } : item
           )
         }));
       },
@@ -101,7 +128,7 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       updateUOM: (id, uom, purchasePrice, sellingPrice) => {
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id
+            lineKeyMatches(item, id)
               ? {
                   ...item,
                   uom,
@@ -121,7 +148,7 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
         
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id ? { ...item, purchase_price: price } : item
+            lineKeyMatches(item, id) ? { ...item, purchase_price: price } : item
           )
         }));
       },
@@ -134,7 +161,7 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
         
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id ? { ...item, selling_price: price } : item
+            lineKeyMatches(item, id) ? { ...item, selling_price: price } : item
           )
         }));
       },
@@ -142,7 +169,7 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       updateBatch: (id, batch) => {
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id ? { ...item, batch } : item
+            lineKeyMatches(item, id) ? { ...item, batch } : item
           )
         }));
       },
@@ -150,14 +177,14 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       updateSerial: (id, serial) => {
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
-            item.id === id ? { ...item, serial } : item
+            lineKeyMatches(item, id) ? { ...item, serial } : item
           )
         }));
       },
 
       removeItem: (id) => {
         set((state) => ({
-          cartItems: state.cartItems.filter((item) => item.id !== id)
+          cartItems: state.cartItems.filter((item) => !lineKeyMatches(item, id))
         }));
       },
 
@@ -170,7 +197,39 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
 
       setSelectedSupplier: (supplier) => {
         set(() => ({
-          selectedSupplier: supplier
+          selectedSupplier: supplier,
+        }));
+      },
+
+      setItemSupplier: (id, supplier) => {
+        const snap = supplier
+          ? { id: supplier.id, supplier_name: supplier.supplier_name }
+          : null;
+        set((state) => ({
+          cartItems: state.cartItems.map((it) =>
+            lineKeyMatches(it, id) ? { ...it, supplier: snap } : it
+          ),
+        }));
+      },
+
+      copySupplierFromAbove: (id) => {
+        const { cartItems } = get();
+        const idx = cartItems.findIndex((it) => lineKeyMatches(it, id));
+        if (idx <= 0) return;
+        const above = cartItems[idx - 1];
+        if (!above?.supplier?.id) return;
+        set((state) => ({
+          cartItems: state.cartItems.map((it) =>
+            lineKeyMatches(it, id)
+              ? {
+                  ...it,
+                  supplier: {
+                    id: above.supplier!.id,
+                    supplier_name: above.supplier!.supplier_name,
+                  },
+                }
+              : it
+          ),
         }));
       },
 
@@ -206,7 +265,21 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
       },
     }),
     {
-      name: 'klik-purchase-cart-storage'
+      name: 'klik-purchase-cart-storage',
+      version: 1,
+      merge: (persistedState, currentState) => {
+        const merged = {
+          ...currentState,
+          ...(persistedState as Partial<PurchaseCartState>),
+        }
+        if (merged.cartItems?.length) {
+          merged.cartItems = merged.cartItems.map((it) => ({
+            ...it,
+            cart_row_id: it.cart_row_id ?? newPurchaseRowId(),
+          }))
+        }
+        return merged
+      },
     }
   )
 )

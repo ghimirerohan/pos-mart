@@ -12,7 +12,7 @@ export function KPICards({ summary }: KPICardsProps) {
 
   const cards = [
     {
-      label: "Total revenue",
+      label: "Net sales (excl. tax)",
       value: formatCurrency(summary.total_revenue, c),
       valueClass: "text-gray-900 dark:text-white",
       icon: DollarSign,
@@ -28,8 +28,8 @@ export function KPICards({ summary }: KPICardsProps) {
       iconColor: "text-emerald-600 dark:text-emerald-400",
     },
     {
-      label: "Gross margin",
-      value: `${summary.gross_margin_pct.toFixed(1)}%`,
+      label: "Margin % (on sales)",
+      value: `${(summary.gross_margin_pct ?? 0).toFixed(1)}%`,
       valueClass: "text-gray-900 dark:text-white",
       icon: Percent,
       iconBg: "bg-violet-100 dark:bg-violet-900/30",

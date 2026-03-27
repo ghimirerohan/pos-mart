@@ -67,6 +67,12 @@ Traditional ERPNext POS solutions often lack modern UX design, miss critical com
 - **ZATCA Ready** — Full Phase 2 compliance for Saudi Arabian tax regulations
 - **Thermal Printing** — Optimized print formats for thermal receipt printers
 - **Delivery Tracking** — Track delivery personnel and delivery status
+- **Date Wise Inventory** — Bikram Sambat date range over the stock ledger with optional filters; shows buy and sale amounts in the period, gross profit and margin on **sales only** (line COGS from in-period batch purchase rates when available, otherwise sales-line valuation). Sortable columns, Rs. formatting, and PDF export. Requires the **Date Wise Inventory Manager** role (or Administrator).
+
+### Analytics & purchasing
+
+- **Dashboard analytics** — Revenue, costs, and margins can reflect batch-level purchase rates where applicable; product and customer breakdowns stay aligned with POS sales data.
+- **Purchase workflow** — Purchase cart, payment capture, and order summary improvements for smoother receiving and supplier handling.
 
 ### User Experience
 
@@ -248,6 +254,7 @@ POS Mart exposes several API endpoints for integration:
 | `/api/method/klik_pos.api.sales_invoice.*` | Invoice handling |
 | `/api/method/klik_pos.api.payment.*` | Payment processing |
 | `/api/method/klik_pos.api.pos_entry.*` | POS session management |
+| `/api/method/klik_pos.api.date_wise_inventory.*` | Date Wise Inventory (BS range, filters, PDF export) |
 
 ---
 

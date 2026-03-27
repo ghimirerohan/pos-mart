@@ -1,7 +1,9 @@
 export interface DashboardSummary {
+  /** Net sales (items + charges, excl. tax) — aligns with COGS-based profit */
   total_revenue: number
   total_cost: number
   gross_profit: number
+  /** Margin on net sales: gross_profit / total_revenue * 100 */
   gross_margin_pct: number
   total_transactions: number
   avg_order_value: number
@@ -20,6 +22,7 @@ export interface DashboardProductRow {
   revenue: number
   cost: number
   gross_profit: number
+  /** Margin on sales: (revenue − cost) / revenue * 100 */
   margin_pct: number
   discount: number
 }
@@ -89,8 +92,11 @@ export interface DashboardAnalyticsData {
   summary: DashboardSummary
   products: DashboardProductRow[]
   products_top: DashboardProductRow[]
+  /** Top 10 by revenue across all POS invoices (no date/cashier/payment filter) */
+  products_top_alltime: DashboardProductRow[]
   customers: DashboardCustomerRow[]
   customers_top: DashboardCustomerRow[]
+  customers_top_alltime: DashboardCustomerRow[]
   transactions: DashboardTransactionRow[]
   sales_by_hour: SalesByHourPoint[]
   discount_top_items: DiscountTopItem[]

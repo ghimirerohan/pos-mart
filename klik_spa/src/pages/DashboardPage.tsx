@@ -161,6 +161,13 @@ export default function DashboardPage() {
       {showFilters && filterPanel}
 
       {summary && <KPICards summary={summary} />}
+      {summary && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 max-w-4xl leading-relaxed">
+          Cost per line uses the purchase price from the matching batch on a Purchase Invoice when available;
+          otherwise ERPNext&apos;s valuation rate on the sale line. Margin % is (net sales − cost) ÷ net sales.
+          Net sales exclude tax.
+        </p>
+      )}
 
       <div className="mt-6 space-y-6">
         {timeRange === "today" && analytics?.sales_by_hour && (
@@ -176,11 +183,6 @@ export default function DashboardPage() {
           />
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {analytics && <TopItemsTable products={analytics.products} currency={currency} />}
-          {analytics && <TopCustomersTable customers={analytics.customers} currency={currency} />}
-        </div>
-
         {analytics && <CashierPerformance cashiers={analytics.cashiers} currency={currency} />}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -188,6 +190,23 @@ export default function DashboardPage() {
             <DiscountSummary summary={summary} topItems={analytics.discount_top_items} />
           )}
           {analytics && <PaymentMethodsPanel methods={analytics.payment_methods} currency={currency} />}
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {analytics && (
+            <TopItemsTable
+              products={analytics.products_top_alltime}
+              currency={currency}
+              scopeLabel="All-time"
+            />
+          )}
+          {analytics && (
+            <TopCustomersTable
+              customers={analytics.customers_top_alltime}
+              currency={currency}
+              scopeLabel="All-time"
+            />
+          )}
         </div>
 
         {posDetails?.is_zatca_enabled && analytics?.zatca_breakdown && analytics.zatca_breakdown.length > 0 && (

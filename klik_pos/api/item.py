@@ -3405,6 +3405,87 @@ def get_item_purchase_history(item_code: str, limit: int = 5):
 		return {"success": False, "error": str(e)}
 
 
+@frappe.whitelist(allow_guest=True)
+def get_last_bought_supplier(item_code: str):
+	"""Most recent supplier for this item from submitted purchase invoices (by posting date)."""
+	try:
+		if not item_code:
+			return {"success": False, "error": "Item code is required"}
+		if not frappe.db.exists("Item", item_code):
+			return {"success": False, "error": f"Item '{item_code}' does not exist"}
+
+		row = frappe.db.sql(
+			"""
+			SELECT pi.supplier, pi.supplier_name
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+			WHERE pii.item_code = %s
+				AND pi.docstatus = 1
+				AND IFNULL(pi.is_return, 0) = 0
+			ORDER BY pi.posting_date DESC, pi.posting_time DESC, pi.creation DESC
+			LIMIT 1
+			""",
+			(item_code,),
+			as_dict=True,
+		)
+		if not row:
+			return {"success": True, "data": None, "message": "No purchase history for this item"}
+		r = row[0]
+		return {
+			"success": True,
+			"data": {
+				"supplier": r.get("supplier"),
+				"supplier_name": r.get("supplier_name") or r.get("supplier"),
+			},
+		}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"get_last_bought_supplier {item_code}")
+		return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def get_item_buying_price_history(item_code: str, limit: int = 10):
+	"""Buying Item Price rows for timeline (valid_from / valid_upto)."""
+	try:
+		if not item_code:
+			return {"success": False, "error": "Item code is required"}
+		if not frappe.db.exists("Item", item_code):
+			return {"success": False, "error": f"Item '{item_code}' does not exist"}
+
+		lim = min(int(limit) if limit else 10, 50)
+		rows = frappe.db.sql(
+			"""
+			SELECT price_list, price_list_rate, uom, valid_from, valid_upto, creation
+			FROM `tabItem Price`
+			WHERE item_code = %s AND IFNULL(buying, 0) = 1
+			ORDER BY IFNULL(valid_from, creation) DESC, creation DESC
+			LIMIT %s
+			""",
+			(item_code, lim),
+			as_dict=True,
+		)
+		out = []
+		today = frappe.utils.getdate()
+		for r in rows:
+			vu = r.get("valid_upto")
+			is_current = vu is None or (vu and frappe.utils.getdate(vu) >= today)
+			out.append(
+				{
+					"price_list": r.get("price_list"),
+					"price_list_rate": float(r.get("price_list_rate") or 0),
+					"uom": r.get("uom"),
+					"valid_from": str(r.get("valid_from") or "") if r.get("valid_from") else "",
+					"valid_upto": str(r.get("valid_upto") or "") if r.get("valid_upto") else "",
+					"creation": str(r.get("creation") or ""),
+					"is_current": bool(is_current),
+				}
+			)
+		return {"success": True, "data": out}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"get_item_buying_price_history {item_code}")
+		return {"success": False, "error": str(e)}
+
+
 @frappe.whitelist()
 def set_item_disabled(item_code: str, disabled: int):
 	"""
