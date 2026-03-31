@@ -9,18 +9,20 @@ const DEFAULT_BATCH = 20
  */
 export function useLazyScrollRows(
   totalLength: number,
-  options?: { initial?: number; batch?: number }
+  options?: { initial?: number; batch?: number; resetKey?: string | number }
 ) {
   const initial = options?.initial ?? DEFAULT_INITIAL
   const batch = options?.batch ?? DEFAULT_BATCH
+  const resetKey = options?.resetKey
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(() => Math.min(initial, totalLength))
 
-  // Reset when the dataset size changes (new time range / refetch)
+  // Reset when the dataset size changes (new time range / refetch) or resetKey (e.g. sort) changes
   useEffect(() => {
     setVisibleCount(Math.min(initial, totalLength))
-  }, [totalLength, initial])
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [totalLength, initial, resetKey])
 
   useEffect(() => {
     const root = scrollRef.current

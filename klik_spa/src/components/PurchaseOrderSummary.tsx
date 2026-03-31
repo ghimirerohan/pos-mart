@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Minus,
   Plus,
@@ -100,6 +100,7 @@ export default function PurchaseOrderSummary({
   const [supplierSearch, setSupplierSearch] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+  const defaultSupplierPickerRef = useRef<HTMLDivElement>(null);
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
 
@@ -178,6 +179,24 @@ export default function PurchaseOrderSummary({
     }, 300);
     return () => clearTimeout(timer);
   }, [pickerSearch, supplierPickerLineId, searchPickerSuppliers]);
+
+  useEffect(() => {
+    if (!showSupplierDropdown) return;
+    const close = () => setShowSupplierDropdown(false);
+    const onPointerDown = (e: PointerEvent) => {
+      const root = defaultSupplierPickerRef.current;
+      if (root && !root.contains(e.target as Node)) close();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showSupplierDropdown]);
 
   // Toggle item expansion
   const toggleItemExpansion = (itemId: string) => {
@@ -299,7 +318,7 @@ export default function PurchaseOrderSummary({
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
           Default supplier for <span className="font-medium">new</span> lines. Each line can use a different supplier; checkout creates one purchase invoice per supplier.
         </p>
-        <div className="relative">
+        <div className="relative" ref={defaultSupplierPickerRef}>
           <div className="flex items-center">
             <div className="relative flex-1">
               <Search

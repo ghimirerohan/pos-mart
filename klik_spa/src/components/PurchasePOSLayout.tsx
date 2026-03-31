@@ -29,7 +29,6 @@ import QuickAddPurchaseItemModal from "./QuickAddPurchaseItemModal"
 
 export default function PurchasePOSLayout() {
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const [localSearchQuery, setLocalSearchQuery] = useState("")
   const [showScanner, setShowScanner] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [showQuickAdd, setShowQuickAdd] = useState(false)
@@ -59,7 +58,11 @@ export default function PurchasePOSLayout() {
     searchProducts,
     hasMore,
     totalCount,
+    searchQuery,
   } = useProducts()
+
+  // Match ProductProvider searchQuery so the field survives leaving /purchase and returning (provider keeps list + query).
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery)
 
   // Get POS details
   const { posDetails } = usePOSDetails()

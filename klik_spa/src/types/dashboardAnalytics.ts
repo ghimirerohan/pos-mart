@@ -27,6 +27,22 @@ export interface DashboardProductRow {
   discount: number
 }
 
+/** One SI line for dashboard product drilldown (same COGS rules as product table) */
+export interface ProductInvoiceDrilldownRow {
+  invoice: string
+  posting_date: string
+  posting_time: string
+  qty: number
+  /** Net sell per unit (excl. tax), company currency */
+  unit_sell_net: number
+  /** Unit COGS (PI batch / buying / incoming_rate) */
+  unit_buy: number
+  line_revenue: number
+  line_cost: number
+  line_profit: number
+  margin_pct: number
+}
+
 export interface DashboardCustomerRow {
   customer: string
   customer_name: string

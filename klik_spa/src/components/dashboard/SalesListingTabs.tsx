@@ -2,6 +2,7 @@ import { useState } from "react"
 import { CustomerSalesListing } from "./CustomerSalesListing"
 import { ProductSalesListing } from "./ProductSalesListing"
 import { TransactionListing } from "./TransactionListing"
+import type { DashboardTimeRange } from "../../hooks/useDashboardAnalytics"
 import type {
   DashboardCustomerRow,
   DashboardProductRow,
@@ -15,6 +16,9 @@ interface SalesListingTabsProps {
   customers: DashboardCustomerRow[]
   transactions: DashboardTransactionRow[]
   currency: string
+  dashboardTimeRange: DashboardTimeRange
+  dashboardCashierFilter: string
+  dashboardPaymentFilter: string
 }
 
 const TABS: { id: TabId; label: string }[] = [
@@ -23,7 +27,15 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "transactions", label: "Transactions" },
 ]
 
-export function SalesListingTabs({ products, customers, transactions, currency }: SalesListingTabsProps) {
+export function SalesListingTabs({
+  products,
+  customers,
+  transactions,
+  currency,
+  dashboardTimeRange,
+  dashboardCashierFilter,
+  dashboardPaymentFilter,
+}: SalesListingTabsProps) {
   const [tab, setTab] = useState<TabId>("products")
 
   return (
@@ -50,7 +62,15 @@ export function SalesListingTabs({ products, customers, transactions, currency }
         </div>
       </div>
       <div role="tabpanel">
-        {tab === "products" && <ProductSalesListing products={products} currency={currency} />}
+        {tab === "products" && (
+          <ProductSalesListing
+            products={products}
+            currency={currency}
+            dashboardTimeRange={dashboardTimeRange}
+            dashboardCashierFilter={dashboardCashierFilter}
+            dashboardPaymentFilter={dashboardPaymentFilter}
+          />
+        )}
         {tab === "customers" && <CustomerSalesListing customers={customers} currency={currency} />}
         {tab === "transactions" && <TransactionListing transactions={transactions} currency={currency} />}
       </div>

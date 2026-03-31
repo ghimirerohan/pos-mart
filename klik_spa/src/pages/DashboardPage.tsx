@@ -93,7 +93,8 @@ export default function DashboardPage() {
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
             <option value="today">Today</option>
-            <option value="week">This week</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="week">Last 7 days</option>
             <option value="month">This month</option>
             <option value="session">Current POS session</option>
           </select>
@@ -180,6 +181,9 @@ export default function DashboardPage() {
             customers={analytics.customers}
             transactions={analytics.transactions}
             currency={currency}
+            dashboardTimeRange={timeRange}
+            dashboardCashierFilter={cashierFilter}
+            dashboardPaymentFilter={paymentFilter}
           />
         )}
 

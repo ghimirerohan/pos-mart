@@ -1137,10 +1137,10 @@ export default function ItemsPage() {
               </div>
             )}
 
-            {/* Items List */}
-            <div className="space-y-2">
+            {/* Items grid: 1 col phone → 2 md → 3 2xl; cards stretch to equal row height */}
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 lg:gap-5 auto-rows-fr max-w-[1920px] mx-auto w-full">
               {!isAuthenticated && !authLoading ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="col-span-full text-center py-8 text-gray-500">
                   <AlertCircle size={48} className="mx-auto mb-4 text-amber-500" />
                   <p>Please log in to view items</p>
                   <button
@@ -1151,7 +1151,7 @@ export default function ItemsPage() {
                   </button>
                 </div>
               ) : productsError ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="col-span-full text-center py-8 text-gray-500">
                   <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
                   <p className="text-red-600">{productsError}</p>
                   <button
@@ -1162,12 +1162,12 @@ export default function ItemsPage() {
                   </button>
                 </div>
               ) : isLoading ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="col-span-full text-center py-8 text-gray-500">
                   <Loader2 size={32} className="mx-auto mb-4 animate-spin" />
                   <p>Loading items...</p>
                 </div>
               ) : filteredItems.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="col-span-full text-center py-8 text-gray-500">
                   {showInactiveOnly 
                     ? 'No inactive items found' 
                     : localSearchQuery 
@@ -1182,31 +1182,31 @@ export default function ItemsPage() {
                     <div
                       key={item.item_code}
                       onClick={() => navigate(`/items/${encodeURIComponent(item.item_code)}`)}
-                      className={`rounded-xl border cursor-pointer transition-all overflow-hidden ${
+                      className={`group flex flex-col h-full min-h-[220px] rounded-xl border cursor-pointer transition-all overflow-hidden shadow-sm ${
                         isInactive
                           ? 'bg-gray-100 dark:bg-gray-800/70 border-gray-300 dark:border-gray-600 opacity-90 hover:opacity-100 hover:border-amber-400'
-                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-brand-500 hover:shadow-lg'
+                          : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-brand-400 hover:shadow-md dark:hover:shadow-brand-900/20'
                       }`}
                     >
                       {/* Top Section - Image and Info */}
-                      <div className="p-4 pb-3">
-                        <div className="flex items-start space-x-4">
-                          <div className="relative">
+                      <div className="p-3 sm:p-4 pb-2 sm:pb-3 flex-1">
+                        <div className="flex items-start gap-3 sm:gap-3.5">
+                          <div className="relative flex-shrink-0">
                             {item.image ? (
                               <img 
                                 src={item.image} 
                                 alt={item.item_name}
-                                className={`w-16 h-16 rounded-xl object-cover border flex-shrink-0 ${
+                                className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border ${
                                   isInactive ? 'border-gray-300 dark:border-gray-600 grayscale-[30%]' : 'border-gray-200 dark:border-gray-600'
                                 }`}
                               />
                             ) : (
-                              <div className={`w-16 h-16 rounded-xl flex items-center justify-center border flex-shrink-0 ${
+                              <div className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center border ${
                                 isInactive 
                                   ? 'bg-gray-200 dark:bg-gray-700 border-gray-300 dark:border-gray-600' 
                                   : 'bg-gradient-to-br from-gray-100 to-gray-50 dark:from-gray-700 dark:to-gray-800 border-gray-200 dark:border-gray-600'
                               }`}>
-                                <Package size={24} className="text-gray-400" />
+                                <Package className="w-[22px] h-[22px] sm:w-6 sm:h-6 text-gray-400" />
                               </div>
                             )}
                             {isInactive && (
@@ -1215,22 +1215,22 @@ export default function ItemsPage() {
                               </span>
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between">
-                              <h3 className={`font-semibold leading-tight line-clamp-2 ${
+                          <div className="flex-1 min-w-0 pt-0.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className={`text-sm sm:text-[15px] font-semibold leading-snug line-clamp-3 ${
                                 isInactive ? 'text-gray-600 dark:text-gray-400' : 'text-gray-900 dark:text-white'
                               }`}>
                                 {item.item_name}
                               </h3>
-                              <ChevronRight size={18} className="text-gray-400 flex-shrink-0 ml-2 mt-0.5" />
+                              <ChevronRight size={18} className="text-gray-400 flex-shrink-0 mt-0.5 opacity-60 group-hover:opacity-100 group-hover:text-brand-500 transition-opacity" />
                             </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">
+                            <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 mt-1.5 font-mono break-all line-clamp-2">
                               {item.item_code}
                             </p>
                             {item.barcode && (
-                              <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center mt-1">
-                                <Barcode size={11} className="mr-1 flex-shrink-0" />
-                                <span className="truncate">{item.barcode}</span>
+                              <p className="text-[11px] sm:text-xs text-gray-400 dark:text-gray-500 flex items-start gap-1 mt-1 min-w-0">
+                                <Barcode size={11} className="mr-0 flex-shrink-0 mt-0.5" />
+                                <span className="break-all line-clamp-2">{item.barcode}</span>
                               </p>
                             )}
                           </div>
@@ -1238,21 +1238,21 @@ export default function ItemsPage() {
                       </div>
                       
                       {/* Bottom Section - Stock, Buying Price, Selling Price */}
-                      <div className={`border-t px-4 py-3 ${
+                      <div className={`mt-auto border-t px-2.5 sm:px-4 py-2.5 sm:py-3 ${
                         isInactive 
                           ? 'border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800/30' 
-                          : 'border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50'
+                          : 'border-gray-100 dark:border-gray-700 bg-gradient-to-b from-gray-50/80 to-gray-50 dark:from-gray-800/60 dark:to-gray-800/40'
                       }`}>
-                        <div className="grid grid-cols-4 gap-2 sm:gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                           {/* Stock */}
-                          <div className="text-center min-w-0">
-                            <div className="flex items-center justify-center mb-1">
-                              <Boxes size={14} className={`mr-1 flex-shrink-0 ${
+                          <div className="text-center min-w-0 rounded-lg bg-white/70 dark:bg-gray-900/30 px-1 py-2 ring-1 ring-inset ring-gray-200/80 dark:ring-gray-600/50">
+                            <div className="flex items-center justify-center mb-0.5 gap-0.5">
+                              <Boxes size={13} className={`flex-shrink-0 ${
                                 isInactive ? 'text-gray-400' : (item.available || 0) > 0 ? 'text-green-500' : 'text-red-400'
                               }`} />
-                              <span className="text-xs text-gray-500 dark:text-gray-400">Stock</span>
+                              <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium">Stock</span>
                             </div>
-                            <p className={`text-sm font-bold ${
+                            <p className={`text-sm font-bold tabular-nums ${
                               isInactive 
                                 ? 'text-gray-500 dark:text-gray-500'
                                 : (item.available || 0) > 10 
@@ -1266,34 +1266,34 @@ export default function ItemsPage() {
                           </div>
                           
                           {/* Buying Price */}
-                          <div className="text-center min-w-0 border-x border-gray-200 dark:border-gray-600">
-                            <div className="flex items-center justify-center mb-1">
-                              <TrendingDown size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-blue-500'}`} />
-                              <span className="text-xs text-gray-500 dark:text-gray-400">Buy</span>
+                          <div className="text-center min-w-0 rounded-lg bg-white/70 dark:bg-gray-900/30 px-1 py-2 ring-1 ring-inset ring-gray-200/80 dark:ring-gray-600/50">
+                            <div className="flex items-center justify-center mb-0.5 gap-0.5">
+                              <TrendingDown size={13} className={`flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-blue-500'}`} />
+                              <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium">Buy</span>
                             </div>
-                            <p className={`text-sm font-bold truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
+                            <p className={`text-sm font-bold tabular-nums truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-blue-600 dark:text-blue-400'}`}>
                               {item.buying_price ? formatGroupedAmount(item.buying_price) : '—'}
                             </p>
                           </div>
                           
                           {/* Selling Price */}
-                          <div className="text-center min-w-0">
-                            <div className="flex items-center justify-center mb-1">
-                              <TrendingUp size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-emerald-500'}`} />
-                              <span className="text-xs text-gray-500 dark:text-gray-400">Sell</span>
+                          <div className="text-center min-w-0 rounded-lg bg-white/70 dark:bg-gray-900/30 px-1 py-2 ring-1 ring-inset ring-gray-200/80 dark:ring-gray-600/50">
+                            <div className="flex items-center justify-center mb-0.5 gap-0.5">
+                              <TrendingUp size={13} className={`flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-emerald-500'}`} />
+                              <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium">Sell</span>
                             </div>
-                            <p className={`text-sm font-bold truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            <p className={`text-sm font-bold tabular-nums truncate ${isInactive ? 'text-gray-500 dark:text-gray-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                               {item.price ? formatGroupedAmount(item.price) : '—'}
                             </p>
                           </div>
 
                           {/* Margin %: (sell − buy) / sell */}
-                          <div className="text-center min-w-0 border-l border-gray-200 dark:border-gray-600">
-                            <div className="flex items-center justify-center mb-1">
-                              <Percent size={14} className={`mr-1 flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-violet-500'}`} />
-                              <span className="text-xs text-gray-500 dark:text-gray-400">Margin</span>
+                          <div className="text-center min-w-0 rounded-lg bg-white/70 dark:bg-gray-900/30 px-1 py-2 ring-1 ring-inset ring-gray-200/80 dark:ring-gray-600/50">
+                            <div className="flex items-center justify-center mb-0.5 gap-0.5">
+                              <Percent size={13} className={`flex-shrink-0 ${isInactive ? 'text-gray-400' : 'text-violet-500'}`} />
+                              <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-medium">Margin</span>
                             </div>
-                            <p className={`text-sm font-bold ${
+                            <p className={`text-sm font-bold tabular-nums ${
                               isInactive
                                 ? 'text-gray-500 dark:text-gray-500'
                                 : item.buying_price && item.price
@@ -1315,7 +1315,7 @@ export default function ItemsPage() {
                 {catalogInfiniteScroll && (
                   <div
                     ref={itemsLoadMoreRef}
-                    className="py-4 flex flex-col items-center justify-center gap-2 min-h-[3rem]"
+                    className="col-span-full py-4 flex flex-col items-center justify-center gap-2 min-h-[3rem]"
                   >
                     {productsLoadingMore && (
                       <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">

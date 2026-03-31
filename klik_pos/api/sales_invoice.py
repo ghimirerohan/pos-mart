@@ -86,11 +86,9 @@ def _apply_posting_date_preset_to_filters(filters, preset):
 	elif key == "yesterday":
 		start_d = end_d = add_days(tday, -1)
 	elif key == "week":
-		# Sunday–Saturday week (matches Invoice History client filter)
-		wd = tday.weekday()  # Mon=0 … Sun=6
-		days_since_sunday = (wd + 1) % 7
-		start_d = add_days(tday, -days_since_sunday)
-		end_d = add_days(start_d, 6)
+		# Rolling last 7 days inclusive (aligned with dashboard "Last 7 days")
+		start_d = add_days(tday, -6)
+		end_d = tday
 	elif key == "month":
 		start_d = get_first_day(tday)
 		end_d = get_last_day(tday)
@@ -172,17 +170,17 @@ def get_sales_invoices(
 
 
 def _build_dashboard_date_bounds(time_range):
-	"""Return (start_date, end_date) for week/month/today; None if unknown."""
+	"""Return (start_date, end_date) for presets; None if unknown."""
 	tday = getdate(today())
 	tr = (time_range or "today").lower().strip()
 	if tr == "today":
 		return tday, tday
+	if tr == "yesterday":
+		y = add_days(tday, -1)
+		return y, y
 	if tr == "week":
-		wd = tday.weekday()
-		days_since_sunday = (wd + 1) % 7
-		start_d = add_days(tday, -days_since_sunday)
-		end_d = add_days(start_d, 6)
-		return start_d, end_d
+		# Rolling last 7 days inclusive (today and the 6 prior calendar days)
+		return add_days(tday, -6), tday
 	if tr == "month":
 		return get_first_day(tday), get_last_day(tday)
 	return tday, tday
@@ -386,6 +384,158 @@ def _empty_dashboard_analytics():
 	}
 
 
+def _build_dashboard_sales_invoice_where_clause(time_range, cashier_name, payment_method):
+	"""
+	Build WHERE clause (``si`` alias) + params matching ``get_dashboard_analytics`` scope.
+	Returns None when the scoped invoice set is empty by design (e.g. session mode with no open entry).
+	"""
+	user_roles = frappe.get_roles()
+	is_admin = "Administrator" in user_roles or "System Manager" in user_roles
+	current_opening_entry = get_current_pos_opening_entry()
+
+	conditions = [
+		"si.docstatus = 1",
+		"IFNULL(si.is_return, 0) = 0",
+		"si.custom_pos_opening_entry IS NOT NULL",
+		"si.custom_pos_opening_entry != ''",
+	]
+	params = []
+
+	tr = (time_range or "today").lower().strip()
+	if tr == "session":
+		if is_admin:
+			pass
+		elif current_opening_entry:
+			conditions.append("si.custom_pos_opening_entry = %s")
+			params.append(current_opening_entry)
+		else:
+			return None
+	else:
+		bounds = _build_dashboard_date_bounds(tr)
+		if bounds:
+			start_d, end_d = bounds
+			conditions.append("si.posting_date BETWEEN %s AND %s")
+			params.extend([start_d, end_d])
+
+	if not is_admin:
+		from klik_pos.klik_pos.utils import get_current_pos_profile
+
+		pp = get_current_pos_profile()
+		conditions.append("si.pos_profile = %s")
+		params.append(pp.name)
+
+	if cashier_name and str(cashier_name).lower() not in ("all", ""):
+		cashier_user_ids = _get_user_ids_by_full_name(cashier_name)
+		if not cashier_user_ids:
+			return None
+		if len(cashier_user_ids) == 1:
+			conditions.append("si.owner = %s")
+			params.append(cashier_user_ids[0])
+		else:
+			ph = ",".join(["%s"] * len(cashier_user_ids))
+			conditions.append(f"si.owner IN ({ph})")
+			params.extend(cashier_user_ids)
+
+	pm = (payment_method or "all").strip()
+	if pm.lower() != "all":
+		conditions.append(
+			"(EXISTS (SELECT 1 FROM `tabSales Invoice Payment` sip "
+			"WHERE sip.parent = si.name AND sip.mode_of_payment = %s) "
+			"OR EXISTS (SELECT 1 FROM `tabPayment Entry Reference` per "
+			"INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent AND pe.docstatus = 1 "
+			"WHERE per.reference_doctype = 'Sales Invoice' AND per.reference_name = si.name "
+			"AND pe.mode_of_payment = %s))"
+		)
+		params.extend([pm, pm])
+
+	return " AND ".join(conditions), params
+
+
+@frappe.whitelist(allow_guest=True)
+def get_dashboard_product_invoice_drilldown(
+	item_code, time_range="today", cashier_name=None, payment_method="all"
+):
+	"""
+	Per Sales Invoice line for ``item_code`` in the same scope as the dashboard product table:
+	qty, unit net sell (excl. tax), unit COGS (PI batch / buying / incoming_rate), line profit, margin %.
+	"""
+	try:
+		item_code = (item_code or "").strip()
+		if not item_code:
+			return {"success": False, "error": _("item_code is required")}
+
+		scope = _build_dashboard_sales_invoice_where_clause(time_range, cashier_name, payment_method)
+		if scope is None:
+			return {
+				"success": True,
+				"item_code": item_code,
+				"currency": frappe.defaults.get_defaults().get("currency") or "USD",
+				"rows": [],
+			}
+
+		where_si, base_params = scope
+		line_params = list(base_params) + [item_code]
+
+		lines = frappe.db.sql(
+			f"""
+			SELECT sii.parent AS parent, sii.item_code, sii.item_name, sii.qty,
+				IFNULL(sii.incoming_rate, 0) AS incoming_rate,
+				IFNULL(sii.batch_no, '') AS batch_no,
+				IFNULL(sii.base_net_amount, 0) AS base_net_amount,
+				IFNULL(sii.net_amount, 0) AS net_amount,
+				si.posting_date, si.posting_time, si.currency
+			FROM `tabSales Invoice Item` sii
+			INNER JOIN `tabSales Invoice` si ON si.name = sii.parent AND si.docstatus = 1
+			WHERE {where_si} AND sii.item_code = %s
+			ORDER BY si.posting_date DESC, si.posting_time DESC, sii.parent DESC, sii.idx DESC
+			""",
+			tuple(line_params),
+			as_dict=True,
+		)
+
+		if not lines:
+			return {
+				"success": True,
+				"item_code": item_code,
+				"currency": frappe.defaults.get_defaults().get("currency") or "USD",
+				"rows": [],
+			}
+
+		batch_rate_map = _fetch_batch_purchase_rates(_collect_item_batch_pairs_from_lines(lines))
+		buying_map = _fetch_active_buying_prices_for_items([item_code])
+		currency = (lines[0].get("currency") or "").strip() or (
+			frappe.defaults.get_defaults().get("currency") or "USD"
+		)
+
+		rows = []
+		for line in lines:
+			qty = flt(line.get("qty"))
+			rev = _line_net_sales_base(line)
+			uc = _resolve_line_unit_cost(line, batch_rate_map, buying_map)
+			line_cost = qty * uc
+			prof = rev - line_cost
+			unit_sell = (rev / qty) if abs(qty) > 1e-12 else 0.0
+			rows.append(
+				{
+					"invoice": line.get("parent"),
+					"posting_date": str(line.get("posting_date") or ""),
+					"posting_time": str(line.get("posting_time") or "")[:8],
+					"qty": qty,
+					"unit_sell_net": round(unit_sell, 6),
+					"unit_buy": round(uc, 6),
+					"line_revenue": round(rev, 6),
+					"line_cost": round(line_cost, 6),
+					"line_profit": round(prof, 6),
+					"margin_pct": round(_margin_on_sales_pct(rev, line_cost), 4),
+				}
+			)
+
+		return {"success": True, "item_code": item_code, "currency": currency, "rows": rows}
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), "get_dashboard_product_invoice_drilldown")
+		return {"success": False, "error": str(e)}
+
+
 @frappe.whitelist(allow_guest=True)
 def get_dashboard_analytics(
 	time_range="today", cashier_name=None, payment_method="all", include_alltime_top10=1
@@ -404,7 +554,7 @@ def get_dashboard_analytics(
 	``(revenue - cost) / revenue * 100``.
 
 	Args:
-		time_range: today | week | month | session
+		time_range: today | yesterday | week | month | session (week = last 7 days inclusive)
 		cashier_name: full name or 'all'
 		payment_method: mode of payment or 'all'
 		include_alltime_top10: if truthy, include ``products_top_alltime`` / ``customers_top_alltime``
@@ -414,64 +564,12 @@ def get_dashboard_analytics(
 	try:
 		user_roles = frappe.get_roles()
 		is_admin = "Administrator" in user_roles or "System Manager" in user_roles
-		current_opening_entry = get_current_pos_opening_entry()
 
-		conditions = [
-			"si.docstatus = 1",
-			"IFNULL(si.is_return, 0) = 0",
-			"si.custom_pos_opening_entry IS NOT NULL",
-			"si.custom_pos_opening_entry != ''",
-		]
-		params = []
+		scope = _build_dashboard_sales_invoice_where_clause(time_range, cashier_name, payment_method)
+		if scope is None:
+			return {"success": True, **_empty_dashboard_analytics()}
 
-		tr = (time_range or "today").lower().strip()
-		if tr == "session":
-			if is_admin:
-				pass
-			elif current_opening_entry:
-				conditions.append("si.custom_pos_opening_entry = %s")
-				params.append(current_opening_entry)
-			else:
-				return {"success": True, **_empty_dashboard_analytics()}
-		else:
-			bounds = _build_dashboard_date_bounds(tr)
-			if bounds:
-				start_d, end_d = bounds
-				conditions.append("si.posting_date BETWEEN %s AND %s")
-				params.extend([start_d, end_d])
-
-		if not is_admin:
-			from klik_pos.klik_pos.utils import get_current_pos_profile
-
-			pp = get_current_pos_profile()
-			conditions.append("si.pos_profile = %s")
-			params.append(pp.name)
-
-		if cashier_name and str(cashier_name).lower() not in ("all", ""):
-			cashier_user_ids = _get_user_ids_by_full_name(cashier_name)
-			if not cashier_user_ids:
-				return {"success": True, **_empty_dashboard_analytics()}
-			if len(cashier_user_ids) == 1:
-				conditions.append("si.owner = %s")
-				params.append(cashier_user_ids[0])
-			else:
-				ph = ",".join(["%s"] * len(cashier_user_ids))
-				conditions.append(f"si.owner IN ({ph})")
-				params.extend(cashier_user_ids)
-
-		pm = (payment_method or "all").strip()
-		if pm.lower() != "all":
-			conditions.append(
-				"(EXISTS (SELECT 1 FROM `tabSales Invoice Payment` sip "
-				"WHERE sip.parent = si.name AND sip.mode_of_payment = %s) "
-				"OR EXISTS (SELECT 1 FROM `tabPayment Entry Reference` per "
-				"INNER JOIN `tabPayment Entry` pe ON pe.name = per.parent AND pe.docstatus = 1 "
-				"WHERE per.reference_doctype = 'Sales Invoice' AND per.reference_name = si.name "
-				"AND pe.mode_of_payment = %s))"
-			)
-			params.extend([pm, pm])
-
-		where_clause = " AND ".join(conditions)
+		where_clause, params = scope
 
 		inv_sql = f"""
 			SELECT si.name, si.owner, si.customer, si.customer_name, si.posting_date, si.posting_time,

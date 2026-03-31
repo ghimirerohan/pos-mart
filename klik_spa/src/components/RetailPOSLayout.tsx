@@ -21,7 +21,6 @@ import { Plus } from "lucide-react"
 export default function RetailPOSLayout() {
   const navigate = useNavigate()
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const [localSearchQuery, setLocalSearchQuery] = useState("")
   const [appliedCoupons, setAppliedCoupons] = useState<GiftCoupon[]>([])
   const [showScanner, setShowScanner] = useState(false)
   const [pinnedItemId, setPinnedItemId] = useState<string | null>(null)
@@ -47,6 +46,8 @@ export default function RetailPOSLayout() {
     totalCount,
     searchQuery: serverSearchQuery,
   } = useProducts()
+
+  const [localSearchQuery, setLocalSearchQuery] = useState(serverSearchQuery)
 
   // Get POS details including scanner-only setting
   const { posDetails } = usePOSDetails()

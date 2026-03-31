@@ -32,7 +32,7 @@ function emptyData(currency = "USD"): DashboardAnalyticsData {
   }
 }
 
-export type DashboardTimeRange = "today" | "week" | "month" | "session"
+export type DashboardTimeRange = "today" | "yesterday" | "week" | "month" | "session"
 
 export function useDashboardAnalytics(
   timeRange: DashboardTimeRange,

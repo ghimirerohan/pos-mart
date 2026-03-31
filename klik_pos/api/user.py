@@ -3,6 +3,14 @@ from frappe import _
 
 
 @frappe.whitelist()
+def get_spa_csrf_token():
+	"""Return the current session CSRF token for SPA POST requests (GET — no CSRF required)."""
+	from frappe.sessions import get_csrf_token
+
+	return get_csrf_token()
+
+
+@frappe.whitelist()
 def get_user_roles():
 	"""
 	Get the current user's roles and determine if they have administrative privileges.

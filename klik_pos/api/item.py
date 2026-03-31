@@ -2,7 +2,7 @@ import frappe
 from erpnext.accounts.doctype.pricing_rule.pricing_rule import apply_pricing_rule
 from erpnext.stock.utils import get_stock_balance
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, get_datetime, getdate, today
 
 from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
@@ -1138,6 +1138,22 @@ def get_stock_updates():
 		return {}
 
 
+@frappe.whitelist()
+def get_item_detail_for_spa(item_code: str):
+	"""
+	Full Item document (with child tables) for POS SPA item detail page.
+	Use GET from the client so Frappe does not require CSRF (unlike frappe.client.get POST).
+	"""
+	item_code = (item_code or "").strip()
+	if not item_code:
+		frappe.throw(_("Item code is required"))
+	if not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Item {0} not found").format(item_code))
+	frappe.has_permission("Item", "read", doc=item_code, throw=True)
+	doc = frappe.get_doc("Item", item_code)
+	return doc.as_dict()
+
+
 @frappe.whitelist(allow_guest=True)
 def get_item_stock(item_code: str):
 	"""Get stock for a specific item - for individual updates."""
@@ -1253,6 +1269,392 @@ def get_batch_nos_with_qty(item_code):
 			batch_qty_data.append({"batch_id": b.batch_id, "qty": qty})
 
 	return batch_qty_data
+
+
+def _stock_entry_source_label(voucher_no: str | None) -> str:
+	if not voucher_no:
+		return _("Stock entry")
+	row = frappe.db.get_value(
+		"Stock Entry",
+		voucher_no,
+		["stock_entry_type", "purpose"],
+		as_dict=True,
+	)
+	if not row:
+		return _("Stock entry")
+	purpose = (row.get("purpose") or "").lower()
+	stype = (row.get("stock_entry_type") or "").lower()
+	if "opening" in purpose or stype == "opening":
+		return _("Opening")
+	if "material transfer" in purpose or stype == "material transfer":
+		return _("Transfer")
+	if "material receipt" in purpose or stype == "material receipt":
+		return _("Receipt")
+	return _("Stock entry")
+
+
+def _voucher_source_label(
+	voucher_type: str | None,
+	voucher_no: str | None,
+	inbound_actual_qty: float | None = None,
+) -> str:
+	"""Label for the *latest inbound* SLE row (actual_qty > 0 in our queries)."""
+	vt = (voucher_type or "").strip()
+	# Positive qty on a Sales Invoice SLE = stock returned to warehouse (return / credit), not a normal sale.
+	if vt == "Sales Invoice" and inbound_actual_qty is not None and flt(inbound_actual_qty) > 0:
+		return _("Sales return")
+	if vt == "Delivery Note" and inbound_actual_qty is not None and flt(inbound_actual_qty) > 0:
+		return _("Return to stock")
+	if vt == "Purchase Invoice":
+		return _("Purchase")
+	if vt == "Purchase Receipt":
+		return _("Purchase")
+	if vt == "Stock Entry":
+		return _stock_entry_source_label(voucher_no)
+	if vt:
+		return _(vt)
+	return _("Other")
+
+
+def _fetch_earliest_purchase_invoice_for_batch(
+	item_code: str, batch_name: str, batch_id: str | None = None
+) -> dict | None:
+	"""Earliest submitted PI line for this item + batch (match Batch name or same batch_id string)."""
+	bid = (batch_id or "").strip()
+	if bid and bid != batch_name:
+		rows = frappe.db.sql(
+			"""
+			SELECT pii.rate, pi.supplier_name, pi.supplier, pi.posting_date, pi.name AS purchase_invoice,
+				pi.currency
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+			WHERE pii.item_code = %s
+				AND (pii.batch_no = %s OR pii.batch_no = %s)
+			ORDER BY pi.posting_date ASC, pi.creation ASC, pi.name ASC
+			LIMIT 1
+			""",
+			(item_code, batch_name, bid),
+			as_dict=True,
+		)
+	else:
+		rows = frappe.db.sql(
+			"""
+			SELECT pii.rate, pi.supplier_name, pi.supplier, pi.posting_date, pi.name AS purchase_invoice,
+				pi.currency
+			FROM `tabPurchase Invoice Item` pii
+			INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+			WHERE pii.item_code = %s AND pii.batch_no = %s
+			ORDER BY pi.posting_date ASC, pi.creation ASC, pi.name ASC
+			LIMIT 1
+			""",
+			(item_code, batch_name),
+			as_dict=True,
+		)
+	return rows[0] if rows else None
+
+
+def _fetch_pi_item_line_for_voucher(
+	voucher_no: str, item_code: str, batch_name: str
+) -> dict | None:
+	"""When SLE points at a Purchase Invoice, load PI header + line for this item (prefer line with this batch)."""
+	if not voucher_no or not frappe.db.exists("Purchase Invoice", voucher_no):
+		return None
+	rows = frappe.db.sql(
+		"""
+		SELECT pii.rate, pi.supplier_name, pi.supplier, pi.posting_date, pi.name AS purchase_invoice,
+			pi.currency
+		FROM `tabPurchase Invoice Item` pii
+		INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+		WHERE pi.name = %s AND pii.item_code = %s
+		ORDER BY (CASE WHEN IFNULL(pii.batch_no, '') = %s THEN 0 ELSE 1 END), pii.idx ASC, pii.name ASC
+		LIMIT 1
+		""",
+		(voucher_no, item_code, batch_name),
+		as_dict=True,
+	)
+	return rows[0] if rows else None
+
+
+def _fetch_pr_item_line_for_voucher(
+	voucher_no: str, item_code: str, batch_name: str
+) -> dict | None:
+	"""Purchase Receipt line + supplier when last inbound SLE is a Purchase Receipt."""
+	if not voucher_no or not frappe.db.exists("Purchase Receipt", voucher_no):
+		return None
+	rows = frappe.db.sql(
+		"""
+		SELECT pri.rate AS rate, pr.supplier_name, pr.supplier, pr.posting_date,
+			NULL AS purchase_invoice, pr.currency,
+			pr.name AS purchase_receipt
+		FROM `tabPurchase Receipt Item` pri
+		INNER JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent AND pr.docstatus = 1
+		WHERE pr.name = %s AND pri.item_code = %s
+		ORDER BY (CASE WHEN IFNULL(pri.batch_no, '') = %s THEN 0 ELSE 1 END), pri.idx ASC, pri.name ASC
+		LIMIT 1
+		""",
+		(voucher_no, item_code, batch_name),
+		as_dict=True,
+	)
+	return rows[0] if rows else None
+
+
+def _resolve_supplier_display(row: dict | None) -> str:
+	if not row:
+		return ""
+	sn = (row.get("supplier_name") or "").strip()
+	if sn:
+		return sn
+	sup = row.get("supplier")
+	if sup:
+		return frappe.db.get_value("Supplier", sup, "supplier_name") or str(sup)
+	return ""
+
+
+def _effective_incoming_rate_from_sle_row(row: dict) -> float:
+	"""Best-effort unit rate from an inbound SLE row (batch_no or bundle-backed)."""
+	r = flt(row.get("incoming_rate"))
+	if r > 0:
+		return r
+	r = flt(row.get("valuation_rate"))
+	if r > 0:
+		return r
+	aq = flt(row.get("actual_qty"))
+	if aq > 0:
+		svd = flt(row.get("stock_value_difference"))
+		if svd != 0:
+			return abs(svd) / aq
+	return 0.0
+
+
+def _normalize_sle_inbound_row(row: dict | None) -> dict | None:
+	if not row:
+		return None
+	out = dict(row)
+	out["incoming_rate"] = _effective_incoming_rate_from_sle_row(out)
+	return out
+
+
+def _fetch_latest_inbound_sle(item_code: str, batch_no: str, warehouse: str) -> dict | None:
+	"""Latest positive actual_qty SLE for this batch: legacy batch_no on SLE, else Serial/Batch bundle lines.
+
+	Prefer vouchers that represent stock-in for costing (exclude Sales Invoice / Delivery Note) when
+	another qualifying row exists; fall back to any positive actual_qty row so returns still get a rate.
+	"""
+	exclude_customer_out = (
+		" AND voucher_type NOT IN ('Sales Invoice', 'Delivery Note') "
+	)
+
+	def _legacy_sql(extra_where: str) -> list:
+		return frappe.db.sql(
+			f"""
+			SELECT voucher_type, voucher_no, posting_date, posting_time,
+				IFNULL(incoming_rate, 0) AS incoming_rate, creation,
+				IFNULL(valuation_rate, 0) AS valuation_rate,
+				IFNULL(actual_qty, 0) AS actual_qty,
+				IFNULL(stock_value_difference, 0) AS stock_value_difference
+			FROM `tabStock Ledger Entry`
+			WHERE item_code = %s AND batch_no = %s AND warehouse = %s
+				AND actual_qty > 0 AND IFNULL(is_cancelled, 0) = 0
+				{extra_where}
+			ORDER BY posting_date DESC, posting_time DESC, creation DESC
+			LIMIT 1
+			""",
+			(item_code, batch_no, warehouse),
+			as_dict=True,
+		)
+
+	def _bundle_sql(extra_where: str) -> list:
+		return frappe.db.sql(
+			f"""
+			SELECT sle.voucher_type, sle.voucher_no, sle.posting_date, sle.posting_time,
+				IFNULL(sle.incoming_rate, 0) AS incoming_rate, sle.creation,
+				IFNULL(sle.valuation_rate, 0) AS valuation_rate,
+				IFNULL(sle.actual_qty, 0) AS actual_qty,
+				IFNULL(sle.stock_value_difference, 0) AS stock_value_difference
+			FROM `tabStock Ledger Entry` sle
+			INNER JOIN `tabSerial and Batch Bundle` sbb ON sbb.name = sle.serial_and_batch_bundle
+			INNER JOIN `tabSerial and Batch Entry` sbe
+				ON sbe.parent = sbb.name AND sbe.batch_no = %s AND sbe.warehouse = %s
+			WHERE sle.item_code = %s
+				AND sle.warehouse = %s
+				AND sle.serial_and_batch_bundle IS NOT NULL
+				AND sle.actual_qty > 0
+				AND IFNULL(sle.is_cancelled, 0) = 0
+				AND IFNULL(sbb.is_cancelled, 0) = 0
+				AND sbb.docstatus = 1
+				{extra_where.replace('voucher_type', 'sle.voucher_type')}
+			ORDER BY sle.posting_date DESC, sle.posting_time DESC, sle.creation DESC
+			LIMIT 1
+			""",
+			(batch_no, warehouse, item_code, warehouse),
+			as_dict=True,
+		)
+
+	for extra in (exclude_customer_out, ""):
+		rows = _legacy_sql(extra)
+		if rows:
+			return _normalize_sle_inbound_row(rows[0])
+		rows = _bundle_sql(extra)
+		if rows:
+			return _normalize_sle_inbound_row(rows[0])
+	return None
+
+
+@frappe.whitelist()
+def get_item_batch_stock_details(item_code):
+	"""
+	On-hand batches for item in current POS warehouse: qty, expiry, earliest PI, latest inbound SLE,
+	source labels; summary for item detail card. Sorted by latest inbound activity (recent first).
+	"""
+	item_code = (item_code or "").strip()
+	if not item_code:
+		return {"success": False, "error": _("item_code is required")}
+
+	try:
+		pos_doc = get_current_pos_profile()
+		warehouse = (getattr(pos_doc, "warehouse", None) or "").strip()
+	except Exception:
+		warehouse = ""
+	currency = frappe.defaults.get_defaults().get("currency") or "USD"
+
+	if not warehouse:
+		return {
+			"success": True,
+			"warehouse": "",
+			"currency": currency,
+			"summary": {
+				"total_qty": 0.0,
+				"batch_count": 0,
+				"avg_days_to_expiry": None,
+				"avg_buying_rate": None,
+			},
+			"batches": [],
+		}
+
+	batches_meta = frappe.get_all(
+		"Batch",
+		filters={"item": item_code},
+		fields=["name", "batch_id", "expiry_date", "modified", "creation"],
+	)
+
+	rows_out = []
+	today_d = getdate(today())
+
+	for b in batches_meta:
+		bname = b.name
+		qty = _get_batch_qty_combined(bname, warehouse)
+		if qty <= 0:
+			continue
+
+		purchase_row = _fetch_earliest_purchase_invoice_for_batch(
+			item_code, bname, b.get("batch_id")
+		)
+		sle_row = _fetch_latest_inbound_sle(item_code, bname, warehouse)
+
+		if not purchase_row and sle_row:
+			_vt = (sle_row.get("voucher_type") or "").strip()
+			_vn = sle_row.get("voucher_no")
+			if _vt == "Purchase Invoice" and _vn:
+				purchase_row = _fetch_pi_item_line_for_voucher(_vn, item_code, bname)
+			elif _vt == "Purchase Receipt" and _vn:
+				purchase_row = _fetch_pr_item_line_for_voucher(_vn, item_code, bname)
+
+		if purchase_row and purchase_row.get("currency"):
+			currency = (purchase_row.get("currency") or "").strip() or currency
+
+		expiry = b.get("expiry_date")
+		days_left = None
+		if expiry:
+			days_left = (getdate(expiry) - today_d).days
+
+		if sle_row:
+			vt = sle_row.get("voucher_type")
+			vn = sle_row.get("voucher_no")
+			source_label = _voucher_source_label(vt, vn, flt(sle_row.get("actual_qty")))
+			try:
+				last_dt = get_datetime(
+					f"{sle_row.get('posting_date')} {sle_row.get('posting_time') or '00:00:00'}"
+				)
+			except Exception:
+				last_dt = sle_row.get("creation")
+		else:
+			source_label = _("On hand")
+			try:
+				last_dt = get_datetime(b.get("modified") or b.get("creation"))
+			except Exception:
+				last_dt = getdate(today_d)
+
+		pi_rate = flt(purchase_row.get("rate")) if purchase_row else 0.0
+		sle_rate = flt(sle_row.get("incoming_rate")) if sle_row else 0.0
+		unit_buy = pi_rate if pi_rate > 0 else (sle_rate if sle_rate > 0 else None)
+
+		display_supplier = _resolve_supplier_display(purchase_row)
+
+		rows_out.append(
+			{
+				"batch_no": bname,
+				"batch_id": b.get("batch_id") or bname,
+				"qty": flt(qty),
+				"expiry_date": str(expiry) if expiry else "",
+				"days_to_expiry": days_left,
+				"purchase_invoice": purchase_row.get("purchase_invoice") if purchase_row else None,
+				"purchase_receipt": purchase_row.get("purchase_receipt") if purchase_row else None,
+				"supplier_name": display_supplier,
+				"pi_rate": round(pi_rate, 6) if pi_rate else None,
+				"pi_posting_date": str(purchase_row.get("posting_date") or "") if purchase_row else "",
+				"sle_voucher_type": sle_row.get("voucher_type") if sle_row else None,
+				"sle_voucher_no": sle_row.get("voucher_no") if sle_row else None,
+				"sle_posting_date": str(sle_row.get("posting_date") or "") if sle_row else "",
+				"sle_incoming_rate": round(sle_rate, 6) if sle_rate else None,
+				"source_label": str(source_label),
+				"unit_buy_for_avg": unit_buy,
+				"_sort_key": last_dt,
+			}
+		)
+
+	def _sort_ts(val):
+		if val is None:
+			return 0.0
+		try:
+			d = get_datetime(val)
+			return d.timestamp() if d else 0.0
+		except Exception:
+			return 0.0
+
+	rows_out.sort(key=lambda r: _sort_ts(r.get("_sort_key")), reverse=True)
+	for r in rows_out:
+		r.pop("_sort_key", None)
+
+	total_qty = sum(flt(x["qty"]) for x in rows_out)
+	batch_count = len(rows_out)
+
+	exp_num = exp_den = 0.0
+	for x in rows_out:
+		if x.get("days_to_expiry") is not None:
+			exp_num += flt(x["qty"]) * float(x["days_to_expiry"])
+			exp_den += flt(x["qty"])
+	avg_days = round(exp_num / exp_den, 2) if exp_den > 0 else None
+
+	cost_num = cost_den = 0.0
+	for x in rows_out:
+		ub = x.pop("unit_buy_for_avg", None)
+		if ub is not None and flt(ub) > 0:
+			cost_num += flt(x["qty"]) * flt(ub)
+			cost_den += flt(x["qty"])
+	avg_buy = round(cost_num / cost_den, 6) if cost_den > 0 else None
+
+	return {
+		"success": True,
+		"warehouse": warehouse,
+		"currency": currency,
+		"summary": {
+			"total_qty": round(total_qty, 6),
+			"batch_count": batch_count,
+			"avg_days_to_expiry": avg_days,
+			"avg_buying_rate": avg_buy,
+		},
+		"batches": rows_out,
+	}
 
 
 @frappe.whitelist()

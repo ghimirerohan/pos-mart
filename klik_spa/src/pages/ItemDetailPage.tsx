@@ -18,13 +18,32 @@ import {
   Printer,
   Download,
   Ban,
-  CheckCircle
+  CheckCircle,
+  ChevronRight,
+  ExternalLink
 } from "lucide-react"
 import { useAuth } from "../hooks/useAuth"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodePrintDialog from "../components/BarcodePrintDialog"
 import { toast } from "react-toastify"
-import { formatGroupedAmount } from "../utils/currency"
+import { formatCurrency, formatGroupedAmount } from "../utils/currency"
+import { frappeJsonPostInit } from "../utils/csrf"
+
+/** Shape of Item from frappe.client.get (fields we use). */
+interface FrappeItemDoc {
+  item_code: string
+  item_name: string
+  item_group: string
+  stock_uom: string
+  image: string | null
+  standard_rate?: number
+  valuation_rate?: number
+  has_batch_no?: number
+  has_expiry_date?: number
+  shelf_life_in_days?: number | null
+  disabled?: number
+  barcodes?: { barcode?: string }[]
+}
 
 interface ItemDetails {
   item_code: string
@@ -52,6 +71,55 @@ interface EditForm {
   shelf_life_in_days: number | null
   barcode: string
   available_qty: number
+}
+
+interface ItemBatchStockSummary {
+  total_qty: number
+  batch_count: number
+  avg_days_to_expiry: number | null
+  avg_buying_rate: number | null
+}
+
+interface ItemBatchDetailRow {
+  batch_no: string
+  batch_id: string
+  qty: number
+  expiry_date: string
+  days_to_expiry: number | null
+  purchase_invoice: string | null
+  purchase_receipt?: string | null
+  supplier_name: string
+  pi_rate: number | null
+  pi_posting_date: string
+  sle_voucher_type: string | null
+  sle_voucher_no: string | null
+  sle_posting_date: string
+  sle_incoming_rate: number | null
+  source_label: string
+}
+
+interface ItemBatchStockPayload {
+  warehouse: string
+  currency: string
+  summary: ItemBatchStockSummary
+  batches: ItemBatchDetailRow[]
+}
+
+async function fetchItemBatchStockDetails(itemCode: string): Promise<ItemBatchStockPayload> {
+  const res = await fetch(
+    "/api/method/klik_pos.api.item.get_item_batch_stock_details",
+    await frappeJsonPostInit({ item_code: itemCode })
+  )
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const json = await res.json()
+  const message = json.message
+  if (!message?.success) throw new Error(message?.error || json.exc || "Failed to load batch stock")
+  return {
+    warehouse: message.warehouse || "",
+    currency: message.currency || "USD",
+    summary: message.summary as ItemBatchStockSummary,
+    batches: (message.batches || []) as ItemBatchDetailRow[],
+  }
 }
 
 // Image optimization settings
@@ -107,12 +175,53 @@ const optimizeImage = (file: File): Promise<string> => {
 const commonUOMs = ["Nos", "Kg", "Gram", "Liter", "ML", "Box", "Pack", "Dozen", "Piece", "Unit"]
 const itemGroups = ["Products", "Services", "Raw Materials", "Consumables", "Sub Assemblies"]
 
+function parseFrappeClientError(data: Record<string, unknown>): string | null {
+  const sm = data._server_messages
+  if (typeof sm === "string" && sm.trim()) {
+    try {
+      const arr = JSON.parse(sm) as unknown[]
+      if (Array.isArray(arr) && arr.length > 0) {
+        const first = arr[0]
+        if (typeof first === "string") {
+          try {
+            const inner = JSON.parse(first) as { message?: string }
+            if (inner?.message) return inner.message
+          } catch {
+            return first
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (typeof data.exception === "string" && data.exception.trim()) {
+    const line = data.exception.split("\n")[0]
+    return line || data.exception
+  }
+  if (typeof data.exc === "string" && data.exc.trim()) {
+    const line = data.exc.split("\n").pop() || data.exc
+    return line.length > 200 ? `${line.slice(0, 200)}…` : line
+  }
+  return null
+}
+
 export default function ItemDetailPage() {
   const navigate = useNavigate()
-  const { itemCode } = useParams<{ itemCode: string }>()
+  const params = useParams<{ "*": string }>()
+  const rawSplat = (params["*"] ?? "").replace(/^\/+|\/+$/g, "")
+  const itemCode = (() => {
+    if (!rawSplat) return ""
+    try {
+      return decodeURIComponent(rawSplat)
+    } catch {
+      return rawSplat
+    }
+  })()
   const { user } = useAuth()
-  
+
   const [item, setItem] = useState<ItemDetails | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -136,112 +245,139 @@ export default function ItemDetailPage() {
   const [showInactiveConfirm, setShowInactiveConfirm] = useState(false)
   const [showActiveConfirm, setShowActiveConfirm] = useState(false)
   const [isTogglingDisabled, setIsTogglingDisabled] = useState(false)
-  
+
+  const [batchStock, setBatchStock] = useState<ItemBatchStockPayload | null>(null)
+  const [batchStockLoading, setBatchStockLoading] = useState(false)
+  const [batchStockError, setBatchStockError] = useState<string | null>(null)
+  const [batchModalOpen, setBatchModalOpen] = useState(false)
+  const [batchModalLoading, setBatchModalLoading] = useState(false)
+  const [batchModalError, setBatchModalError] = useState<string | null>(null)
+
   // Check if current user is Administrator
   const isAdministrator = user?.name === 'Administrator'
   const isItemDisabled = item?.disabled === 1
 
   // Fetch item details
   const fetchItemDetails = useCallback(async () => {
-    if (!itemCode) return
-    
+    if (!itemCode) {
+      setIsLoading(false)
+      setItem(null)
+      setLoadError(null)
+      return
+    }
+
     setIsLoading(true)
+    setItem(null)
+    setLoadError(null)
     try {
       // Fetch item document
-      const response = await fetch('/api/method/frappe.client.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          doctype: 'Item',
-          name: itemCode
-        }),
-        credentials: 'include'
+      const detailUrl = `/api/method/klik_pos.api.item.get_item_detail_for_spa?item_code=${encodeURIComponent(itemCode)}`
+      const response = await fetch(detailUrl, {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "application/json" },
       })
-      const data = await response.json()
-      
-      if (data.message) {
-        const itemDoc = data.message
-        
-        // Fetch barcode from child table
-        let barcode = ''
-        if (itemDoc.barcodes && itemDoc.barcodes.length > 0) {
-          barcode = itemDoc.barcodes[0].barcode || ''
-        }
-        
-        // Fetch stock qty
-        let availableQty = 0
-        let warehouse = ''
-        try {
-          const stockResponse = await fetch('/api/method/klik_pos.api.item.get_item_stock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_code: itemCode }),
-            credentials: 'include'
-          })
-          const stockData = await stockResponse.json()
-          availableQty = stockData.message?.available || 0
-          warehouse = stockData.message?.warehouse || ''
-        } catch {
-          console.error('Failed to fetch stock')
-        }
-        
-        // Fetch prices from Item Price table (single source of truth)
-        let sellingPrice = 0
-        let buyingPrice = 0
-        try {
-          const pricesResponse = await fetch('/api/method/klik_pos.api.item.get_item_prices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_code: itemCode }),
-            credentials: 'include'
-          })
-          const pricesData = await pricesResponse.json()
-          if (pricesData.message) {
-            sellingPrice = pricesData.message.selling_price || 0
-            buyingPrice = pricesData.message.buying_price || 0
-          }
-        } catch {
-          console.error('Failed to fetch prices from Item Price table, using Item document fallback')
-          // Fallback to Item document fields if API fails
-          sellingPrice = itemDoc.standard_rate || 0
-          buyingPrice = itemDoc.valuation_rate || 0
-        }
-        
-        const itemDetails: ItemDetails = {
-          item_code: itemDoc.item_code,
-          item_name: itemDoc.item_name,
-          item_group: itemDoc.item_group,
-          stock_uom: itemDoc.stock_uom,
-          image: itemDoc.image,
-          barcode: barcode,
-          standard_rate: sellingPrice, // From Item Price table (selling = 1)
-          valuation_rate: buyingPrice, // From Item Price table (buying = 1)
-          has_batch_no: itemDoc.has_batch_no || 0,
-          has_expiry_date: itemDoc.has_expiry_date || 0,
-          shelf_life_in_days: itemDoc.shelf_life_in_days || null,
-          available_qty: availableQty,
-          warehouse: warehouse,
-          disabled: itemDoc.disabled || 0
-        }
-        
-        setItem(itemDetails)
-        
-        const formData: EditForm = {
-          item_name: itemDetails.item_name,
-          item_group: itemDetails.item_group,
-          stock_uom: itemDetails.stock_uom,
-          standard_rate: itemDetails.standard_rate,
-          valuation_rate: itemDetails.valuation_rate,
-          shelf_life_in_days: itemDetails.shelf_life_in_days,
-          barcode: itemDetails.barcode || '',
-          available_qty: itemDetails.available_qty
-        }
-        setForm(formData)
-        setOriginalForm(formData)
+      const data = (await response.json()) as Record<string, unknown>
+
+      if (!response.ok) {
+        const msg =
+          parseFrappeClientError(data) ||
+          (typeof data.message === "string" ? data.message : null) ||
+          `Request failed (${response.status})`
+        setLoadError(msg)
+        return
       }
+
+      if (data.exc) {
+        setLoadError(parseFrappeClientError(data) || "Could not load item.")
+        return
+      }
+
+      if (!data.message) {
+        setLoadError(
+          "This item code does not exist, was deleted, or you do not have permission to open it."
+        )
+        return
+      }
+
+      const itemDoc = data.message as FrappeItemDoc
+
+      // Fetch barcode from child table
+      let barcode = ""
+      if (itemDoc.barcodes && itemDoc.barcodes.length > 0) {
+        barcode = itemDoc.barcodes[0].barcode || ""
+      }
+
+      // Fetch stock qty
+      let availableQty = 0
+      let warehouse = ""
+      try {
+        const stockResponse = await fetch(
+          "/api/method/klik_pos.api.item.get_item_stock",
+          await frappeJsonPostInit({ item_code: itemCode })
+        )
+        const stockData = await stockResponse.json()
+        availableQty = stockData.message?.available || 0
+        warehouse = stockData.message?.warehouse || ""
+      } catch {
+        console.error("Failed to fetch stock")
+      }
+
+      // Fetch prices from Item Price table (single source of truth)
+      let sellingPrice = 0
+      let buyingPrice = 0
+      try {
+        const pricesResponse = await fetch(
+          "/api/method/klik_pos.api.item.get_item_prices",
+          await frappeJsonPostInit({ item_code: itemCode })
+        )
+        const pricesData = await pricesResponse.json()
+        if (pricesData.message) {
+          sellingPrice = pricesData.message.selling_price || 0
+          buyingPrice = pricesData.message.buying_price || 0
+        }
+      } catch {
+        console.error("Failed to fetch prices from Item Price table, using Item document fallback")
+        sellingPrice = itemDoc.standard_rate || 0
+        buyingPrice = itemDoc.valuation_rate || 0
+      }
+
+      const itemDetails: ItemDetails = {
+        item_code: itemDoc.item_code,
+        item_name: itemDoc.item_name,
+        item_group: itemDoc.item_group,
+        stock_uom: itemDoc.stock_uom,
+        image: itemDoc.image,
+        barcode: barcode,
+        standard_rate: sellingPrice,
+        valuation_rate: buyingPrice,
+        has_batch_no: itemDoc.has_batch_no || 0,
+        has_expiry_date: itemDoc.has_expiry_date || 0,
+        shelf_life_in_days: itemDoc.shelf_life_in_days || null,
+        available_qty: availableQty,
+        warehouse: warehouse,
+        disabled: itemDoc.disabled || 0,
+      }
+
+      setItem(itemDetails)
+
+      const formData: EditForm = {
+        item_name: itemDetails.item_name,
+        item_group: itemDetails.item_group,
+        stock_uom: itemDetails.stock_uom,
+        standard_rate: itemDetails.standard_rate,
+        valuation_rate: itemDetails.valuation_rate,
+        shelf_life_in_days: itemDetails.shelf_life_in_days,
+        barcode: itemDetails.barcode || "",
+        available_qty: itemDetails.available_qty,
+      }
+      setForm(formData)
+      setOriginalForm(formData)
     } catch (err) {
-      console.error('Error fetching item:', err)
-      toast.error('Failed to load item details')
+      console.error("Error fetching item:", err)
+      const msg = err instanceof Error ? err.message : "Failed to load item details"
+      setLoadError(msg)
+      toast.error("Failed to load item details")
     } finally {
       setIsLoading(false)
     }
@@ -250,6 +386,61 @@ export default function ItemDetailPage() {
   useEffect(() => {
     fetchItemDetails()
   }, [fetchItemDetails])
+
+  useEffect(() => {
+    if (!itemCode || !item?.has_batch_no) {
+      setBatchStock(null)
+      setBatchStockError(null)
+      setBatchStockLoading(false)
+      return
+    }
+    let cancelled = false
+    setBatchStockLoading(true)
+    setBatchStockError(null)
+    fetchItemBatchStockDetails(itemCode)
+      .then((d) => {
+        if (!cancelled) setBatchStock(d)
+      })
+      .catch((e) => {
+        if (!cancelled) setBatchStockError(e instanceof Error ? e.message : "Failed to load batches")
+      })
+      .finally(() => {
+        if (!cancelled) setBatchStockLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [itemCode, item?.has_batch_no])
+
+  const closeBatchModal = useCallback(() => {
+    setBatchModalOpen(false)
+    setBatchModalError(null)
+    setBatchModalLoading(false)
+  }, [])
+
+  const openBatchModal = useCallback(async () => {
+    if (!itemCode) return
+    setBatchModalOpen(true)
+    setBatchModalLoading(true)
+    setBatchModalError(null)
+    try {
+      const d = await fetchItemBatchStockDetails(itemCode)
+      setBatchStock(d)
+    } catch (e) {
+      setBatchModalError(e instanceof Error ? e.message : "Failed to load")
+    } finally {
+      setBatchModalLoading(false)
+    }
+  }, [itemCode])
+
+  useEffect(() => {
+    if (!batchModalOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeBatchModal()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [batchModalOpen, closeBatchModal])
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -339,16 +530,14 @@ export default function ItemDetailPage() {
       const buyingPriceChanged = form.valuation_rate !== originalForm?.valuation_rate
       
       // Update item document (non-price fields)
-      const response = await fetch('/api/method/frappe.client.set_value', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          doctype: 'Item',
+      const response = await fetch(
+        "/api/method/frappe.client.set_value",
+        await frappeJsonPostInit({
+          doctype: "Item",
           name: itemCode,
-          fieldname: updateData
-        }),
-        credentials: 'include'
-      })
+          fieldname: updateData,
+        })
+      )
       
       const result = await response.json()
       
@@ -359,16 +548,14 @@ export default function ItemDetailPage() {
       // Update Item Price entries (single source of truth for prices)
       if (sellingPriceChanged || buyingPriceChanged) {
         try {
-          const priceUpdateResponse = await fetch('/api/method/klik_pos.api.item.update_item_prices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          const priceUpdateResponse = await fetch(
+            "/api/method/klik_pos.api.item.update_item_prices",
+            await frappeJsonPostInit({
               item_code: itemCode,
               selling_price: form.standard_rate,
-              buying_price: form.valuation_rate
-            }),
-            credentials: 'include'
-          })
+              buying_price: form.valuation_rate,
+            })
+          )
           
           const priceUpdateResult = await priceUpdateResponse.json()
           
@@ -395,15 +582,13 @@ export default function ItemDetailPage() {
       // Handle barcode update separately (child table)
       if (barcodeChanged && itemCode) {
         try {
-          await fetch('/api/method/klik_pos.api.item.update_item_barcode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          await fetch(
+            "/api/method/klik_pos.api.item.update_item_barcode",
+            await frappeJsonPostInit({
               item_code: itemCode,
-              barcode: form.barcode || ''
-            }),
-            credentials: 'include'
-          })
+              barcode: form.barcode || "",
+            })
+          )
         } catch (barcodeErr) {
           console.error('Barcode update failed:', barcodeErr)
         }
@@ -412,15 +597,13 @@ export default function ItemDetailPage() {
       // Handle image upload
       if (newImage && itemCode) {
         try {
-          await fetch('/api/method/klik_pos.api.item.update_item_image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          await fetch(
+            "/api/method/klik_pos.api.item.update_item_image",
+            await frappeJsonPostInit({
               item_code: itemCode,
-              image_data: newImage
-            }),
-            credentials: 'include'
-          })
+              image_data: newImage,
+            })
+          )
         } catch (imgErr) {
           console.error('Image update failed:', imgErr)
         }
@@ -431,17 +614,15 @@ export default function ItemDetailPage() {
       if (stockChanged && itemCode && item?.warehouse) {
         setIsUpdatingStock(true)
         try {
-          const stockResponse = await fetch('/api/method/klik_pos.api.item.update_opening_stock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          const stockResponse = await fetch(
+            "/api/method/klik_pos.api.item.update_opening_stock",
+            await frappeJsonPostInit({
               item_code: itemCode,
               warehouse: item.warehouse,
               qty: form.available_qty,
-              valuation_rate: form.valuation_rate
-            }),
-            credentials: 'include'
-          })
+              valuation_rate: form.valuation_rate,
+            })
+          )
           
           const stockResult = await stockResponse.json()
           
@@ -547,12 +728,10 @@ export default function ItemDetailPage() {
     
     setIsTogglingDisabled(true)
     try {
-      const response = await fetch('/api/method/klik_pos.api.item.set_item_disabled', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_code: itemCode, disabled: 1 }),
-        credentials: 'include'
-      })
+      const response = await fetch(
+        "/api/method/klik_pos.api.item.set_item_disabled",
+        await frappeJsonPostInit({ item_code: itemCode, disabled: 1 })
+      )
       const data = await response.json()
       
       if (data.message?.status === 'success' || data.message?.disabled === 1) {
@@ -576,12 +755,10 @@ export default function ItemDetailPage() {
     
     setIsTogglingDisabled(true)
     try {
-      const response = await fetch('/api/method/klik_pos.api.item.set_item_disabled', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_code: itemCode, disabled: 0 }),
-        credentials: 'include'
-      })
+      const response = await fetch(
+        "/api/method/klik_pos.api.item.set_item_disabled",
+        await frappeJsonPostInit({ item_code: itemCode, disabled: 0 })
+      )
       const data = await response.json()
       
       if (data.message?.status === 'success' || data.message?.disabled === 0) {
@@ -618,8 +795,15 @@ export default function ItemDetailPage() {
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Item Not Found</h1>
           </div>
         </div>
-        <div className="p-4 text-center text-gray-500">
-          The item could not be found.
+        <div className="p-4 text-center text-gray-500 dark:text-gray-400 space-y-2">
+          <p>The item could not be found.</p>
+          {loadError ? (
+            <p className="text-sm text-red-600 dark:text-red-400 max-w-lg mx-auto whitespace-pre-wrap break-words">
+              {loadError}
+            </p>
+          ) : itemCode ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500 font-mono break-all">Code: {itemCode}</p>
+          ) : null}
         </div>
         <div className="lg:hidden">
           <BottomNavigation />
@@ -1099,9 +1283,232 @@ export default function ItemDetailPage() {
                 </span>
               ) : null}
             </div>
+
+            {item.has_batch_no ? (
+              <div className="mt-4 border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => void openBatchModal()}
+                  disabled={batchStockLoading}
+                  className="w-full text-left px-3 py-3 flex items-start gap-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">Active batches</span>
+                      <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
+                    </div>
+                    {batchStockLoading ? (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                        Loading batch stock…
+                      </p>
+                    ) : batchStockError ? (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-1">{batchStockError}</p>
+                    ) : batchStock ? (
+                      batchStock.summary.batch_count === 0 ? (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          No on-hand batch stock in {batchStock.warehouse || item.warehouse || "POS warehouse"}
+                        </p>
+                      ) : (
+                        <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400 block">Total qty</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {formatGroupedAmount(batchStock.summary.total_qty)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400 block">Batches</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {batchStock.summary.batch_count}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400 block">Avg days to expiry</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {batchStock.summary.avg_days_to_expiry == null
+                                ? "—"
+                                : batchStock.summary.avg_days_to_expiry.toFixed(1)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400 block">Avg buy rate</span>
+                            <span className="text-gray-900 dark:text-white font-medium">
+                              {batchStock.summary.avg_buying_rate == null
+                                ? "—"
+                                : formatCurrency(batchStock.summary.avg_buying_rate, batchStock.currency)}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
+
+      {batchModalOpen && item?.has_batch_no && itemCode ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="batch-drilldown-title"
+          onClick={closeBatchModal}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl w-full sm:max-w-5xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2 p-4 border-b border-gray-200 dark:border-gray-600 shrink-0">
+              <div className="min-w-0">
+                <h4 id="batch-drilldown-title" className="text-base font-semibold text-gray-900 dark:text-white">
+                  On-hand batches
+                </h4>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                  {item.item_name} · {itemCode}
+                  {batchStock?.warehouse ? ` · ${batchStock.warehouse}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeBatchModal}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-auto flex-1 p-3 sm:p-4">
+              {batchModalLoading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-gray-500 dark:text-gray-400">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Loading batches…
+                </div>
+              ) : batchModalError ? (
+                <p className="text-sm text-red-600 dark:text-red-400 py-6 text-center">{batchModalError}</p>
+              ) : !batchStock || batchStock.batches.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+                  No on-hand batch stock in {batchStock?.warehouse || item.warehouse || "this warehouse"}.
+                </p>
+              ) : (
+                <table className="min-w-full text-xs sm:text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-600">
+                      <th className="pb-2 pr-2">Batch</th>
+                      <th className="pb-2 pr-2 text-right">Qty</th>
+                      <th className="pb-2 pr-2 hidden sm:table-cell">Expiry</th>
+                      <th className="pb-2 pr-2">Source</th>
+                      <th className="pb-2 pr-2 hidden md:table-cell">Supplier</th>
+                      <th className="pb-2 pr-2 text-right">Buy rate</th>
+                      <th className="pb-2 pr-2 hidden lg:table-cell whitespace-nowrap">PI date</th>
+                      <th className="pb-2 pr-2 hidden lg:table-cell whitespace-nowrap">Last movement</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-gray-900 dark:text-gray-100">
+                    {batchStock.batches.map((row) => {
+                      const buy =
+                        row.pi_rate != null && row.pi_rate > 0
+                          ? row.pi_rate
+                          : row.sle_incoming_rate != null && row.sle_incoming_rate > 0
+                            ? row.sle_incoming_rate
+                            : null
+                      const origin = typeof window !== "undefined" ? window.location.origin : ""
+                      const piHref =
+                        row.purchase_invoice && origin
+                          ? `${origin}/app/purchase-invoice/${encodeURIComponent(row.purchase_invoice)}`
+                          : null
+                      const prDocHref =
+                        row.purchase_receipt && origin
+                          ? `${origin}/app/purchase-receipt/${encodeURIComponent(row.purchase_receipt)}`
+                          : null
+                      const receiptOrPiHref = piHref || prDocHref
+                      const seHref =
+                        row.sle_voucher_type === "Stock Entry" && row.sle_voucher_no && origin
+                          ? `${origin}/app/stock-entry/${encodeURIComponent(row.sle_voucher_no)}`
+                          : null
+                      const piMovementHref =
+                        row.sle_voucher_type === "Purchase Invoice" && row.sle_voucher_no && origin
+                          ? `${origin}/app/purchase-invoice/${encodeURIComponent(row.sle_voucher_no)}`
+                          : null
+                      const prMovementHref =
+                        row.sle_voucher_type === "Purchase Receipt" && row.sle_voucher_no && origin
+                          ? `${origin}/app/purchase-receipt/${encodeURIComponent(row.sle_voucher_no)}`
+                          : null
+                      const siMovementHref =
+                        row.sle_voucher_type === "Sales Invoice" && row.sle_voucher_no && origin
+                          ? `${origin}/app/sales-invoice/${encodeURIComponent(row.sle_voucher_no)}`
+                          : null
+                      const lastMovementHref =
+                        seHref || piMovementHref || prMovementHref || siMovementHref
+                      return (
+                        <tr key={row.batch_no} className="border-b border-gray-100 dark:border-gray-700/80 align-top">
+                          <td className="py-2 pr-2 font-mono text-[11px] sm:text-xs break-all">{row.batch_id}</td>
+                          <td className="py-2 pr-2 text-right whitespace-nowrap">{formatGroupedAmount(row.qty)}</td>
+                          <td className="py-2 pr-2 hidden sm:table-cell text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                            {row.expiry_date
+                              ? `${row.expiry_date}${row.days_to_expiry != null ? ` (${row.days_to_expiry}d)` : ""}`
+                              : "—"}
+                          </td>
+                          <td className="py-2 pr-2">{row.source_label}</td>
+                          <td className="py-2 pr-2 hidden md:table-cell text-gray-600 dark:text-gray-400">
+                            {row.supplier_name || "—"}
+                          </td>
+                          <td className="py-2 pr-2 text-right whitespace-nowrap">
+                            {buy != null ? formatCurrency(buy, batchStock.currency) : "—"}
+                          </td>
+                          <td className="py-2 pr-2 hidden lg:table-cell whitespace-nowrap">
+                            {row.pi_posting_date ? (
+                              receiptOrPiHref ? (
+                                <a
+                                  href={receiptOrPiHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-brand-600 hover:underline dark:text-brand-400"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {row.pi_posting_date}
+                                  <ExternalLink className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                                </a>
+                              ) : (
+                                row.pi_posting_date
+                              )
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="py-2 pr-2 hidden lg:table-cell whitespace-nowrap text-gray-600 dark:text-gray-400">
+                            {row.sle_posting_date ? (
+                              lastMovementHref ? (
+                                <a
+                                  href={lastMovementHref}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-brand-600 hover:underline dark:text-brand-400"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {row.sle_posting_date}
+                                  <ExternalLink className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                                </a>
+                              ) : (
+                                row.sle_posting_date
+                              )
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Bottom Navigation - hide on desktop */}
       <div className="lg:hidden">

@@ -86,7 +86,7 @@ const router = createBrowserRouter([
         element: <ProtectedRoute element={<ItemsPage />} />,
       },
       {
-        path: "items/:itemCode",
+        path: "items/*",
         element: <ProtectedRoute element={<ItemDetailPage />} />,
       },
       {

@@ -230,7 +230,7 @@ const getStatusBadge = (status: string) => {
           <option value="all">All Time</option>
           <option value="today">Today</option>
           <option value="yesterday">Yesterday</option>
-          <option value="week">This Week</option>
+          <option value="week">Last 7 days</option>
           <option value="month">This Month</option>
           <option value="year">This Year</option>
         </select>
