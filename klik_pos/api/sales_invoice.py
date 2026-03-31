@@ -259,12 +259,92 @@ def _fetch_batch_purchase_rates(pairs: set) -> dict:
 	return {k: v[1] for k, v in best.items()}
 
 
-def _resolve_line_unit_cost(line, batch_rate_map: dict) -> float:
-	"""Unit COGS: PI purchase rate for (item, batch) when known; else SI incoming_rate (valuation)."""
+def _fetch_active_buying_prices_for_items(item_codes: list) -> dict[str, float]:
+	"""
+	Active buying unit cost for dashboard COGS fallback — same rules as Items list batch prices:
+	buying Item Price rows valid today, prefer price whose UOM matches Item.stock_uom; else first row;
+	if no buying price, use Item.valuation_rate when > 0.
+	"""
+	codes = list({(c or "").strip() for c in (item_codes or []) if c})
+	if not codes:
+		return {}
+	price_date = getdate(today())
+	placeholders = ", ".join(["%s"] * len(codes))
+	uom_rows = frappe.db.sql(
+		f"SELECT name AS item_code, stock_uom FROM `tabItem` WHERE name IN ({placeholders})",
+		tuple(codes),
+		as_dict=True,
+	)
+	uom_map = {r["item_code"]: (r.get("stock_uom") or "Nos") for r in uom_rows}
+
+	buying_sql = f"""
+		SELECT item_code, price_list_rate, uom
+		FROM `tabItem Price`
+		WHERE item_code IN ({placeholders})
+		AND buying = 1
+		AND (valid_from IS NULL OR valid_from <= %s)
+		AND (valid_upto IS NULL OR valid_upto >= %s)
+		ORDER BY valid_from DESC, creation DESC
+	"""
+	buying_results = frappe.db.sql(buying_sql, [*codes, price_date, price_date], as_dict=True)
+
+	buying_price_map: dict[str, dict] = {}
+	for row in buying_results:
+		item_code = row["item_code"]
+		item_uom = uom_map.get(item_code, "Nos")
+		if item_code in buying_price_map:
+			existing_uom_match = buying_price_map[item_code].get("uom") == item_uom
+			new_uom_match = row.get("uom") == item_uom
+			if not new_uom_match or existing_uom_match:
+				continue
+		buying_price_map[item_code] = {
+			"buying_price": row["price_list_rate"] or 0,
+			"uom": row.get("uom"),
+		}
+
+	items_without = [ic for ic in codes if ic not in buying_price_map]
+	if items_without:
+		vph = ", ".join(["%s"] * len(items_without))
+		for row in frappe.db.sql(
+			f"""
+			SELECT name AS item_code, valuation_rate
+			FROM `tabItem`
+			WHERE name IN ({vph})
+			AND valuation_rate > 0
+			""",
+			tuple(items_without),
+			as_dict=True,
+		):
+			ic = row["item_code"]
+			if ic not in buying_price_map:
+				buying_price_map[ic] = {"buying_price": row["valuation_rate"] or 0, "uom": None}
+
+	out: dict[str, float] = {}
+	for ic in codes:
+		if ic in buying_price_map:
+			out[ic] = flt(buying_price_map[ic].get("buying_price"))
+	return out
+
+
+def _resolve_line_unit_cost(
+	line,
+	batch_rate_map: dict,
+	buying_price_by_item: dict | None = None,
+) -> float:
+	"""
+	Unit COGS for dashboard-style margin:
+	1) Purchase Invoice rate for (item_code, batch_no) when present in batch_rate_map
+	2) Else active buying price (Item Price buying valid today, else Item.valuation_rate) when > 0
+	3) Else SI incoming_rate (ERPNext valuation at sale)
+	"""
 	ic = (line.get("item_code") or "").strip()
 	bn = (line.get("batch_no") or "").strip()
 	if bn and (ic, bn) in batch_rate_map:
 		return flt(batch_rate_map[(ic, bn)])
+	if buying_price_by_item:
+		bp = buying_price_by_item.get(ic)
+		if bp is not None and flt(bp) > 0:
+			return flt(bp)
 	return flt(line.get("incoming_rate"))
 
 
@@ -318,8 +398,9 @@ def get_dashboard_analytics(
 	``base_net_amount``).
 
 	Cost per unit: **Purchase Invoice rate** for ``(item_code, batch_no)`` when a submitted
-	PI line exists for that batch (earliest posting wins); otherwise **incoming_rate**
-	(ERPNext valuation at sale). ``margin_pct`` is **margin on sales**:
+	PI line exists for that batch (earliest posting wins); otherwise **active buying price**
+	(Item Price buying valid today, else Item valuation_rate), matching the Items list; if none,
+	**incoming_rate** (ERPNext valuation at sale). ``margin_pct`` is **margin on sales**:
 	``(revenue - cost) / revenue * 100``.
 
 	Args:
@@ -327,7 +408,8 @@ def get_dashboard_analytics(
 		cashier_name: full name or 'all'
 		payment_method: mode of payment or 'all'
 		include_alltime_top10: if truthy, include ``products_top_alltime`` / ``customers_top_alltime``
-			(all POS invoices for profile, no date/cashier/payment filter).
+			(all POS invoices for profile, no date/cashier/payment filter). Each list is the **full**
+			aggregation for that dimension so the dashboard can rank top 10 by any metric client-side.
 	"""
 	try:
 		user_roles = frappe.get_roles()
@@ -429,16 +511,17 @@ def get_dashboard_analytics(
 			all_lines.extend(lines)
 
 		batch_rate_map = _fetch_batch_purchase_rates(_collect_item_batch_pairs_from_lines(all_lines))
+		buying_map = _fetch_active_buying_prices_for_items([l.get("item_code") for l in all_lines])
 
 		currency = (invoices[0].get("currency") or "").strip() or (
 			frappe.defaults.get_defaults().get("currency") or "USD"
 		)
 
-		# Net sales (excl. tax); COGS = qty * unit cost (PI batch rate or incoming_rate).
+		# Net sales (excl. tax); COGS = qty * unit cost (PI batch rate, else active buying price, else incoming_rate).
 		total_revenue = sum(flt(inv.get("base_net_total")) for inv in invoices)
-		total_cost = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map) for l in all_lines)
+		total_cost = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map, buying_map) for l in all_lines)
 		gross_profit = sum(
-			_line_net_sales_base(l) - flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map)
+			_line_net_sales_base(l) - flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map, buying_map)
 			for l in all_lines
 		)
 		gross_margin_pct = (gross_profit / total_revenue * 100.0) if total_revenue else 0.0
@@ -468,7 +551,7 @@ def get_dashboard_analytics(
 			row["item_code"] = k
 			row["item_name"] = line.item_name or k
 			q = flt(line.qty)
-			uc = _resolve_line_unit_cost(line, batch_rate_map)
+			uc = _resolve_line_unit_cost(line, batch_rate_map, buying_map)
 			row["qty_sold"] += q
 			row["revenue"] += _line_net_sales_base(line)
 			row["cost"] += q * uc
@@ -519,7 +602,7 @@ def get_dashboard_analytics(
 			for line in inv_lines.get(inv.name, []):
 				q = flt(line.qty)
 				row["qty_bought"] += q
-				row["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map)
+				row["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map, buying_map)
 
 		customers = []
 		for k, row in cust_agg.items():
@@ -545,7 +628,7 @@ def get_dashboard_analytics(
 		transactions = []
 		for inv in sorted(invoices, key=lambda x: (x.posting_date, str(x.posting_time)), reverse=True):
 			lines_i = inv_lines.get(inv.name, [])
-			cost_i = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map) for l in lines_i)
+			cost_i = sum(flt(l.qty) * _resolve_line_unit_cost(l, batch_rate_map, buying_map) for l in lines_i)
 			rev_i = flt(inv.get("base_net_total"))
 			prof_i = rev_i - cost_i
 			margin_i = _margin_on_sales_pct(rev_i, cost_i)
@@ -583,7 +666,7 @@ def get_dashboard_analytics(
 			for line in inv_lines.get(inv.name, []):
 				q = flt(line.qty)
 				cd["qty_sold"] += q
-				cd["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map)
+				cd["cost"] += q * _resolve_line_unit_cost(line, batch_rate_map, buying_map)
 				cd["discount"] += flt(line.get("item_discount_amount") or 0)
 
 		cashier_owner_ids = [o for o in cashier_data if o]
@@ -612,7 +695,7 @@ def get_dashboard_analytics(
 
 		inv_profit = defaultdict(float)
 		for line in all_lines:
-			uc = _resolve_line_unit_cost(line, batch_rate_map)
+			uc = _resolve_line_unit_cost(line, batch_rate_map, buying_map)
 			inv_profit[line.parent] += _line_net_sales_base(line) - flt(line.qty) * uc
 
 		hourly = {h: {"hour": f"{h:02d}:00", "revenue": 0.0, "profit": 0.0} for h in range(24)}
@@ -741,6 +824,7 @@ def get_dashboard_analytics(
 						)
 					)
 				at_batch_map = _fetch_batch_purchase_rates(_collect_item_batch_pairs_from_lines(at_lines))
+				at_buying_map = _fetch_active_buying_prices_for_items([l.get("item_code") for l in at_lines])
 				at_item_agg = defaultdict(
 					lambda: {
 						"item_code": "",
@@ -757,7 +841,7 @@ def get_dashboard_analytics(
 					_row["item_code"] = _k
 					_row["item_name"] = line.item_name or _k
 					_q = flt(line.qty)
-					_uc = _resolve_line_unit_cost(line, at_batch_map)
+					_uc = _resolve_line_unit_cost(line, at_batch_map, at_buying_map)
 					_row["qty_sold"] += _q
 					_row["revenue"] += _line_net_sales_base(line)
 					_row["cost"] += _q * _uc
@@ -780,7 +864,8 @@ def get_dashboard_analytics(
 						}
 					)
 				_at_products.sort(key=lambda x: x["revenue"], reverse=True)
-				products_top_alltime = _at_products[:10]
+				# Full all-time aggregation so TopItemsTable can rank by qty / profit / margin (not only revenue top 10).
+				products_top_alltime = _at_products
 
 				at_inv_lines = defaultdict(list)
 				for line in at_lines:
@@ -805,7 +890,7 @@ def get_dashboard_analytics(
 					for line in at_inv_lines.get(inv.name, []):
 						_q = flt(line.qty)
 						_cr["qty_bought"] += _q
-						_cr["cost"] += _q * _resolve_line_unit_cost(line, at_batch_map)
+						_cr["cost"] += _q * _resolve_line_unit_cost(line, at_batch_map, at_buying_map)
 				_at_customers = []
 				for _ck, _row in at_cust_agg.items():
 					_rev = _row["revenue"]
@@ -824,7 +909,8 @@ def get_dashboard_analytics(
 						}
 					)
 				_at_customers.sort(key=lambda x: x["revenue"], reverse=True)
-				customers_top_alltime = _at_customers[:10]
+				# Full list for TopCustomersTable client-side sort (transactions, profit, etc.).
+				customers_top_alltime = _at_customers
 
 		return {
 			"success": True,

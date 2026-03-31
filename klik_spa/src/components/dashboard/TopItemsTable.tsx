@@ -23,7 +23,7 @@ const SORT_OPTIONS: { value: ItemSortKey; label: string }[] = [
 ]
 
 export function TopItemsTable({ products, currency, scopeLabel }: TopItemsTableProps) {
-  const [sortBy, setSortBy] = useState<ItemSortKey>("revenue")
+  const [sortBy, setSortBy] = useState<ItemSortKey>("qty_sold")
 
   const top10 = useMemo(() => {
     const copy = [...products]

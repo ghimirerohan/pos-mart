@@ -232,7 +232,7 @@ def _enrich_with_financials(summarized, from_date, to_date, company):
 	- sale_amount: SI net sales in range.
 	- gross_profit / margin_pct: sale_amount minus COGS from **those SI lines only**;
 	  unit cost = batch PI rate only if that batch was purchased in the same date range,
-	  otherwise incoming_rate on the sales line (aligned with period sales, not all-time PI).
+	  else active buying price (Item Price / valuation), else incoming_rate on the sales line.
 	"""
 	if not summarized:
 		return summarized
@@ -241,6 +241,7 @@ def _enrich_with_financials(summarized, from_date, to_date, company):
 
 	from klik_pos.api.sales_invoice import (
 		_collect_item_batch_pairs_from_lines,
+		_fetch_active_buying_prices_for_items,
 		_margin_on_sales_pct,
 		_resolve_line_unit_cost,
 	)
@@ -338,6 +339,7 @@ def _enrich_with_financials(summarized, from_date, to_date, company):
 		to_date,
 		company,
 	)
+	buying_map = _fetch_active_buying_prices_for_items([line.get("item_code") for line in all_lines])
 
 	profit_map = {}
 	margin_map = {}
@@ -346,7 +348,7 @@ def _enrich_with_financials(summarized, from_date, to_date, company):
 		sale_rev = flt(sale_map.get(k, 0.0))
 		total_cogs = 0.0
 		for line in lines:
-			uc = _resolve_line_unit_cost(line, batch_map)
+			uc = _resolve_line_unit_cost(line, batch_map, buying_map)
 			total_cogs += flt(line.get("qty")) * uc
 		# Profit uses the same sale_amount aggregate as the grid (SI net in period only)
 		profit_map[k] = sale_rev - total_cogs

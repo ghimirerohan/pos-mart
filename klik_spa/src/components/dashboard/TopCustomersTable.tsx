@@ -21,7 +21,7 @@ const SORT_OPTIONS: { value: CustomerSortKey; label: string }[] = [
 ]
 
 export function TopCustomersTable({ customers, currency, scopeLabel }: TopCustomersTableProps) {
-  const [sortBy, setSortBy] = useState<CustomerSortKey>("revenue")
+  const [sortBy, setSortBy] = useState<CustomerSortKey>("transaction_count")
 
   const top10 = useMemo(() => {
     const copy = [...customers]

@@ -19,8 +19,8 @@ export function ProductSalesListing({ products, currency }: ProductSalesListingP
       <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 shrink-0">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Product sales</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Net revenue (excl. tax), COGS from stock valuation, profit, and markup % on cost (same formula as Items
-          list when COGS = buying price)
+          Net revenue (excl. tax), COGS (PI rate for batch when on file, else active buying price like Items list,
+          else stock incoming rate), profit, and margin % on sales
         </p>
       </div>
       <div ref={scrollRef} className="overflow-auto flex-1 p-2 sm:p-4">

@@ -92,10 +92,11 @@ export interface DashboardAnalyticsData {
   summary: DashboardSummary
   products: DashboardProductRow[]
   products_top: DashboardProductRow[]
-  /** Top 10 by revenue across all POS invoices (no date/cashier/payment filter) */
+  /** All products aggregated across all POS invoices (no date/cashier/payment); TopItemsTable shows top 10 after client sort */
   products_top_alltime: DashboardProductRow[]
   customers: DashboardCustomerRow[]
   customers_top: DashboardCustomerRow[]
+  /** All customers aggregated all-time; TopCustomersTable shows top 10 after client sort */
   customers_top_alltime: DashboardCustomerRow[]
   transactions: DashboardTransactionRow[]
   sales_by_hour: SalesByHourPoint[]
