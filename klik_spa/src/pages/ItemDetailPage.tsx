@@ -509,6 +509,11 @@ export default function ItemDetailPage() {
       toast.error('Item name is required')
       return
     }
+
+    if (item?.has_batch_no && !(form.shelf_life_in_days && form.shelf_life_in_days > 0)) {
+      toast.error('Batch-tracked items need shelf life (days) for expiry tracking')
+      return
+    }
     
     setIsSaving(true)
     
@@ -519,7 +524,11 @@ export default function ItemDetailPage() {
         item_group: form.item_group,
         stock_uom: form.stock_uom,
         shelf_life_in_days: form.shelf_life_in_days || 0,
-        has_expiry_date: form.shelf_life_in_days && form.shelf_life_in_days > 0 ? 1 : (item?.has_expiry_date || 0)
+        has_expiry_date: item?.has_batch_no
+          ? 1
+          : form.shelf_life_in_days && form.shelf_life_in_days > 0
+            ? 1
+            : (item?.has_expiry_date || 0)
       }
       
       // Handle barcode change

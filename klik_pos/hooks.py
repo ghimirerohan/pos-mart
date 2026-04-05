@@ -331,6 +331,7 @@ after_install = "klik_pos.install.after_install"
 
 
 website_route_rules = [
+	{"from_route": "/klik_pos/api-docs", "to_route": "api_docs"},
 	{"from_route": "/klik_pos/<path:app_path>", "to_route": "klik_spa"},
 	{"from_route": "/klik_pos", "to_route": "klik_spa"},
 ]

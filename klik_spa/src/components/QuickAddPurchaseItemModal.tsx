@@ -174,6 +174,14 @@ export default function QuickAddPurchaseItemModal({
   // ----- purchase-specific -----
   const [quantity, setQuantity] = useState<number>(1)
 
+  /** Match Items page: batch + expiry on the item master for purchase stock */
+  const [hasBatch, setHasBatch] = useState(true)
+  const [batchAuto, setBatchAuto] = useState(true)
+  const [batchNumber, setBatchNumber] = useState("")
+  const [expiryType, setExpiryType] = useState<"months" | "date">("months")
+  const [shelfLifeMonths, setShelfLifeMonths] = useState(3)
+  const [bestBefore, setBestBefore] = useState("")
+
   // supplier
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -358,6 +366,12 @@ export default function QuickAddPurchaseItemModal({
     setBuyingPrice(0)
     setSellingPrice(0)
     setQuantity(1)
+    setHasBatch(true)
+    setBatchAuto(true)
+    setBatchNumber("")
+    setExpiryType("months")
+    setShelfLifeMonths(3)
+    setBestBefore("")
     setSelectedSupplier(null)
     setSupplierSearch("")
     setSelectedPaymentMode(paymentModes[0]?.mode_of_payment || "")
@@ -382,9 +396,40 @@ export default function QuickAddPurchaseItemModal({
       toast.warning("Selling price is less than buying price")
     }
 
+    if (hasBatch) {
+      if (expiryType === "months" && (!shelfLifeMonths || shelfLifeMonths <= 0)) {
+        return toast.error("Batch-tracked items need shelf life (months) or a best-before date")
+      }
+      if (expiryType === "date" && !bestBefore.trim()) {
+        return toast.error("Enter a best-before date for batch-tracked items")
+      }
+    }
+
     setIsSubmitting(true)
 
     try {
+      let shelfLifeDays = 0
+      let expiryDate: string | undefined
+      if (hasBatch) {
+        if (expiryType === "months" && shelfLifeMonths > 0) {
+          shelfLifeDays = shelfLifeMonths * 30
+          const expiry = new Date()
+          expiry.setDate(expiry.getDate() + shelfLifeDays)
+          expiryDate = expiry.toISOString().split("T")[0]
+        } else if (expiryType === "date" && bestBefore) {
+          const today = new Date()
+          const expiry = new Date(bestBefore)
+          shelfLifeDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          if (shelfLifeDays < 0) shelfLifeDays = 0
+          expiryDate = bestBefore
+        }
+      }
+
+      let manualBatch = batchNumber
+      if (hasBatch && batchAuto) {
+        manualBatch = ""
+      }
+
       // --- Step 1: Create item ---
       setSubmitStep("Creating item...")
       const barcodeValue = barcodeAuto ? undefined : barcode || undefined
@@ -398,6 +443,11 @@ export default function QuickAddPurchaseItemModal({
           stock_uom: uom,
           barcode: barcodeValue,
           use_item_code_as_barcode: barcodeAuto ? 1 : 0,
+          has_batch_no: hasBatch ? 1 : 0,
+          has_expiry_date: hasBatch ? 1 : 0,
+          shelf_life_in_days: shelfLifeDays > 0 ? shelfLifeDays : undefined,
+          batch_no: hasBatch && !batchAuto && manualBatch ? manualBatch : undefined,
+          expiry_date: expiryDate,
           selling_price: sellingPrice,
           buying_price: buyingPrice,
           opening_stock: 0,
@@ -437,6 +487,9 @@ export default function QuickAddPurchaseItemModal({
             original_purchase_price: buyingPrice,
             original_selling_price: sellingPrice,
             uom,
+            batch: hasBatch && !batchAuto && manualBatch ? manualBatch : undefined,
+            expiry_date: hasBatch ? expiryDate : undefined,
+            batch_expiry_date: hasBatch ? expiryDate : undefined,
           },
         ],
         paymentMethods: [
@@ -492,6 +545,9 @@ export default function QuickAddPurchaseItemModal({
         original_purchase_price: buyingPrice,
         original_selling_price: sellingPrice,
         currency_symbol: currencySymbol,
+        has_batch_no: hasBatch ? 1 : 0,
+        has_expiry_date: hasBatch ? 1 : 0,
+        shelf_life_in_days: shelfLifeDays > 0 ? shelfLifeDays : null,
       }
       onItemCreated(cartItem, quantity)
 
@@ -689,6 +745,96 @@ export default function QuickAddPurchaseItemModal({
                   </select>
                 </div>
               </div>
+            </div>
+
+            {/* ---- Batch & expiry (item master + purchase batch) ---- */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Package size={16} className="text-amber-600" />
+                Batch &amp; expiry
+              </h3>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasBatch}
+                  onChange={(e) => setHasBatch(e.target.checked)}
+                  className="w-4 h-4 text-amber-600 rounded"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300">Track batch and expiry</span>
+              </label>
+              {hasBatch && (
+                <div className="space-y-3 pl-1 border-l-2 border-amber-200 dark:border-amber-800 ml-1">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={batchAuto}
+                      onChange={(e) => {
+                        setBatchAuto(e.target.checked)
+                        if (e.target.checked) setBatchNumber("")
+                      }}
+                      className="w-4 h-4 text-amber-600 rounded"
+                    />
+                    <span className="text-xs text-gray-600 dark:text-gray-400">Auto-generate batch on receipt</span>
+                  </label>
+                  {!batchAuto && (
+                    <input
+                      type="text"
+                      value={batchNumber}
+                      onChange={(e) => setBatchNumber(e.target.value)}
+                      placeholder="Batch number"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  )}
+                  <div>
+                    <span className="block text-xs text-gray-600 dark:text-gray-400 mb-2">Shelf life / expiry</span>
+                    <div className="flex gap-4 mb-2">
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300">
+                        <input
+                          type="radio"
+                          name="qaExpiryType"
+                          checked={expiryType === "months"}
+                          onChange={() => {
+                            setExpiryType("months")
+                            setBestBefore("")
+                          }}
+                          className="text-amber-600"
+                        />
+                        Months
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300">
+                        <input
+                          type="radio"
+                          name="qaExpiryType"
+                          checked={expiryType === "date"}
+                          onChange={() => {
+                            setExpiryType("date")
+                            setShelfLifeMonths(0)
+                          }}
+                          className="text-amber-600"
+                        />
+                        Date
+                      </label>
+                    </div>
+                    {expiryType === "months" ? (
+                      <input
+                        type="number"
+                        min={1}
+                        value={shelfLifeMonths || ""}
+                        onChange={(e) => setShelfLifeMonths(parseInt(e.target.value, 10) || 0)}
+                        placeholder="Months"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    ) : (
+                      <input
+                        type="date"
+                        value={bestBefore}
+                        onChange={(e) => setBestBefore(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ---- Pricing ---- */}

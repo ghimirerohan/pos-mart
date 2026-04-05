@@ -844,7 +844,10 @@ def get_items_with_balance_and_price(
 
 	try:
 		# Build the base query
-		select_fields = "i.name, i.item_name, i.description, i.item_group, i.image, i.stock_uom"
+		select_fields = (
+			"i.name, i.item_name, i.description, i.item_group, i.image, i.stock_uom, "
+			"i.has_batch_no, i.has_expiry_date, i.shelf_life_in_days"
+		)
 
 		if hide_unavailable:
 			base_query = [
@@ -1054,6 +1057,9 @@ def get_items_with_balance_and_price(
 					"preparationTime": 10,
 					"uom": default_uom,
 					"barcode": primary_barcode,
+					"has_batch_no": int(item.get("has_batch_no") or 0),
+					"has_expiry_date": int(item.get("has_expiry_date") or 0),
+					"shelf_life_in_days": item.get("shelf_life_in_days"),
 				}
 			)
 
@@ -2533,6 +2539,18 @@ def create_item_with_barcode(
 			if existing:
 				frappe.throw(_("Barcode '{0}' is already assigned to another item").format(barcode))
 		
+		from frappe.utils import cint
+
+		hb = cint(has_batch_no)
+		if hb:
+			has_expiry_date = 1
+		sl = cint(shelf_life_in_days or 0)
+		expiry_str = (str(expiry_date).strip() if expiry_date else "")
+		if hb and sl <= 0 and not expiry_str:
+			frappe.throw(
+				_("Batch-tracked items must include shelf life (in days) or an expiry date for batch/expiry tracking.")
+			)
+
 		# Get default company
 		company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
 			"Global Defaults", "default_company"
@@ -2546,9 +2564,9 @@ def create_item_with_barcode(
 			"item_group": item_group,
 			"stock_uom": stock_uom,
 			"is_stock_item": 1,
-			"has_batch_no": has_batch_no,
-			"create_new_batch": 1 if has_batch_no else 0,
-			"has_expiry_date": has_expiry_date,
+			"has_batch_no": hb,
+			"create_new_batch": 1 if hb else 0,
+			"has_expiry_date": cint(has_expiry_date),
 			"shelf_life_in_days": shelf_life_in_days if shelf_life_in_days and shelf_life_in_days > 0 else None,
 			"valuation_rate": buying_price or 0,
 			"standard_rate": selling_price or 0,
@@ -2645,7 +2663,7 @@ def create_item_with_barcode(
 					company=company,
 					batch_no=batch_no,
 					expiry_date=expiry_date,
-					has_batch_no=has_batch_no
+					has_batch_no=hb
 				)
 			except Exception as stock_err:
 				frappe.log_error(frappe.get_traceback(), f"Error creating opening stock for {item_code}")

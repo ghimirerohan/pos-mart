@@ -80,9 +80,15 @@ export interface PurchaseCartItem {
   original_purchase_price: number
   original_selling_price: number
   
-  // Batch/Serial tracking
+  // Batch/Serial tracking (batch from item master; optional line overrides for this GRN)
   batch?: string
+  /** Expiry date for this purchase line (YYYY-MM-DD); used when creating a new batch */
+  batch_expiry_date?: string
   serial?: string
+  /** Copied from product list when adding to cart */
+  has_batch_no?: number
+  has_expiry_date?: number
+  shelf_life_in_days?: number | null
   
   // Display fields
   currency_symbol?: string
@@ -130,6 +136,8 @@ export interface CreatePurchaseInvoiceData {
     uom?: string
     batch?: string
     serial?: string
+    expiry_date?: string
+    batch_expiry_date?: string
   }>
   paymentMethods: Array<{
     mode_of_payment: string

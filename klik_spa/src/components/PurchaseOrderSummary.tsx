@@ -115,6 +115,7 @@ export default function PurchaseOrderSummary({
     updatePurchasePrice,
     updateSellingPrice,
     updateBatch,
+    updateBatchExpiryDate,
     updateSerial,
     setItemSupplier,
     copySupplierFromAbove,
@@ -673,18 +674,33 @@ export default function PurchaseOrderSummary({
                       </div>
 
                       <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
-                        Batch-tracked items: a new batch is created automatically when you complete purchase, with expiry from the item&apos;s shelf life (if set).
+                        For batch- and expiry-tracked items, a batch is created when you complete purchase.
+                        Set an expiry date below for this receipt, or leave it blank to use the item&apos;s
+                        shelf life from the item master.
                       </p>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-                            Batch (optional override)
+                            Batch (optional)
                           </label>
                           <input
                             type="text"
                             value={item.batch || ""}
                             onChange={(e) => updateBatch(purchaseRowKey(item), e.target.value)}
                             placeholder="Leave empty for auto"
+                            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                            Expiry (this receipt)
+                          </label>
+                          <input
+                            type="date"
+                            value={item.batch_expiry_date || ""}
+                            onChange={(e) =>
+                              updateBatchExpiryDate(purchaseRowKey(item), e.target.value)
+                            }
                             className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                           />
                         </div>

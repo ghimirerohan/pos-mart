@@ -38,6 +38,10 @@ export interface MenuItem {
   barcode?: string
   buying_price?: number
   currency?: string
+  /** From POS item API — batch / expiry flags for purchase flow */
+  has_batch_no?: number
+  has_expiry_date?: number
+  shelf_life_in_days?: number | null
 }
 
 export interface Category {

@@ -667,6 +667,17 @@ export default function ItemsPage() {
       toast.warning('Selling price is less than buying price')
     }
 
+    if (form.hasBatch) {
+      if (form.expiryType === 'months' && (!form.shelfLifeMonths || form.shelfLifeMonths <= 0)) {
+        toast.error('Batch-tracked items need shelf life (months) or a best-before date')
+        return
+      }
+      if (form.expiryType === 'date' && !form.bestBefore?.trim()) {
+        toast.error('Enter a best-before date for batch-tracked items')
+        return
+      }
+    }
+
     setIsSubmitting(true)
     
     try {
@@ -719,7 +730,7 @@ export default function ItemsPage() {
           barcode: barcodeValue,
           use_item_code_as_barcode: form.barcodeAuto ? 1 : 0,
           has_batch_no: form.hasBatch ? 1 : 0,
-          has_expiry_date: form.hasBatch && (form.shelfLifeMonths > 0 || form.bestBefore) ? 1 : 0,
+          has_expiry_date: form.hasBatch ? 1 : 0,
           shelf_life_in_days: shelfLifeDays > 0 ? shelfLifeDays : undefined,
           selling_price: form.sellingPrice,
           buying_price: form.buyingPrice,

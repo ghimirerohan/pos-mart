@@ -365,6 +365,8 @@ export default function PurchasePaymentDialog({
             uom: item.uom,
             batch: item.batch,
             serial: item.serial,
+            expiry_date: item.batch_expiry_date || undefined,
+            batch_expiry_date: item.batch_expiry_date || undefined,
           })),
           paymentMethods: scaledPayments,
           isCreditPurchase,
@@ -474,7 +476,7 @@ export default function PurchasePaymentDialog({
   const displayInvoiceGroups = completionSnapshot?.invoiceGroups ?? null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-[100]">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/20">

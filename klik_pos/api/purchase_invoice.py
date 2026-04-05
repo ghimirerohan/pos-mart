@@ -725,10 +725,22 @@ def delete_draft_purchase_invoice(invoice_id):
 		return {"success": False, "error": str(e)}
 
 
-def _resolve_pos_purchase_batch_no(item_code, client_batch, item_doc):
+def _parse_purchase_line_expiry(val):
+	"""Parse YYYY-MM-DD (or Frappe date string) for batch expiry on purchase lines."""
+	if not val:
+		return None
+	from frappe.utils import getdate
+
+	try:
+		return getdate(val)
+	except Exception:
+		return None
+
+
+def _resolve_pos_purchase_batch_no(item_code, client_batch, item_doc, client_expiry_date=None):
 	"""
 	Resolve batch for a purchase line. If batch tracked and no valid batch passed,
-	auto-create a Batch with expiry from Item.shelf_life_in_days.
+	auto-create a Batch with expiry from the purchase line, else Item.shelf_life_in_days.
 	"""
 	from frappe.utils import add_days, cint, nowdate
 
@@ -740,9 +752,15 @@ def _resolve_pos_purchase_batch_no(item_code, client_batch, item_doc):
 		return cb
 
 	shelf = cint(getattr(item_doc, "shelf_life_in_days", None) or item_doc.get("shelf_life_in_days") or 0)
-	expiry_date = None
-	if shelf > 0:
-		expiry_date = add_days(nowdate(), shelf)
+	computed = add_days(nowdate(), shelf) if shelf > 0 else None
+	expiry_date = _parse_purchase_line_expiry(client_expiry_date) or computed
+
+	if cint(item_doc.get("has_expiry_date")) and expiry_date is None:
+		frappe.throw(
+			_(
+				"Item {0} is batch and expiry tracked: set shelf life on the item or enter an expiry date on the purchase line."
+			).format(item_code)
+		)
 
 	if cb and not frappe.db.exists("Batch", cb):
 		batch_doc = frappe.get_doc(
@@ -777,7 +795,7 @@ def create_purchase_invoice(data):
 	Args:
 		data: Dict containing:
 			- supplier: {id: supplier_name}
-			- items: [{id, quantity, purchase_price, selling_price, original_purchase_price, original_selling_price, uom, batch, serial}]
+			- items: [{id, quantity, purchase_price, selling_price, original_purchase_price, original_selling_price, uom, batch, serial, expiry_date, batch_expiry_date}]
 			- paymentMethods: [{mode_of_payment, amount}]
 			- isCreditPurchase: bool
 			- taxTemplate: str (optional)
@@ -850,6 +868,7 @@ def create_purchase_invoice(data):
 			uom = item.get("uom")
 			batch = item.get("batch")
 			serial = item.get("serial")
+			line_expiry = item.get("expiry_date") or item.get("batch_expiry_date")
 
 			# Validate item exists
 			if not frappe.db.exists("Item", item_code):
@@ -871,9 +890,9 @@ def create_purchase_invoice(data):
 			else:
 				item_data["uom"] = item_doc.stock_uom
 
-			# Batch-tracked items: assign existing batch or auto-create with shelf-life expiry
+			# Batch-tracked items: assign existing batch or auto-create with line/shelf expiry
 			if item_doc.has_batch_no:
-				batch_no = _resolve_pos_purchase_batch_no(item_code, batch, item_doc)
+				batch_no = _resolve_pos_purchase_batch_no(item_code, batch, item_doc, line_expiry)
 				if batch_no:
 					item_data["batch_no"] = batch_no
 

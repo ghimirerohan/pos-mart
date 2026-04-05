@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useProducts } from "../hooks/useProducts"
 import { usePOSDetails } from "../hooks/usePOSProfile"
 import { usePurchaseCartStore } from "../stores/purchaseCartStore"
@@ -23,15 +23,20 @@ import {
   PackagePlus,
   ChevronDown,
   Plus,
+  ShoppingCart,
+  ChevronRight,
+  X,
 } from "lucide-react"
 import BottomNavigation from "./BottomNavigation"
 import QuickAddPurchaseItemModal from "./QuickAddPurchaseItemModal"
+import { formatGroupedAmount } from "../utils/currency"
 
 export default function PurchasePOSLayout() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [showScanner, setShowScanner] = useState(false)
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
   // Debounce timer ref for search
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -71,6 +76,19 @@ export default function PurchasePOSLayout() {
   // Use media query to detect mobile screens
   const isMobile = useMediaQuery("(max-width: 1024px)")
 
+  const cartPieceCount = useMemo(
+    () => cartItems.reduce((sum, it) => sum + it.quantity, 0),
+    [cartItems]
+  )
+  const purchaseSubtotal = useMemo(
+    () => cartItems.reduce((sum, it) => sum + it.purchase_price * it.quantity, 0),
+    [cartItems]
+  )
+
+  useEffect(() => {
+    if (cartItems.length === 0) setMobileCartOpen(false)
+  }, [cartItems.length])
+
   // Get categories from menu items
   const categories = ["all", ...new Set(menuItems.map(item => item.category).filter(Boolean))]
 
@@ -91,6 +109,9 @@ export default function PurchasePOSLayout() {
       original_purchase_price: purchasePrice,
       original_selling_price: sellingPrice,
       currency_symbol: item.currency_symbol,
+      has_batch_no: item.has_batch_no,
+      has_expiry_date: item.has_expiry_date,
+      shelf_life_in_days: item.shelf_life_in_days ?? null,
     }
   }
 
@@ -225,9 +246,30 @@ export default function PurchasePOSLayout() {
                 <p className="text-xs opacity-90">Add stock by purchasing from suppliers</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => setMobileCartOpen(true)}
+              className="lg:hidden flex items-center gap-2 text-sm font-semibold rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 px-3 py-1.5 transition-colors shrink-0"
+              aria-label="Open purchase cart and checkout"
+            >
+              <ShoppingCart size={18} />
+              <span>
+                {cartPieceCount === 0
+                  ? "Cart"
+                  : `${cartPieceCount} ${cartPieceCount === 1 ? "pc" : "pcs"}`}
+              </span>
+              {cartItems.length > 0 && (
+                <span className="min-w-[1.25rem] h-5 px-1 flex items-center justify-center rounded-full bg-white text-amber-700 text-xs font-bold">
+                  {cartItems.length}
+                </span>
+              )}
+            </button>
+            <div className="hidden lg:flex items-center gap-2 text-sm">
               <Truck size={18} />
-              <span>{cartItems.length} items in cart</span>
+              <span>
+                {cartPieceCount} {cartPieceCount === 1 ? "pc" : "pcs"} · {cartItems.length}{" "}
+                {cartItems.length === 1 ? "line" : "lines"}
+              </span>
             </div>
           </div>
 
@@ -311,7 +353,9 @@ export default function PurchasePOSLayout() {
 
           {/* Products Grid */}
           <div 
-            className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900"
+            className={`flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900 ${
+              cartItems.length > 0 ? "pb-24 lg:pb-6" : ""
+            }`}
             onScroll={handleScroll}
           >
             {error ? (
@@ -363,7 +407,7 @@ export default function PurchasePOSLayout() {
         </div>
       </div>
 
-      {/* Right Panel - Order Summary (hidden on mobile) */}
+      {/* Right Panel - Order Summary (desktop / large tablet only) */}
       <div className="hidden lg:block w-[35%] min-w-[420px] max-w-[600px] bg-white shadow-lg overflow-y-auto">
         <PurchaseOrderSummary
           cartItems={cartItems}
@@ -373,6 +417,61 @@ export default function PurchasePOSLayout() {
           isMobile={isMobile}
         />
       </div>
+
+      {/* Mobile: sticky cart bar — opens full-screen summary + checkout */}
+      {cartItems.length > 0 && (
+        <div className="lg:hidden fixed bottom-4 left-3 right-3 z-[55] pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setMobileCartOpen(true)}
+            className="pointer-events-auto w-full flex items-center justify-between gap-3 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white px-4 py-3.5 shadow-lg border border-amber-500/80"
+            aria-label="Review purchase cart and checkout"
+          >
+            <span className="flex items-center gap-2 font-semibold text-left min-w-0">
+              <ShoppingCart size={22} className="shrink-0" />
+              <span className="truncate">
+                Checkout · {cartPieceCount} {cartPieceCount === 1 ? "pc" : "pcs"}
+              </span>
+            </span>
+            <span className="flex items-center gap-1 shrink-0 font-bold tabular-nums">
+              {currency_symbol}
+              {formatGroupedAmount(purchaseSubtotal)}
+              <ChevronRight size={20} />
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Mobile: full-screen purchase cart (same panel as desktop sidebar) */}
+      {mobileCartOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-[75] flex flex-col bg-white dark:bg-gray-900"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Purchase cart"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Purchase cart</h2>
+            <button
+              type="button"
+              onClick={() => setMobileCartOpen(false)}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+              aria-label="Close cart"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <PurchaseOrderSummary
+              cartItems={cartItems}
+              onUpdateQuantity={handleUpdateQuantity}
+              onRemoveItem={handleRemoveItem}
+              onClearCart={handleClearCart}
+              isMobile={isMobile}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Barcode Scanner Modal */}
       {showScanner && (

@@ -28,6 +28,7 @@ interface PurchaseCartState {
   updatePurchasePrice: (id: string, price: number) => void
   updateSellingPrice: (id: string, price: number) => void
   updateBatch: (id: string, batch: string) => void
+  updateBatchExpiryDate: (id: string, batchExpiryDate: string) => void
   updateSerial: (id: string, serial: string) => void
   removeItem: (id: string) => void
   clearCart: () => void
@@ -174,6 +175,14 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
         }));
       },
 
+      updateBatchExpiryDate: (id, batchExpiryDate) => {
+        set((state) => ({
+          cartItems: state.cartItems.map((item) =>
+            lineKeyMatches(item, id) ? { ...item, batch_expiry_date: batchExpiryDate } : item
+          )
+        }));
+      },
+
       updateSerial: (id, serial) => {
         set((state) => ({
           cartItems: state.cartItems.map((item) =>
@@ -266,7 +275,7 @@ export const usePurchaseCartStore = create<PurchaseCartState>()(
     }),
     {
       name: 'klik-purchase-cart-storage',
-      version: 1,
+      version: 2,
       merge: (persistedState, currentState) => {
         const merged = {
           ...currentState,

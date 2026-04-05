@@ -226,7 +226,7 @@ export default function AddSupplierModal({
       className={
         isFullPage
           ? "h-full"
-          : "fixed inset-0 bg-black/70 bg-opacity-50 flex items-center justify-center p-4 z-50"
+          : "fixed inset-0 bg-black/70 bg-opacity-50 flex items-center justify-center p-4 z-[110]"
       }
     >
       <div

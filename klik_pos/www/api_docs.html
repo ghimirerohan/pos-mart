@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KLiK POS — API documentation</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css" />
+  <style>
+    html { box-sizing: border-box; }
+    *, *::before, *::after { box-sizing: inherit; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .klik-banner {
+      background: linear-gradient(135deg, #1a237e 0%, #0d47a1 100%);
+      color: #fff;
+      padding: 12px 20px;
+      font-size: 14px;
+      line-height: 1.5;
+      border-bottom: 3px solid #ffc107;
+    }
+    .klik-banner strong { color: #ffecb3; }
+    .klik-banner code { background: rgba(255,255,255,0.12); padding: 2px 6px; border-radius: 4px; }
+    #swagger-ui { max-width: 1460px; margin: 0 auto; }
+    .swagger-ui .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div class="klik-banner" role="status">
+    <strong>GET</strong> — Try it out calls your real Frappe site (live data). Use <strong>Authorize</strong> with
+    <code>token your_api_key:your_api_secret</code> (User → API Access).<br />
+    <strong>POST / PUT / DELETE / PATCH</strong> to <code>/api/*</code> are <strong>blocked in this page</strong> and return
+    <strong>static mock JSON only</strong> — no documents are created or changed.<br />
+    <strong>Session:</strong> Token auth is header-only; it does <strong>not</strong> log you into the POS app or Desk — you still log in normally at <code>/klik_pos</code> or <code>/login</code>.
+  </div>
+  <div id="swagger-ui"></div>
+
+  <script>
+(function () {
+  'use strict';
+
+  function mockPayload(urlString) {
+    var path = '';
+    try {
+      path = new URL(urlString, window.location.origin).pathname;
+    } catch (e) {
+      path = urlString || '';
+    }
+    var msg = { _mock: true, success: true, note: 'Static demo response from Swagger UI (browser only). No server mutation.' };
+    if (path.indexOf('login') !== -1) {
+      msg = { _mock: true, message: 'Logged In (mock only — no session cookie set from this demo response)' };
+    }
+    if (path.indexOf('logout') !== -1) {
+      msg = { _mock: true, message: 'Logged Out (mock)' };
+    }
+    if (path.indexOf('create_and_submit_invoice') !== -1) {
+      msg = { _mock: true, name: 'MOCK-SINV-00001', docstatus: 1, grand_total: 199.99, message: 'Submitted (mock)' };
+    }
+    if (path.indexOf('create_draft_invoice') !== -1) {
+      msg = { _mock: true, name: 'MOCK-SINV-DRAFT-01', docstatus: 0, message: 'Draft saved (mock)' };
+    }
+    if (path.indexOf('create_purchase_invoice') !== -1) {
+      msg = { _mock: true, name: 'MOCK-PINV-00001', docstatus: 1, message: 'Purchase invoice (mock)' };
+    }
+    if (path.indexOf('create_item_with_barcode') !== -1) {
+      msg = { _mock: true, item_code: 'MOCK-ITEM-001', message: 'Item created (mock)' };
+    }
+    if (path.indexOf('create_opening_entry') !== -1) {
+      msg = { _mock: true, name: 'MOCK-POS-OE-001', message: 'Opening entry (mock)' };
+    }
+    if (path.indexOf('create_closing_entry') !== -1) {
+      msg = { _mock: true, name: 'MOCK-POS-CE-001', message: 'Closing entry (mock)' };
+    }
+    if (path.indexOf('frappe.client.set_value') !== -1) {
+      msg = { _mock: true, message: 'Values updated (mock)' };
+    }
+    if (path.indexOf('frappe.client.get_list') !== -1) {
+      msg = { _mock: true, message: [{ name: 'Nos' }, { name: 'Box' }] };
+    }
+    if (path.indexOf('upload_file') !== -1) {
+      msg = { _mock: true, message: { file_url: '/files/mock-upload.png', file_name: 'mock-upload.png' } };
+    }
+    if (path.indexOf('pay_unpaid_invoice') !== -1 || path.indexOf('pay_purchase_invoice') !== -1) {
+      msg = { _mock: true, message: 'Payment recorded (mock)' };
+    }
+    if (path.indexOf('receive_outstanding') !== -1) {
+      msg = { _mock: true, message: 'Outstanding receipt prepared/submitted (mock)' };
+    }
+    if (path.indexOf('whatsapp') !== -1 || path.indexOf('email.send') !== -1 || path.indexOf('sms.send') !== -1) {
+      msg = { _mock: true, message: 'Message queued (mock)' };
+    }
+    if (path.indexOf('date_wise_inventory.get_data') !== -1) {
+      msg = { _mock: true, message: { columns: [], data: [], total_rows: 0 } };
+    }
+    if (path.indexOf('date_wise_inventory.export_pdf') !== -1) {
+      msg = { _mock: true, message: { file_url: '/files/mock-report.pdf' } };
+    }
+    return { message: msg };
+  }
+
+  var _origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    init = init || {};
+    var url = '';
+    var method = 'GET';
+    if (typeof input === 'string') {
+      url = input;
+      method = (init.method || 'GET').toUpperCase();
+    } else if (input && typeof Request !== 'undefined' && input instanceof Request) {
+      url = input.url;
+      method = (input.method || 'GET').toUpperCase();
+    } else if (input && input.url) {
+      url = input.url;
+      method = (init.method || 'GET').toUpperCase();
+    }
+    var isApi = url.indexOf('/api/') !== -1;
+    if (isApi && method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      var body = JSON.stringify(mockPayload(url));
+      return Promise.resolve(new Response(body, {
+        status: 200,
+        statusText: 'OK',
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    }
+    return _origFetch(input, init);
+  };
+})();
+  </script>
+
+  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js" crossorigin></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-standalone-preset.js" crossorigin></script>
+  <script>
+  window.onload = function () {
+    window.ui = SwaggerUIBundle({
+      url: '/assets/klik_pos/openapi/klik-pos.yaml',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+      layout: 'StandaloneLayout',
+      tryItOutEnabled: true,
+      supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
+      persistAuthorization: false
+    });
+  };
+  </script>
+</body>
+</html>
