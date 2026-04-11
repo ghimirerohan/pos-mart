@@ -62,6 +62,16 @@ interface ItemDetails {
   disabled: number
 }
 
+const STOCK_CORRECTION_REASONS = [
+  "Physical count mismatch",
+  "Damage / spoilage",
+  "Theft / shrinkage",
+  "Data entry error",
+  "System migration correction",
+  "Supplier return adjustment",
+  "Other",
+] as const
+
 interface EditForm {
   item_name: string
   item_group: string
@@ -71,6 +81,8 @@ interface EditForm {
   shelf_life_in_days: number | null
   barcode: string
   available_qty: number
+  correction_reason: string
+  correction_note: string
 }
 
 interface ItemBatchStockSummary {
@@ -176,6 +188,24 @@ const commonUOMs = ["Nos", "Kg", "Gram", "Liter", "ML", "Box", "Pack", "Dozen", 
 const itemGroups = ["Products", "Services", "Raw Materials", "Consumables", "Sub Assemblies"]
 
 function parseFrappeClientError(data: Record<string, unknown>): string | null {
+  const toPlainText = (raw: string): string => {
+    const s = raw.trim()
+    if (!s) return s
+    if (typeof window !== "undefined") {
+      const div = document.createElement("div")
+      div.innerHTML = s
+      return (div.textContent || div.innerText || s).replace(/\s+/g, " ").trim()
+    }
+    return s
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, "\"")
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+
   const sm = data._server_messages
   if (typeof sm === "string" && sm.trim()) {
     try {
@@ -185,9 +215,9 @@ function parseFrappeClientError(data: Record<string, unknown>): string | null {
         if (typeof first === "string") {
           try {
             const inner = JSON.parse(first) as { message?: string }
-            if (inner?.message) return inner.message
+            if (inner?.message) return toPlainText(inner.message)
           } catch {
-            return first
+            return toPlainText(first)
           }
         }
       }
@@ -197,11 +227,32 @@ function parseFrappeClientError(data: Record<string, unknown>): string | null {
   }
   if (typeof data.exception === "string" && data.exception.trim()) {
     const line = data.exception.split("\n")[0]
-    return line || data.exception
+    return toPlainText(line || data.exception)
   }
   if (typeof data.exc === "string" && data.exc.trim()) {
     const line = data.exc.split("\n").pop() || data.exc
-    return line.length > 200 ? `${line.slice(0, 200)}…` : line
+    const cleaned = toPlainText(line)
+    return cleaned.length > 240 ? `${cleaned.slice(0, 240)}…` : cleaned
+  }
+  return null
+}
+
+/** Frappe `/api/method/*` responses sometimes stringify `message`; normalize to an object. */
+function normalizeFrappeMethodMessage(message: unknown): Record<string, unknown> | null {
+  if (message == null) return null
+  if (typeof message === "string") {
+    try {
+      const parsed = JSON.parse(message) as unknown
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return null
+    }
+    return null
+  }
+  if (typeof message === "object" && !Array.isArray(message)) {
+    return message as Record<string, unknown>
   }
   return null
 }
@@ -234,9 +285,12 @@ export default function ItemDetailPage() {
     valuation_rate: 0,
     shelf_life_in_days: null,
     barcode: '',
-    available_qty: 0
+    available_qty: 0,
+    correction_reason: '',
+    correction_note: '',
   })
   const [isUpdatingStock, setIsUpdatingStock] = useState(false)
+  const [shelfLifeUnit, setShelfLifeUnit] = useState<"months" | "days">("months")
   const [newImage, setNewImage] = useState<string | null>(null)
   const [isOptimizingImage, setIsOptimizingImage] = useState(false)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
@@ -252,6 +306,9 @@ export default function ItemDetailPage() {
   const [batchModalOpen, setBatchModalOpen] = useState(false)
   const [batchModalLoading, setBatchModalLoading] = useState(false)
   const [batchModalError, setBatchModalError] = useState<string | null>(null)
+  const [editingBatchNo, setEditingBatchNo] = useState<string | null>(null)
+  const [editingBatchExpiry, setEditingBatchExpiry] = useState<string>("")
+  const [isSavingBatchExpiry, setIsSavingBatchExpiry] = useState(false)
 
   // Check if current user is Administrator
   const isAdministrator = user?.name === 'Administrator'
@@ -305,7 +362,7 @@ export default function ItemDetailPage() {
       // Fetch barcode from child table
       let barcode = ""
       if (itemDoc.barcodes && itemDoc.barcodes.length > 0) {
-        barcode = itemDoc.barcodes[0].barcode || ""
+        barcode = itemDoc.barcodes[0]?.barcode || ""
       }
 
       // Fetch stock qty
@@ -370,6 +427,8 @@ export default function ItemDetailPage() {
         shelf_life_in_days: itemDetails.shelf_life_in_days,
         barcode: itemDetails.barcode || "",
         available_qty: itemDetails.available_qty,
+        correction_reason: '',
+        correction_note: '',
       }
       setForm(formData)
       setOriginalForm(formData)
@@ -386,6 +445,11 @@ export default function ItemDetailPage() {
   useEffect(() => {
     fetchItemDetails()
   }, [fetchItemDetails])
+
+  // Default shelf-life editor to months whenever edit mode opens.
+  useEffect(() => {
+    if (isEditing) setShelfLifeUnit("months")
+  }, [isEditing])
 
   useEffect(() => {
     if (!itemCode || !item?.has_batch_no) {
@@ -416,6 +480,9 @@ export default function ItemDetailPage() {
     setBatchModalOpen(false)
     setBatchModalError(null)
     setBatchModalLoading(false)
+    setEditingBatchNo(null)
+    setEditingBatchExpiry("")
+    setIsSavingBatchExpiry(false)
   }, [])
 
   const openBatchModal = useCallback(async () => {
@@ -432,6 +499,66 @@ export default function ItemDetailPage() {
       setBatchModalLoading(false)
     }
   }, [itemCode])
+
+  const startEditBatchExpiry = useCallback((row: ItemBatchDetailRow) => {
+    setEditingBatchNo(row.batch_no)
+    setEditingBatchExpiry(row.expiry_date || "")
+  }, [])
+
+  const cancelEditBatchExpiry = useCallback(() => {
+    setEditingBatchNo(null)
+    setEditingBatchExpiry("")
+    setIsSavingBatchExpiry(false)
+  }, [])
+
+  const saveBatchExpiry = useCallback(async () => {
+    if (!itemCode || !editingBatchNo) return
+    setIsSavingBatchExpiry(true)
+    setBatchModalError(null)
+    try {
+      const response = await fetch(
+        "/api/method/klik_pos.api.item.update_batch_expiry",
+        await frappeJsonPostInit({
+          item_code: itemCode,
+          batch_no: editingBatchNo,
+          expiry_date: editingBatchExpiry || null,
+        })
+      )
+      const raw = (await response.json()) as Record<string, unknown>
+
+      if (!response.ok) {
+        const msg =
+          parseFrappeClientError(raw) ||
+          (typeof raw.message === "string" ? raw.message : null) ||
+          `Request failed (${response.status})`
+        throw new Error(msg)
+      }
+      if (raw.exc || raw.exception) {
+        throw new Error(String(raw.exc || raw.exception || "Failed to update batch expiry"))
+      }
+
+      const msg = normalizeFrappeMethodMessage(raw.message)
+      if (!msg || msg.status !== "success") {
+        throw new Error(
+          typeof msg?.message === "string" ? msg.message : "Failed to update batch expiry"
+        )
+      }
+
+      const updated = await fetchItemBatchStockDetails(itemCode)
+      setBatchStock(updated)
+      toast.success(
+        `Batch expiry updated${msg.batch_id ? ` (${String(msg.batch_id)})` : ""}`
+      )
+      setEditingBatchNo(null)
+      setEditingBatchExpiry("")
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Failed to update batch expiry"
+      setBatchModalError(m)
+      toast.error(m)
+    } finally {
+      setIsSavingBatchExpiry(false)
+    }
+  }, [editingBatchExpiry, editingBatchNo, itemCode])
 
   useEffect(() => {
     if (!batchModalOpen) return
@@ -486,7 +613,8 @@ export default function ItemDetailPage() {
       form.valuation_rate !== originalForm.valuation_rate ||
       form.shelf_life_in_days !== originalForm.shelf_life_in_days ||
       form.barcode !== originalForm.barcode ||
-      form.available_qty !== originalForm.available_qty
+      form.available_qty !== originalForm.available_qty ||
+      !!newImage
     )
   }
 
@@ -494,6 +622,7 @@ export default function ItemDetailPage() {
     if (originalForm) {
       setForm(originalForm)
     }
+    setShelfLifeUnit("months")
     setNewImage(null)
     setIsEditing(false)
   }
@@ -504,7 +633,7 @@ export default function ItemDetailPage() {
       setIsEditing(false)
       return
     }
-    
+
     if (!form.item_name.trim()) {
       toast.error('Item name is required')
       return
@@ -514,12 +643,28 @@ export default function ItemDetailPage() {
       toast.error('Batch-tracked items need shelf life (days) for expiry tracking')
       return
     }
-    
+
+    const stockChanged = form.available_qty !== originalForm?.available_qty
+    if (stockChanged && !form.correction_reason) {
+      toast.error('Please select a reason for the stock correction')
+      return
+    }
+
+    if (stockChanged && !item?.warehouse) {
+      toast.error('Warehouse not found. Please configure POS profile with a warehouse.')
+      return
+    }
+
     setIsSaving(true)
-    
+    if (stockChanged) setIsUpdatingStock(true)
+
     try {
-      // Update item document (excluding prices - they go to Item Price table)
-      const updateData: Record<string, unknown> = {
+      const barcodeChanged = form.barcode !== originalForm?.barcode
+      const sellingPriceChanged = form.standard_rate !== originalForm?.standard_rate
+      const buyingPriceChanged = form.valuation_rate !== originalForm?.valuation_rate
+
+      const payload: Record<string, unknown> = {
+        item_code: itemCode,
         item_name: form.item_name,
         item_group: form.item_group,
         stock_uom: form.stock_uom,
@@ -528,142 +673,84 @@ export default function ItemDetailPage() {
           ? 1
           : form.shelf_life_in_days && form.shelf_life_in_days > 0
             ? 1
-            : (item?.has_expiry_date || 0)
+            : (item?.has_expiry_date || 0),
+        barcode: form.barcode || "",
+        barcode_changed: barcodeChanged ? 1 : 0,
+        selling_price: form.standard_rate,
+        buying_price: form.valuation_rate,
+        selling_price_changed: sellingPriceChanged ? 1 : 0,
+        buying_price_changed: buyingPriceChanged ? 1 : 0,
+        image_data: newImage || "",
+        image_changed: newImage ? 1 : 0,
+        available_qty: form.available_qty,
+        stock_changed: stockChanged ? 1 : 0,
+        expected_qty: originalForm?.available_qty ?? 0,
+        correction_reason: form.correction_reason,
+        correction_note: form.correction_note,
+        warehouse: item?.warehouse || "",
       }
-      
-      // Handle barcode change
-      const barcodeChanged = form.barcode !== originalForm?.barcode
-      
-      // Check if prices changed
-      const sellingPriceChanged = form.standard_rate !== originalForm?.standard_rate
-      const buyingPriceChanged = form.valuation_rate !== originalForm?.valuation_rate
-      
-      // Update item document (non-price fields)
+
       const response = await fetch(
-        "/api/method/frappe.client.set_value",
-        await frappeJsonPostInit({
-          doctype: "Item",
-          name: itemCode,
-          fieldname: updateData,
-        })
+        "/api/method/klik_pos.api.item.update_item_detail",
+        await frappeJsonPostInit(payload)
       )
-      
-      const result = await response.json()
-      
-      if (result.exc || result.exception) {
-        throw new Error(result.exc || result.exception)
+
+      const raw = (await response.json()) as Record<string, unknown>
+
+      if (!response.ok) {
+        const msg =
+          parseFrappeClientError(raw) ||
+          (typeof raw.message === "string" ? raw.message : null) ||
+          `Request failed (${response.status})`
+        throw new Error(msg)
       }
-      
-      // Update Item Price entries (single source of truth for prices)
-      if (sellingPriceChanged || buyingPriceChanged) {
-        try {
-          const priceUpdateResponse = await fetch(
-            "/api/method/klik_pos.api.item.update_item_prices",
-            await frappeJsonPostInit({
-              item_code: itemCode,
-              selling_price: form.standard_rate,
-              buying_price: form.valuation_rate,
-            })
-          )
-          
-          const priceUpdateResult = await priceUpdateResponse.json()
-          
-          if (priceUpdateResult.exc || priceUpdateResult.exception) {
-            throw new Error(priceUpdateResult.exc || priceUpdateResult.exception || 'Failed to update prices')
-          }
-          
-          if (priceUpdateResult.message?.success) {
-            const updated = priceUpdateResult.message.updated || []
-            if (updated.includes('selling') && updated.includes('buying')) {
-              toast.success('Selling and buying prices updated in Item Price table')
-            } else if (updated.includes('selling')) {
-              toast.success('Selling price updated in Item Price table')
-            } else if (updated.includes('buying')) {
-              toast.success('Buying price updated in Item Price table')
-            }
-          }
-        } catch (priceErr: any) {
-          console.error('Price update failed:', priceErr)
-          toast.error(`Failed to update prices: ${priceErr.message || 'Unknown error'}`)
-        }
+
+      if (raw.exc || raw.exception) {
+        throw new Error(String(raw.exc || raw.exception || "Update failed"))
       }
-      
-      // Handle barcode update separately (child table)
-      if (barcodeChanged && itemCode) {
-        try {
-          await fetch(
-            "/api/method/klik_pos.api.item.update_item_barcode",
-            await frappeJsonPostInit({
-              item_code: itemCode,
-              barcode: form.barcode || "",
-            })
-          )
-        } catch (barcodeErr) {
-          console.error('Barcode update failed:', barcodeErr)
-        }
+
+      const msg = normalizeFrappeMethodMessage(raw.message)
+      if (!msg || msg.status !== "success") {
+        const detail =
+          typeof msg?.message === "string"
+            ? msg.message
+            : "Update did not complete."
+        throw new Error(detail)
       }
-      
-      // Handle image upload
-      if (newImage && itemCode) {
-        try {
-          await fetch(
-            "/api/method/klik_pos.api.item.update_item_image",
-            await frappeJsonPostInit({
-              item_code: itemCode,
-              image_data: newImage,
-            })
-          )
-        } catch (imgErr) {
-          console.error('Image update failed:', imgErr)
-        }
+
+      // Price toasts
+      const pricesUpdated = (msg.prices_updated as string[] | undefined) || []
+      if (pricesUpdated.includes("selling") && pricesUpdated.includes("buying")) {
+        toast.success("Selling and buying prices updated")
+      } else if (pricesUpdated.includes("selling")) {
+        toast.success("Selling price updated")
+      } else if (pricesUpdated.includes("buying")) {
+        toast.success("Buying price updated")
       }
-      
-      // Handle stock quantity update if changed
-      const stockChanged = form.available_qty !== originalForm?.available_qty
-      if (stockChanged && itemCode && item?.warehouse) {
-        setIsUpdatingStock(true)
-        try {
-          const stockResponse = await fetch(
-            "/api/method/klik_pos.api.item.update_opening_stock",
-            await frappeJsonPostInit({
-              item_code: itemCode,
-              warehouse: item.warehouse,
-              qty: form.available_qty,
-              valuation_rate: form.valuation_rate,
-            })
-          )
-          
-          const stockResult = await stockResponse.json()
-          
-          if (stockResult.exc || stockResult.exception) {
-            throw new Error(stockResult.exc || stockResult.exception || 'Failed to update stock')
-          }
-          
-          if (stockResult.message && stockResult.message.status === 'success') {
-            toast.success(`Stock updated: ${stockResult.message.old_qty} → ${stockResult.message.new_qty}`)
-          }
-        } catch (stockErr: any) {
-          console.error('Stock update failed:', stockErr)
-          toast.error(`Failed to update stock: ${stockErr.message || 'Unknown error'}`)
-        } finally {
-          setIsUpdatingStock(false)
-        }
-      } else if (stockChanged && !item?.warehouse) {
-        toast.error('Warehouse not found. Please configure POS profile with a warehouse.')
+
+      // Stock toast with SR reference
+      if (msg.stock_updated) {
+        const sd = msg.stock_detail as Record<string, unknown> | undefined
+        const srName = sd?.reconciliation_name ?? ""
+        const oldQ = sd?.old_qty ?? ""
+        const newQ = sd?.new_qty ?? ""
+        toast.success(
+          `Stock corrected: ${String(oldQ)} → ${String(newQ)}` +
+            (srName ? ` (${String(srName)})` : "")
+        )
       }
-      
-      toast.success('Item updated successfully!')
+
+      toast.success("Item updated successfully!")
       setIsEditing(false)
       setNewImage(null)
-      
-      // Refresh item details
       await fetchItemDetails()
-      
     } catch (err) {
-      console.error('Error updating item:', err)
-      toast.error('Failed to update item')
+      console.error("Error updating item:", err)
+      const m = err instanceof Error ? err.message : "Failed to update item"
+      toast.error(m)
     } finally {
       setIsSaving(false)
+      setIsUpdatingStock(false)
     }
   }
 
@@ -1238,6 +1325,40 @@ export default function ItemDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Stock correction reason — shown only when qty is changed */}
+          {isEditing && form.available_qty !== originalForm?.available_qty && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 space-y-3">
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                Stock qty changed from {originalForm?.available_qty ?? 0} to {form.available_qty} — a Stock Reconciliation will be created.
+              </p>
+              <div>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  Reason for correction <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={form.correction_reason}
+                  onChange={(e) => setForm(prev => ({ ...prev, correction_reason: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                >
+                  <option value="">Select a reason...</option>
+                  {STOCK_CORRECTION_REASONS.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Note (optional)</label>
+                <input
+                  type="text"
+                  value={form.correction_note}
+                  onChange={(e) => setForm(prev => ({ ...prev, correction_note: e.target.value }))}
+                  placeholder="Additional details..."
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Shelf Life */}
@@ -1247,16 +1368,60 @@ export default function ItemDetailPage() {
             <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400">Shelf Life</h2>
           </div>
           {isEditing ? (
-            <div className="flex items-center space-x-2">
-              <input
-                type="number"
-                min="0"
-                value={form.shelf_life_in_days || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, shelf_life_in_days: parseInt(e.target.value) || null }))}
-                placeholder="Enter days"
-                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-              <span className="text-gray-500 dark:text-gray-400">days</span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300">
+                  <input
+                    type="radio"
+                    name="itemDetailShelfLifeUnit"
+                    checked={shelfLifeUnit === "months"}
+                    onChange={() => setShelfLifeUnit("months")}
+                    className="text-brand-600"
+                  />
+                  Months
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300">
+                  <input
+                    type="radio"
+                    name="itemDetailShelfLifeUnit"
+                    checked={shelfLifeUnit === "days"}
+                    onChange={() => setShelfLifeUnit("days")}
+                    className="text-brand-600"
+                  />
+                  Days
+                </label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="number"
+                  min="0"
+                  step={shelfLifeUnit === "months" ? "0.1" : "1"}
+                  value={
+                    shelfLifeUnit === "months"
+                      ? (form.shelf_life_in_days ? Number((form.shelf_life_in_days / 30).toFixed(1)) : "")
+                      : (form.shelf_life_in_days ?? "")
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    if (!raw.trim()) {
+                      setForm(prev => ({ ...prev, shelf_life_in_days: null }))
+                      return
+                    }
+                    const n = parseFloat(raw)
+                    if (!Number.isFinite(n) || n < 0) {
+                      setForm(prev => ({ ...prev, shelf_life_in_days: null }))
+                      return
+                    }
+                    const days = shelfLifeUnit === "months" ? Math.round(n * 30) : Math.round(n)
+                    setForm(prev => ({ ...prev, shelf_life_in_days: days > 0 ? days : null }))
+                  }}
+                  placeholder={shelfLifeUnit === "months" ? "Enter months" : "Enter days"}
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+                <span className="text-gray-500 dark:text-gray-400 text-sm">
+                  {shelfLifeUnit}
+                </span>
+              </div>
             </div>
           ) : (
             <div className="px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-gray-900 dark:text-white">
@@ -1452,14 +1617,54 @@ export default function ItemDetailPage() {
                           : null
                       const lastMovementHref =
                         seHref || piMovementHref || prMovementHref || siMovementHref
+                      const isEditingExpiry = editingBatchNo === row.batch_no
                       return (
                         <tr key={row.batch_no} className="border-b border-gray-100 dark:border-gray-700/80 align-top">
                           <td className="py-2 pr-2 font-mono text-[11px] sm:text-xs break-all">{row.batch_id}</td>
                           <td className="py-2 pr-2 text-right whitespace-nowrap">{formatGroupedAmount(row.qty)}</td>
                           <td className="py-2 pr-2 hidden sm:table-cell text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                            {row.expiry_date
-                              ? `${row.expiry_date}${row.days_to_expiry != null ? ` (${row.days_to_expiry}d)` : ""}`
-                              : "—"}
+                            {isEditingExpiry ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="date"
+                                  value={editingBatchExpiry}
+                                  onChange={(e) => setEditingBatchExpiry(e.target.value)}
+                                  className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void saveBatchExpiry()}
+                                  disabled={isSavingBatchExpiry}
+                                  className="px-2 py-1 rounded bg-brand-600 text-white text-[11px] disabled:opacity-60"
+                                >
+                                  {isSavingBatchExpiry ? "..." : "Save"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEditBatchExpiry}
+                                  disabled={isSavingBatchExpiry}
+                                  className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-[11px] text-gray-700 dark:text-gray-200 disabled:opacity-60"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span>
+                                  {row.expiry_date
+                                    ? `${row.expiry_date}${row.days_to_expiry != null ? ` (${row.days_to_expiry}d)` : ""}`
+                                    : "—"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditBatchExpiry(row)}
+                                  className="inline-flex items-center gap-1 text-brand-600 hover:underline dark:text-brand-400"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  <span className="text-[11px]">Edit</span>
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="py-2 pr-2">{row.source_label}</td>
                           <td className="py-2 pr-2 hidden md:table-cell text-gray-600 dark:text-gray-400">

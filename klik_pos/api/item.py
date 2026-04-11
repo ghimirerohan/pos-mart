@@ -2,7 +2,7 @@ import frappe
 from erpnext.accounts.doctype.pricing_rule.pricing_rule import apply_pricing_rule
 from erpnext.stock.utils import get_stock_balance
 from frappe import _
-from frappe.utils import flt, get_datetime, getdate, today
+from frappe.utils import cint, flt, get_datetime, getdate, today
 
 from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
@@ -607,6 +607,43 @@ def _get_pos_context():
 	return pos_doc, warehouse, price_list, hide_unavailable
 
 
+def _item_price_row_uom_matches_item(stock_uom: str, row_uom) -> bool:
+	"""Blank / NULL Item Price UOM means the rate applies to the item's stock UOM (ERPNext)."""
+	if row_uom is None:
+		return True
+	if isinstance(row_uom, str) and not row_uom.strip():
+		return True
+	return row_uom == stock_uom
+
+
+def _resolve_active_selling_price_list(pos_selling_price_list: str | None) -> str | None:
+	"""
+	Price list used for standard selling rates in catalog/POS item payloads.
+
+	1. POS Profile selling_price_list (if set and valid)
+	2. Selling Settings default selling price list
+	3. Any enabled Price List with selling=1
+	"""
+	pl = (pos_selling_price_list or "").strip()
+	if pl and frappe.db.exists("Price List", pl):
+		return pl
+	try:
+		pl2 = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+	except Exception:
+		pl2 = None
+	pl2 = (pl2 or "").strip()
+	if pl2 and frappe.db.exists("Price List", pl2):
+		return pl2
+	_fallback = frappe.get_all(
+		"Price List",
+		filters={"selling": 1, "enabled": 1},
+		pluck="name",
+		limit=1,
+		order_by="modified desc",
+	)
+	return _fallback[0] if _fallback else None
+
+
 def _fetch_batch_stock(item_codes: list, warehouse: str) -> dict:
 	"""Fetch stock balances for multiple items using Stock Ledger Entries.
 
@@ -714,15 +751,17 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 
 		results = frappe.db.sql(sql, params, as_dict=True)
 
-		# Build price map - prefer prices matching the item's UOM
+		# Build price map - prefer prices matching the item's stock UOM (blank IP UOM = stock UOM)
 		for row in results:
 			item_code = row["item_code"]
 			item_uom = uom_map.get(item_code, "Nos")
 
 			# If we already have a price for this item, only replace if UOM matches better
 			if item_code in price_map:
-				existing_uom_match = price_map[item_code].get("uom") == item_uom
-				new_uom_match = row.get("uom") == item_uom
+				existing_uom_match = _item_price_row_uom_matches_item(
+					item_uom, price_map[item_code].get("uom")
+				)
+				new_uom_match = _item_price_row_uom_matches_item(item_uom, row.get("uom"))
 				if not new_uom_match or existing_uom_match:
 					continue
 
@@ -755,8 +794,10 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 
 			# If we already have a buying price for this item, only replace if UOM matches better
 			if item_code in buying_price_map:
-				existing_uom_match = buying_price_map[item_code].get("uom") == item_uom
-				new_uom_match = row.get("uom") == item_uom
+				existing_uom_match = _item_price_row_uom_matches_item(
+					item_uom, buying_price_map[item_code].get("uom")
+				)
+				new_uom_match = _item_price_row_uom_matches_item(item_uom, row.get("uom"))
 				if not new_uom_match or existing_uom_match:
 					continue
 
@@ -846,7 +887,7 @@ def get_items_with_balance_and_price(
 		# Build the base query
 		select_fields = (
 			"i.name, i.item_name, i.description, i.item_group, i.image, i.stock_uom, "
-			"i.has_batch_no, i.has_expiry_date, i.shelf_life_in_days"
+			"i.has_batch_no, i.has_expiry_date, i.shelf_life_in_days, i.standard_rate"
 		)
 
 		if hide_unavailable:
@@ -1025,7 +1066,8 @@ def get_items_with_balance_and_price(
 
 		# Fetch stock and prices in batch (optimized)
 		stock_map = _fetch_batch_stock(item_codes, warehouse)
-		price_map = _fetch_batch_prices(item_codes, price_list, uom_map)
+		selling_price_list = _resolve_active_selling_price_list(price_list)
+		price_map = _fetch_batch_prices(item_codes, selling_price_list, uom_map)
 
 		# Build enriched items
 		enriched_items = []
@@ -1041,13 +1083,18 @@ def get_items_with_balance_and_price(
 			price_info = price_map.get(item_code, {"price": 0, "currency": "SAR", "currency_symbol": "SAR"})
 			primary_barcode = barcode_map.get(item_code)
 
+			# Sell: resolved selling price list Item Price, else Item.standard_rate (standard selling on item)
+			sell_from_list = flt(price_info.get("price") or 0)
+			standard_selling = flt(item.get("standard_rate") or 0)
+			effective_sell = sell_from_list if sell_from_list > 0 else standard_selling
+
 			enriched_items.append(
 				{
 					"id": item_code,
 					"name": item.get("item_name") or item_code,
 					"description": item.get("description", ""),
 					"category": item.get("item_group", "General"),
-					"price": price_info["price"],
+					"price": effective_sell,
 					"buying_price": price_info.get("buying_price", 0),
 					"currency": price_info["currency"],
 					"currency_symbol": price_info["currency_symbol"],
@@ -1660,6 +1707,62 @@ def get_item_batch_stock_details(item_code):
 			"avg_buying_rate": avg_buy,
 		},
 		"batches": rows_out,
+	}
+
+
+@frappe.whitelist()
+def update_batch_expiry(item_code: str, batch_no: str, expiry_date: str | None = None):
+	"""
+	Update expiry date for a batch from Item Detail > On-hand batches modal.
+
+	Args:
+		item_code: Item code that owns the batch
+		batch_no: Batch name or batch_id
+		expiry_date: New expiry date (YYYY-MM-DD) or empty/null to clear
+	"""
+	item_code = (item_code or "").strip()
+	batch_no = (batch_no or "").strip()
+
+	if not item_code:
+		frappe.throw(_("Item code is required"))
+	if not batch_no:
+		frappe.throw(_("Batch is required"))
+
+	if not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Item '{0}' not found").format(item_code))
+
+	# Resolve by Batch name first, then by batch_id for convenience.
+	batch_name = frappe.db.get_value("Batch", {"name": batch_no, "item": item_code}, "name")
+	if not batch_name:
+		batch_name = frappe.db.get_value("Batch", {"batch_id": batch_no, "item": item_code}, "name")
+	if not batch_name:
+		frappe.throw(_("Batch '{0}' was not found for Item '{1}'").format(batch_no, item_code))
+
+	batch_doc = frappe.get_doc("Batch", batch_name)
+	new_expiry = getdate(expiry_date) if expiry_date else None
+	old_expiry = batch_doc.expiry_date
+
+	if (old_expiry or None) == (new_expiry or None):
+		return {
+			"status": "success",
+			"batch_no": batch_doc.name,
+			"batch_id": batch_doc.batch_id or batch_doc.name,
+			"old_expiry_date": str(old_expiry) if old_expiry else "",
+			"new_expiry_date": str(new_expiry) if new_expiry else "",
+			"message": _("Expiry date already set to the same value."),
+		}
+
+	batch_doc.expiry_date = new_expiry
+	batch_doc.save(ignore_permissions=True)
+	frappe.db.commit()
+
+	return {
+		"status": "success",
+		"batch_no": batch_doc.name,
+		"batch_id": batch_doc.batch_id or batch_doc.name,
+		"old_expiry_date": str(old_expiry) if old_expiry else "",
+		"new_expiry_date": str(new_expiry) if new_expiry else "",
+		"message": _("Batch expiry updated successfully."),
 	}
 
 
@@ -3327,6 +3430,156 @@ def get_item_prices(item_code: str):
 
 
 @frappe.whitelist()
+def update_item_detail(
+	item_code: str,
+	# Item fields
+	item_name: str | None = None,
+	item_group: str | None = None,
+	stock_uom: str | None = None,
+	shelf_life_in_days: int | None = None,
+	has_expiry_date: int | None = None,
+	# Barcode
+	barcode: str | None = None,
+	barcode_changed: int = 0,
+	# Prices (Item Price table — independent of stock valuation)
+	selling_price: float | None = None,
+	buying_price: float | None = None,
+	selling_price_changed: int = 0,
+	buying_price_changed: int = 0,
+	# Image
+	image_data: str | None = None,
+	image_changed: int = 0,
+	# Stock correction
+	available_qty: float | None = None,
+	stock_changed: int = 0,
+	expected_qty: float | None = None,
+	correction_reason: str = "",
+	correction_note: str = "",
+	warehouse: str = "",
+):
+	"""
+	Atomic save for the Item Detail page.
+
+	All sub-operations (item fields, barcode, prices, image, stock) happen
+	inside a single request.  If any step fails the entire transaction is
+	rolled back and nothing is half-saved.
+
+	**Stock correction** is a pure qty operation — valuation rate is read
+	from the Bin so selling/buying Item Prices are never affected.
+	"""
+	from frappe.utils import flt
+
+	if not item_code or not frappe.db.exists("Item", item_code):
+		frappe.throw(_("Item '{0}' not found").format(item_code))
+
+	result: dict = {
+		"item_updated": False,
+		"barcode_updated": False,
+		"prices_updated": [],
+		"image_updated": False,
+		"stock_updated": False,
+		"stock_detail": None,
+	}
+
+	try:
+		# --- 1. Item document fields ---
+		item_fields: dict = {}
+		if item_name is not None:
+			item_fields["item_name"] = item_name
+		if item_group is not None:
+			item_fields["item_group"] = item_group
+		if stock_uom is not None:
+			item_fields["stock_uom"] = stock_uom
+		if shelf_life_in_days is not None:
+			item_fields["shelf_life_in_days"] = shelf_life_in_days
+		if has_expiry_date is not None:
+			item_fields["has_expiry_date"] = has_expiry_date
+
+		if item_fields:
+			frappe.client.set_value("Item", item_code, item_fields)
+			result["item_updated"] = True
+
+		# --- 2. Barcode ---
+		if cint(barcode_changed):
+			update_item_barcode(item_code, barcode or "")
+			result["barcode_updated"] = True
+
+		# --- 3. Selling / buying prices (Item Price table) ---
+		if cint(selling_price_changed) or cint(buying_price_changed):
+			sp = flt(selling_price) if cint(selling_price_changed) else None
+			bp = flt(buying_price) if cint(buying_price_changed) else None
+			price_result = update_item_prices(
+				item_code=item_code,
+				selling_price=sp,
+				buying_price=bp,
+			)
+			if isinstance(price_result, dict):
+				result["prices_updated"] = price_result.get("updated", [])
+
+		# --- 4. Image ---
+		if cint(image_changed) and image_data:
+			update_item_image(item_code, image_data)
+			result["image_updated"] = True
+
+		# --- 5. Stock correction (last — heaviest operation) ---
+		if cint(stock_changed):
+			stock_result = update_opening_stock(
+				item_code=item_code,
+				warehouse=warehouse,
+				qty=flt(available_qty),
+				expected_qty=flt(expected_qty) if expected_qty is not None else None,
+				correction_reason=correction_reason,
+				correction_note=correction_note,
+			)
+			if isinstance(stock_result, dict) and stock_result.get("status") == "success":
+				result["stock_updated"] = True
+				result["stock_detail"] = {
+					"reconciliation_name": stock_result.get("reconciliation_name"),
+					"old_qty": stock_result.get("old_qty"),
+					"new_qty": stock_result.get("new_qty"),
+					"balance_after": stock_result.get("balance_after"),
+					"correction_reason": stock_result.get("correction_reason"),
+				}
+
+		frappe.db.commit()
+		return {"status": "success", **result}
+
+	except Exception:
+		frappe.db.rollback()
+		raise
+
+
+def _warehouse_for_pos_item_stock(warehouse_from_client: str | None) -> str:
+	"""
+	Align stock reads/writes with the same warehouse as ``get_item_stock``.
+
+	The SPA sends the warehouse from the last stock response; that can be wrong
+	if the POS profile changed or the client is stale. When this user/session
+	has a POS Profile, we always use that profile's warehouse (ERPNext source
+	of truth for POS). Otherwise we require an explicit warehouse (e.g. desk/API).
+	"""
+	try:
+		pos_wh = (get_current_pos_profile().warehouse or "").strip()
+	except Exception:
+		pos_wh = ""
+	if pos_wh:
+		client = (warehouse_from_client or "").strip()
+		if client and client != pos_wh:
+			frappe.log_error(
+				title="klik_pos: Item Detail stock warehouse corrected",
+				message=(
+					f"update_opening_stock received warehouse {client!r}; "
+					f"using POS Profile warehouse {pos_wh!r} (same as get_item_stock)."
+				),
+			)
+		return pos_wh
+	resolved = (warehouse_from_client or "").strip()
+	if not resolved:
+		frappe.throw(_("Warehouse is required"))
+	return resolved
+
+
+@frappe.whitelist()
 def update_opening_stock(
 	item_code: str,
 	warehouse: str,
@@ -3334,18 +3587,27 @@ def update_opening_stock(
 	batch_no: str | None = None,
 	valuation_rate: float = 0,
 	posting_date: str | None = None,
-	remarks: str = ""
+	remarks: str = "",
+	expected_qty: float | None = None,
+	correction_reason: str = "",
+	correction_note: str = "",
 ):
 	"""
 	Update stock quantity for an existing item via Stock Reconciliation.
 
-	Used when editing qty from the Item Detail page (post-creation).
-	Opening stock is only set during item creation via Material Receipt;
-	subsequent adjustments go through Stock Reconciliation purpose.
+	This is a **pure qty correction** — the system's count is wrong relative
+	to a physical stock-take.  Valuation rate is always read from the current
+	Bin (not user-supplied) so selling/buying Item Prices and previously
+	booked margins are never disturbed by this operation.
 
-	For batch-tracked items with multiple batches the adjustment is
-	distributed: the largest batch is kept/resized to hold the target,
-	and smaller batches are zeroed out as needed.
+	Batch distribution uses **FEFO** (First Expiry, First Out) for items with
+	``has_expiry_date`` so expired / near-expiry batches are consumed first
+	when reducing stock.
+
+	Optimistic concurrency: the client sends ``expected_qty`` (the balance it
+	displayed before the user edited).  If the server's current balance differs
+	the request is rejected so stale writes don't silently overwrite a
+	concurrent change.
 	"""
 	from frappe.utils import nowdate, nowtime, flt
 	from erpnext.stock.utils import get_stock_balance
@@ -3353,8 +3615,8 @@ def update_opening_stock(
 	try:
 		if not item_code:
 			frappe.throw(_("Item Code is required"))
-		if not warehouse:
-			frappe.throw(_("Warehouse is required"))
+
+		warehouse = _warehouse_for_pos_item_stock(warehouse)
 
 		qty = flt(qty)
 		if qty < 0:
@@ -3367,13 +3629,31 @@ def update_opening_stock(
 
 		item = frappe.get_cached_doc("Item", item_code)
 
+		if cint(item.has_serial_no):
+			frappe.throw(
+				_(
+					"Serial-numbered items cannot be quantity-adjusted from the POS item screen. "
+					"Use Stock Reconciliation in ERPNext."
+				)
+			)
+
 		posting_date = posting_date or nowdate()
 		posting_time = nowtime()
-		valuation_rate = flt(valuation_rate)
 
 		total_current_qty = flt(get_stock_balance(item_code, warehouse, posting_date, posting_time))
 
-		if qty == total_current_qty:
+		# --- optimistic concurrency ---
+		if expected_qty is not None:
+			expected = flt(expected_qty)
+			if abs(expected - total_current_qty) > 0.01:
+				frappe.throw(
+					_(
+						"Stock was modified by another user or process. "
+						"Expected {0} but server has {1}. Please refresh and try again."
+					).format(expected, total_current_qty)
+				)
+
+		if abs(qty - total_current_qty) < 1e-6:
 			frappe.throw(
 				_("Stock quantity is already {0} for {1} in {2}. No update needed.").format(
 					total_current_qty, item_code, warehouse
@@ -3384,12 +3664,39 @@ def update_opening_stock(
 		if not company:
 			frappe.throw(_("Company not found for warehouse '{0}'").format(warehouse))
 
-		# --- valuation rate ---
-		current_valuation_rate = flt(
+		# --- reservation guard (clear message before ERPNext throws HTML-rich error) ---
+		from erpnext.stock.doctype.stock_reservation_entry.stock_reservation_entry import (
+			get_sre_reserved_qty_for_items_and_warehouses,
+		)
+
+		reserved_map = get_sre_reserved_qty_for_items_and_warehouses([item_code], [warehouse]) or {}
+		reserved_qty = flt(reserved_map.get((item_code, warehouse)))
+		if reserved_qty > 0:
+			max_adjustable_qty = max(flt(total_current_qty - reserved_qty), 0)
+			frappe.throw(
+				_(
+					"Cannot adjust stock while {0} units are reserved for Item {1} in Warehouse {2}. "
+					"Unreserve the stock first, then retry. Current qty: {3}, max qty you can set after unreserve check: {4}."
+				).format(reserved_qty, item_code, warehouse, total_current_qty, max_adjustable_qty),
+				title=_("Stock Reservation"),
+			)
+
+		# --- valuation rate: always use Bin rate (pure qty correction) ---
+		valuation_rate = flt(
 			frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "valuation_rate")
 		)
 		if not valuation_rate:
-			valuation_rate = current_valuation_rate
+			valuation_rate = flt(item.valuation_rate) or flt(item.standard_rate) or 1
+
+		# --- build remark with correction reason ---
+		remark_parts: list[str] = []
+		if correction_reason:
+			remark_parts.append(correction_reason)
+		if correction_note:
+			remark_parts.append(correction_note)
+		if not remark_parts:
+			remark_parts.append("Stock correction from Item Detail page")
+		full_remarks = " — ".join(remark_parts)
 
 		# --- build reconciliation item rows ---
 		item_rows = _build_reconciliation_rows(
@@ -3409,12 +3716,14 @@ def update_opening_stock(
 			"posting_time": posting_time,
 			"company": company,
 			"items": item_rows,
-			"remarks": remarks or _("Stock correction from Item Detail page"),
+			"remarks": full_remarks,
 		})
 
 		reconciliation.insert()
 		reconciliation.submit()
 		frappe.db.commit()
+
+		balance_after = flt(get_stock_balance(item_code, warehouse))
 
 		return {
 			"status": "success",
@@ -3423,7 +3732,9 @@ def update_opening_stock(
 			"warehouse": warehouse,
 			"old_qty": total_current_qty,
 			"new_qty": qty,
+			"balance_after": balance_after,
 			"difference": qty - total_current_qty,
+			"correction_reason": correction_reason or None,
 			"message": _("Stock updated from {0} to {1} for {2} in {3}").format(
 				total_current_qty, qty, item_code, warehouse
 			),
@@ -3442,14 +3753,18 @@ def _build_reconciliation_rows(
 	item, item_code, warehouse, target_qty, total_current_qty, valuation_rate, batch_no=None
 ):
 	"""
-	Build the list of Stock Reconciliation item rows.
+	Build Stock Reconciliation item rows.
 
 	Non-batch items: single row with the target qty.
-	Batch items: distributes target_qty across batches — keeps stock in
-	the largest batch (or the specified batch_no) and zeros out the rest
-	as needed so the warehouse total equals target_qty.
+
+	Batch items — **FEFO** (First Expiry, First Out) when reducing stock:
+	batches are sorted by expiry_date ascending (expired / soonest-to-expire
+	first) so reductions drain the oldest batches while keeping the freshest.
+	When *increasing* stock the extra qty goes to the freshest batch (last
+	expiry).  Batches without an expiry_date are treated as oldest.
 	"""
-	from frappe.utils import flt
+	from frappe.utils import flt, getdate
+	from datetime import date as _date
 
 	if not item.has_batch_no:
 		return [{
@@ -3463,7 +3778,6 @@ def _build_reconciliation_rows(
 	batches = _get_all_batches_with_stock(item_code, warehouse)
 
 	if not batches:
-		# No batches with stock — create a new batch to hold the target qty
 		batch_no = batch_no or _create_new_batch(item_code)
 		return [{
 			"item_code": item_code,
@@ -3474,81 +3788,102 @@ def _build_reconciliation_rows(
 			"batch_no": batch_no,
 		}]
 
-	# Sort batches: largest stock first
-	batches.sort(key=lambda b: b["qty"], reverse=True)
+	# FEFO sort: expired / soonest-to-expire first (NULL expiry treated as oldest)
+	_far_future = _date(9999, 12, 31)
+	_far_past = _date(1970, 1, 1)
 
-	rows = []
-	remaining = flt(target_qty)
+	def _expiry_sort_key(b):
+		exp = b.get("expiry_date")
+		if not exp:
+			return _far_past
+		try:
+			return getdate(exp)
+		except Exception:
+			return _far_past
 
-	for batch in batches:
-		bno = batch["batch_no"]
-		bqty = flt(batch["qty"])
+	# Always keep FEFO order (oldest->freshest). Allocation logic below decides
+	# whether we are effectively reducing or increasing against batch_total.
+	batches.sort(key=_expiry_sort_key)
 
-		if remaining >= bqty:
-			# Keep this batch as-is (no change needed, skip it)
-			remaining -= bqty
-		elif remaining > 0:
-			# Partially keep — set this batch to whatever is remaining
-			rows.append({
-				"item_code": item_code,
-				"warehouse": warehouse,
-				"qty": remaining,
-				"valuation_rate": valuation_rate,
-				"use_serial_batch_fields": 1,
-				"batch_no": bno,
-			})
-			remaining = 0
-		else:
-			# Zero out this batch
-			rows.append({
-				"item_code": item_code,
-				"warehouse": warehouse,
-				"qty": 0,
-				"valuation_rate": valuation_rate,
-				"use_serial_batch_fields": 1,
-				"batch_no": bno,
-			})
+	batch_total = flt(sum(flt(b["qty"]) for b in batches))
+	rows: list[dict] = []
+	target = flt(target_qty)
 
-	# If remaining > 0, we need MORE stock than currently exists.
-	# Add the extra to the largest batch.
-	if remaining > 0:
-		largest = batches[0]["batch_no"]
-		largest_current = flt(batches[0]["qty"])
-		# Check if we already have a row for this batch (we modified it above)
-		existing_row = next((r for r in rows if r["batch_no"] == largest), None)
-		if existing_row:
-			existing_row["qty"] = flt(existing_row["qty"]) + remaining
-		else:
-			# Largest batch was kept as-is; now we need to increase it
-			rows.append({
-				"item_code": item_code,
-				"warehouse": warehouse,
-				"qty": largest_current + remaining,
-				"valuation_rate": valuation_rate,
-				"use_serial_batch_fields": 1,
-				"batch_no": largest,
-			})
+	if target <= batch_total:
+		# Walk oldest→newest.  Drain (zero-out) oldest batches first;
+		# the freshest batches keep their stock.
+		# Strategy: accumulate from the *freshest* end to fill remaining,
+		# everything else gets zeroed.
+		# Reverse iterate (freshest first) to decide who keeps stock.
+		keep: dict[str, float] = {}
+		budget = target
+		for b in reversed(batches):
+			bqty = flt(b["qty"])
+			if budget >= bqty:
+				keep[b["batch_no"]] = bqty
+				budget -= bqty
+			elif budget > 0:
+				keep[b["batch_no"]] = budget
+				budget = 0
+			# else: this batch gets zeroed (not in keep)
+
+		for b in batches:
+			bno = b["batch_no"]
+			bqty = flt(b["qty"])
+			new_qty = flt(keep.get(bno, 0))
+			if abs(new_qty - bqty) > 1e-6:
+				rows.append({
+					"item_code": item_code,
+					"warehouse": warehouse,
+					"qty": new_qty,
+					"valuation_rate": valuation_rate,
+					"use_serial_batch_fields": 1,
+					"batch_no": bno,
+				})
+	else:
+		# Increasing stock — add extra to the freshest batch
+		extra = target - batch_total
+		freshest = batches[-1]
+		freshest_bno = freshest["batch_no"]
+		freshest_current = flt(freshest["qty"])
+
+		rows.append({
+			"item_code": item_code,
+			"warehouse": warehouse,
+			"qty": freshest_current + extra,
+			"valuation_rate": valuation_rate,
+			"use_serial_batch_fields": 1,
+			"batch_no": freshest_bno,
+		})
 
 	if not rows:
-		# target_qty equals sum of all batches — shouldn't happen (caught earlier)
 		frappe.throw(_("No stock adjustment needed."))
 
 	return rows
 
 
 def _get_all_batches_with_stock(item_code, warehouse):
-	"""Return list of dicts [{batch_no, qty}, ...] for batches with positive stock.
+	"""Return ``[{batch_no, qty, expiry_date}, ...]`` for batches with positive stock.
 
-	Uses ERPNext's get_batch_qty which handles both legacy batch_no on SLE
-	and the newer Serial and Batch Bundle system.
+	``for_stock_levels=True`` includes **expired** batches so the batch-sum
+	matches ``get_stock_balance`` (the warehouse-level total).  ``expiry_date``
+	is carried through for FEFO sorting in ``_build_reconciliation_rows``.
 	"""
 	from frappe.utils import flt
 	from erpnext.stock.doctype.batch.batch import get_batch_qty
 
-	batches = get_batch_qty(item_code=item_code, warehouse=warehouse) or []
+	batches = get_batch_qty(
+		item_code=item_code,
+		warehouse=warehouse,
+		for_stock_levels=True,
+	) or []
 
 	return [
-		{"batch_no": b.get("batch_no"), "qty": flt(b.get("qty"))}
+		{
+			"batch_no": b.get("batch_no"),
+			"qty": flt(b.get("qty")),
+			"expiry_date": b.get("expiry_date"),
+		}
 		for b in batches
 		if flt(b.get("qty")) > 0
 	]
@@ -3646,6 +3981,7 @@ def get_items_for_export():
 	try:
 		# Get POS context for warehouse
 		pos_doc, warehouse, price_list, hide_unavailable = _get_pos_context()
+		selling_price_list = _resolve_active_selling_price_list(price_list)
 		
 		# Fetch all active stock items
 		items = frappe.get_all(
@@ -3663,7 +3999,7 @@ def get_items_for_export():
 				"has_batch_no",
 				"has_expiry_date",
 				"valuation_rate",
-				"standard_rate"
+				"standard_rate",
 			],
 			order_by="item_name asc",
 			limit=0  # No limit - get all items
@@ -3697,7 +4033,7 @@ def get_items_for_export():
 		stock_map = _fetch_batch_stock(item_codes, warehouse) if warehouse else {}
 		
 		# Fetch prices in batch
-		price_map = _fetch_batch_prices(item_codes, price_list, uom_map)
+		price_map = _fetch_batch_prices(item_codes, selling_price_list, uom_map)
 		
 		# Build export items
 		export_items = []
@@ -3706,7 +4042,8 @@ def get_items_for_export():
 			
 			# Get price info
 			price_info = price_map.get(item_code, {})
-			selling_price = price_info.get("price", 0) or item.get("standard_rate", 0)
+			sell_pl = flt(price_info.get("price") or 0)
+			selling_price = sell_pl if sell_pl > 0 else flt(item.get("standard_rate") or 0)
 			buying_price = price_info.get("buying_price", 0) or item.get("valuation_rate", 0)
 			
 			# Get stock qty

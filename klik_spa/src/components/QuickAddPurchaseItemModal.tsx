@@ -130,6 +130,14 @@ const lookupBarcode = async (barcode: string): Promise<ProductInfo | null> => {
 // ------------------------------------------------------------------
 const commonUOMs = ["Nos", "Kg", "Gram", "Liter", "ML", "Box", "Pack", "Dozen", "Piece", "Unit"]
 const itemGroups = ["Products", "Services", "Raw Materials", "Consumables", "Sub Assemblies"]
+const CREDIT_MODE = "Credit"
+
+const formatDateInput = (d: Date): string => {
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
 
 // ------------------------------------------------------------------
 // Props
@@ -181,6 +189,8 @@ export default function QuickAddPurchaseItemModal({
   const [expiryType, setExpiryType] = useState<"months" | "date">("months")
   const [shelfLifeMonths, setShelfLifeMonths] = useState(3)
   const [bestBefore, setBestBefore] = useState("")
+  const [purchaseExpiryDate, setPurchaseExpiryDate] = useState("")
+  const [purchaseExpiryDirty, setPurchaseExpiryDirty] = useState(false)
 
   // supplier
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
@@ -198,6 +208,35 @@ export default function QuickAddPurchaseItemModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStep, setSubmitStep] = useState("")
+  const paymentModeOptions = paymentModes
+    .map((m) => m.mode_of_payment)
+    .filter((v, i, arr) => !!v && arr.indexOf(v) === i)
+  if (!paymentModeOptions.some((m) => m.toLowerCase() === CREDIT_MODE.toLowerCase())) {
+    paymentModeOptions.push(CREDIT_MODE)
+  }
+
+  const inferredShelfLifeDays =
+    expiryType === "months"
+      ? shelfLifeMonths > 0
+        ? shelfLifeMonths * 30
+        : 0
+      : bestBefore
+        ? Math.max(
+            0,
+            Math.ceil((new Date(bestBefore).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+          )
+        : 0
+
+  const inferredDefaultPurchaseExpiry = (() => {
+    if (!hasBatch) return ""
+    if (expiryType === "date" && bestBefore) return bestBefore
+    if (inferredShelfLifeDays > 0) {
+      const d = new Date()
+      d.setDate(d.getDate() + inferredShelfLifeDays)
+      return formatDateInput(d)
+    }
+    return ""
+  })()
 
   // ========== Data fetching ==========
 
@@ -230,6 +269,18 @@ export default function QuickAddPurchaseItemModal({
     }
     fetchModes()
   }, [isOpen])
+
+  // Keep purchase-line expiry defaulted from item shelf-life logic unless user overrides.
+  useEffect(() => {
+    if (!hasBatch) {
+      setPurchaseExpiryDate("")
+      setPurchaseExpiryDirty(false)
+      return
+    }
+    if (!purchaseExpiryDirty) {
+      setPurchaseExpiryDate(inferredDefaultPurchaseExpiry)
+    }
+  }, [hasBatch, inferredDefaultPurchaseExpiry, purchaseExpiryDirty])
 
   // Supplier search with debounce
   const searchSuppliers = useCallback(async (search: string) => {
@@ -372,9 +423,11 @@ export default function QuickAddPurchaseItemModal({
     setExpiryType("months")
     setShelfLifeMonths(3)
     setBestBefore("")
+    setPurchaseExpiryDate("")
+    setPurchaseExpiryDirty(false)
     setSelectedSupplier(null)
     setSupplierSearch("")
-    setSelectedPaymentMode(paymentModes[0]?.mode_of_payment || "")
+    setSelectedPaymentMode(paymentModeOptions[0] || "")
     setSubmitStep("")
   }
 
@@ -403,27 +456,32 @@ export default function QuickAddPurchaseItemModal({
       if (expiryType === "date" && !bestBefore.trim()) {
         return toast.error("Enter a best-before date for batch-tracked items")
       }
+      if (!(purchaseExpiryDate || inferredDefaultPurchaseExpiry)) {
+        return toast.error("Enter purchase batch expiry date")
+      }
     }
 
     setIsSubmitting(true)
 
     try {
       let shelfLifeDays = 0
-      let expiryDate: string | undefined
+      let masterExpiryDate: string | undefined
       if (hasBatch) {
         if (expiryType === "months" && shelfLifeMonths > 0) {
           shelfLifeDays = shelfLifeMonths * 30
           const expiry = new Date()
           expiry.setDate(expiry.getDate() + shelfLifeDays)
-          expiryDate = expiry.toISOString().split("T")[0]
+          masterExpiryDate = expiry.toISOString().split("T")[0]
         } else if (expiryType === "date" && bestBefore) {
           const today = new Date()
           const expiry = new Date(bestBefore)
           shelfLifeDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
           if (shelfLifeDays < 0) shelfLifeDays = 0
-          expiryDate = bestBefore
+          masterExpiryDate = bestBefore
         }
       }
+      const purchaseLineExpiryDate =
+        hasBatch ? (purchaseExpiryDate || inferredDefaultPurchaseExpiry || undefined) : undefined
 
       let manualBatch = batchNumber
       if (hasBatch && batchAuto) {
@@ -431,7 +489,7 @@ export default function QuickAddPurchaseItemModal({
       }
 
       // --- Step 1: Create item ---
-      setSubmitStep("Creating item...")
+      setSubmitStep("1/3 Creating item master...")
       const barcodeValue = barcodeAuto ? undefined : barcode || undefined
       const createRes = await fetch("/api/method/klik_pos.api.item.create_item_with_barcode", {
         method: "POST",
@@ -447,7 +505,7 @@ export default function QuickAddPurchaseItemModal({
           has_expiry_date: hasBatch ? 1 : 0,
           shelf_life_in_days: shelfLifeDays > 0 ? shelfLifeDays : undefined,
           batch_no: hasBatch && !batchAuto && manualBatch ? manualBatch : undefined,
-          expiry_date: expiryDate,
+          expiry_date: masterExpiryDate,
           selling_price: sellingPrice,
           buying_price: buyingPrice,
           opening_stock: 0,
@@ -472,10 +530,12 @@ export default function QuickAddPurchaseItemModal({
       const newItemCode = createResult.message?.item_code
       if (!newItemCode) throw new Error("Item created but no item_code returned")
 
-      toast.success(`Item "${itemName}" created`, { autoClose: 2000 })
+      toast.success(`1/3 Item master created: ${newItemCode}`, { autoClose: 2200 })
+      toast.success("2/3 Selling & buying Item Prices saved", { autoClose: 2200 })
 
       // --- Step 2: Create purchase invoice ---
-      setSubmitStep("Creating purchase invoice...")
+      setSubmitStep("3/3 Creating purchase invoice & stock entry...")
+      const isCreditPurchase = selectedPaymentMode.toLowerCase() === CREDIT_MODE.toLowerCase()
       const purchaseData = {
         supplier: { id: selectedSupplier.id },
         items: [
@@ -488,17 +548,19 @@ export default function QuickAddPurchaseItemModal({
             original_selling_price: sellingPrice,
             uom,
             batch: hasBatch && !batchAuto && manualBatch ? manualBatch : undefined,
-            expiry_date: hasBatch ? expiryDate : undefined,
-            batch_expiry_date: hasBatch ? expiryDate : undefined,
+            expiry_date: purchaseLineExpiryDate,
+            batch_expiry_date: purchaseLineExpiryDate,
           },
         ],
-        paymentMethods: [
-          {
-            mode_of_payment: selectedPaymentMode,
-            amount: quantity * buyingPrice,
-          },
-        ],
-        isCreditPurchase: false,
+        paymentMethods: isCreditPurchase
+          ? []
+          : [
+              {
+                mode_of_payment: selectedPaymentMode,
+                amount: quantity * buyingPrice,
+              },
+            ],
+        isCreditPurchase,
       }
 
       const purchRes = await fetch("/api/method/klik_pos.api.purchase_invoice.create_purchase_invoice", {
@@ -526,7 +588,9 @@ export default function QuickAddPurchaseItemModal({
         return
       }
 
-      toast.success("Purchase invoice created & stock updated", { autoClose: 2000 })
+      toast.success("Purchase invoice created. Stock added from purchase quantity (no opening stock).", {
+        autoClose: 2800,
+      })
 
       // --- Step 3: Refresh products ---
       setSubmitStep("Refreshing products...")
@@ -757,7 +821,13 @@ export default function QuickAddPurchaseItemModal({
                 <input
                   type="checkbox"
                   checked={hasBatch}
-                  onChange={(e) => setHasBatch(e.target.checked)}
+                  onChange={(e) => {
+                    setHasBatch(e.target.checked)
+                    if (!e.target.checked) {
+                      setPurchaseExpiryDate("")
+                      setPurchaseExpiryDirty(false)
+                    }
+                  }}
                   className="w-4 h-4 text-amber-600 rounded"
                 />
                 <span className="text-xs text-gray-700 dark:text-gray-300">Track batch and expiry</span>
@@ -796,6 +866,7 @@ export default function QuickAddPurchaseItemModal({
                           onChange={() => {
                             setExpiryType("months")
                             setBestBefore("")
+                            setPurchaseExpiryDirty(false)
                           }}
                           className="text-amber-600"
                         />
@@ -809,6 +880,7 @@ export default function QuickAddPurchaseItemModal({
                           onChange={() => {
                             setExpiryType("date")
                             setShelfLifeMonths(0)
+                            setPurchaseExpiryDirty(false)
                           }}
                           className="text-amber-600"
                         />
@@ -832,6 +904,24 @@ export default function QuickAddPurchaseItemModal({
                         className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     )}
+                  </div>
+
+                  <div>
+                    <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      Purchase batch expiry date (editable)
+                    </span>
+                    <input
+                      type="date"
+                      value={purchaseExpiryDate}
+                      onChange={(e) => {
+                        setPurchaseExpiryDate(e.target.value)
+                        setPurchaseExpiryDirty(true)
+                      }}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                    <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">
+                      Defaulted from item shelf life to: {inferredDefaultPurchaseExpiry || "—"} (today + shelf life). You can override it for this purchase line.
+                    </p>
                   </div>
                 </div>
               )}
@@ -983,8 +1073,8 @@ export default function QuickAddPurchaseItemModal({
                     className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="">Select payment mode</option>
-                    {paymentModes.map((m) => (
-                      <option key={m.mode_of_payment} value={m.mode_of_payment}>{m.mode_of_payment}</option>
+                    {paymentModeOptions.map((mode) => (
+                      <option key={mode} value={mode}>{mode}</option>
                     ))}
                   </select>
                 )}
@@ -1000,6 +1090,10 @@ export default function QuickAddPurchaseItemModal({
                 </div>
               )}
             </div>
+
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              Flow: Item master is created first, then selling/buying Item Prices, then Purchase Invoice updates stock (opening stock remains 0).
+            </p>
 
             {/* ---- Submit ---- */}
             <button
