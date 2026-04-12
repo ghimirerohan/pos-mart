@@ -180,6 +180,8 @@ export default function QuickAddPurchaseItemModal({
   const [sellingPrice, setSellingPrice] = useState<number>(0)
 
   // ----- purchase-specific -----
+  /** When true, submit also creates a Purchase Invoice and adds the line to the purchase cart. */
+  const [includeFirstPurchase, setIncludeFirstPurchase] = useState(true)
   const [quantity, setQuantity] = useState<number>(1)
 
   /** Match Items page: batch + expiry on the item master for purchase stock */
@@ -270,9 +272,9 @@ export default function QuickAddPurchaseItemModal({
     fetchModes()
   }, [isOpen])
 
-  // Keep purchase-line expiry defaulted from item shelf-life logic unless user overrides.
+  // Keep purchase-line expiry defaulted from item shelf-life logic unless user overrides (only when purchasing).
   useEffect(() => {
-    if (!hasBatch) {
+    if (!hasBatch || !includeFirstPurchase) {
       setPurchaseExpiryDate("")
       setPurchaseExpiryDirty(false)
       return
@@ -280,7 +282,7 @@ export default function QuickAddPurchaseItemModal({
     if (!purchaseExpiryDirty) {
       setPurchaseExpiryDate(inferredDefaultPurchaseExpiry)
     }
-  }, [hasBatch, inferredDefaultPurchaseExpiry, purchaseExpiryDirty])
+  }, [hasBatch, includeFirstPurchase, inferredDefaultPurchaseExpiry, purchaseExpiryDirty])
 
   // Supplier search with debounce
   const searchSuppliers = useCallback(async (search: string) => {
@@ -425,6 +427,7 @@ export default function QuickAddPurchaseItemModal({
     setBestBefore("")
     setPurchaseExpiryDate("")
     setPurchaseExpiryDirty(false)
+    setIncludeFirstPurchase(true)
     setSelectedSupplier(null)
     setSupplierSearch("")
     setSelectedPaymentMode(paymentModeOptions[0] || "")
@@ -441,9 +444,11 @@ export default function QuickAddPurchaseItemModal({
     if (barcodeError) return toast.error("Fix the barcode error first")
     if (buyingPrice <= 0) return toast.error("Buying price is required")
     if (sellingPrice <= 0) return toast.error("Selling price is required")
-    if (!selectedSupplier) return toast.error("Supplier is required")
-    if (quantity < 1) return toast.error("Quantity must be at least 1")
-    if (!selectedPaymentMode) return toast.error("Payment mode is required")
+    if (includeFirstPurchase) {
+      if (!selectedSupplier) return toast.error("Supplier is required")
+      if (quantity < 1) return toast.error("Quantity must be at least 1")
+      if (!selectedPaymentMode) return toast.error("Payment mode is required")
+    }
 
     if (sellingPrice < buyingPrice) {
       toast.warning("Selling price is less than buying price")
@@ -456,7 +461,10 @@ export default function QuickAddPurchaseItemModal({
       if (expiryType === "date" && !bestBefore.trim()) {
         return toast.error("Enter a best-before date for batch-tracked items")
       }
-      if (!(purchaseExpiryDate || inferredDefaultPurchaseExpiry)) {
+      if (
+        includeFirstPurchase &&
+        !(purchaseExpiryDate || inferredDefaultPurchaseExpiry)
+      ) {
         return toast.error("Enter purchase batch expiry date")
       }
     }
@@ -481,7 +489,9 @@ export default function QuickAddPurchaseItemModal({
         }
       }
       const purchaseLineExpiryDate =
-        hasBatch ? (purchaseExpiryDate || inferredDefaultPurchaseExpiry || undefined) : undefined
+        hasBatch && includeFirstPurchase
+          ? purchaseExpiryDate || inferredDefaultPurchaseExpiry || undefined
+          : undefined
 
       let manualBatch = batchNumber
       if (hasBatch && batchAuto) {
@@ -489,7 +499,9 @@ export default function QuickAddPurchaseItemModal({
       }
 
       // --- Step 1: Create item ---
-      setSubmitStep("1/3 Creating item master...")
+      setSubmitStep(
+        includeFirstPurchase ? "1/3 Creating item master..." : "1/2 Creating item master..."
+      )
       const barcodeValue = barcodeAuto ? undefined : barcode || undefined
       const createRes = await fetch("/api/method/klik_pos.api.item.create_item_with_barcode", {
         method: "POST",
@@ -530,8 +542,27 @@ export default function QuickAddPurchaseItemModal({
       const newItemCode = createResult.message?.item_code
       if (!newItemCode) throw new Error("Item created but no item_code returned")
 
-      toast.success(`1/3 Item master created: ${newItemCode}`, { autoClose: 2200 })
-      toast.success("2/3 Selling & buying Item Prices saved", { autoClose: 2200 })
+      toast.success(
+        includeFirstPurchase
+          ? `1/3 Item master created: ${newItemCode}`
+          : `1/2 Item master created: ${newItemCode}`,
+        { autoClose: 2200 }
+      )
+      toast.success(
+        includeFirstPurchase ? "2/3 Selling & buying Item Prices saved" : "2/2 Selling & buying Item Prices saved",
+        { autoClose: 2200 }
+      )
+
+      if (!includeFirstPurchase) {
+        setSubmitStep("Refreshing products...")
+        await refetchProducts()
+        toast.success("Item and prices saved. No purchase invoice; add stock later from Purchases.", {
+          autoClose: 3200,
+        })
+        resetForm()
+        onClose()
+        return
+      }
 
       // --- Step 2: Create purchase invoice ---
       setSubmitStep("3/3 Creating purchase invoice & stock entry...")
@@ -905,24 +936,6 @@ export default function QuickAddPurchaseItemModal({
                       />
                     )}
                   </div>
-
-                  <div>
-                    <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                      Purchase batch expiry date (editable)
-                    </span>
-                    <input
-                      type="date"
-                      value={purchaseExpiryDate}
-                      onChange={(e) => {
-                        setPurchaseExpiryDate(e.target.value)
-                        setPurchaseExpiryDirty(true)
-                      }}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                    <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">
-                      Defaulted from item shelf life to: {inferredDefaultPurchaseExpiry || "—"} (today + shelf life). You can override it for this purchase line.
-                    </p>
-                  </div>
                 </div>
               )}
             </div>
@@ -974,114 +987,159 @@ export default function QuickAddPurchaseItemModal({
                 Purchase Details
               </h3>
 
-              {/* Supplier */}
-              <div ref={supplierRef} className="relative">
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Supplier <span className="text-red-500">*</span>
-                </label>
-                {selectedSupplier ? (
-                  <div className="flex items-center justify-between px-3 py-2 border border-amber-300 dark:border-amber-700 rounded-lg bg-white dark:bg-gray-700">
-                    <span className="text-sm text-gray-900 dark:text-white">{selectedSupplier.supplier_name || selectedSupplier.name}</span>
-                    <button type="button" onClick={() => setSelectedSupplier(null)} className="text-gray-400 hover:text-red-500">
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      value={supplierSearch}
-                      onChange={(e) => { setSupplierSearch(e.target.value); setShowSupplierDropdown(true) }}
-                      onFocus={() => setShowSupplierDropdown(true)}
-                      placeholder="Search supplier..."
-                      className="w-full pl-9 pr-10 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowAddSupplierModal(true)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-700"
-                      title="Add new supplier"
-                    >
-                      <UserPlus size={16} />
-                    </button>
-                  </div>
-                )}
-                {showSupplierDropdown && !selectedSupplier && (
-                  <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                    {loadingSuppliers ? (
-                      <div className="p-3 text-center text-sm text-gray-500"><Loader2 size={16} className="inline animate-spin mr-1" /> Loading...</div>
-                    ) : suppliers.length === 0 ? (
-                      <div className="p-3 text-center text-sm text-gray-500">No suppliers found</div>
-                    ) : (
-                      suppliers.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => { setSelectedSupplier(s); setShowSupplierDropdown(false); setSupplierSearch("") }}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
-                        >
-                          {s.supplier_name || s.name}
+              <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-amber-200/80 dark:border-amber-800/40 bg-white/60 dark:bg-gray-800/40 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={includeFirstPurchase}
+                  onChange={(e) => setIncludeFirstPurchase(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 text-amber-600 rounded shrink-0"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300 leading-snug">
+                  <span className="font-medium text-gray-900 dark:text-white">Include first purchase</span>
+                  {" — "}
+                  records supplier, quantity, payment and a purchase invoice (stock from PI; opening stock stays 0).
+                  Untick to only create the item master and Item Prices.
+                </span>
+              </label>
+
+              {includeFirstPurchase && hasBatch && (
+                <div>
+                  <span className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    Purchase batch expiry date (editable) <span className="text-red-500">*</span>
+                  </span>
+                  <input
+                    type="date"
+                    value={purchaseExpiryDate}
+                    onChange={(e) => {
+                      setPurchaseExpiryDate(e.target.value)
+                      setPurchaseExpiryDirty(true)
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                  <p className="mt-1 text-[11px] text-blue-600 dark:text-blue-300">
+                    Defaulted from item shelf life to: {inferredDefaultPurchaseExpiry || "—"} (today + shelf life). You can override it for this purchase line.
+                  </p>
+                </div>
+              )}
+
+              {!includeFirstPurchase && (
+                <p className="text-[11px] text-gray-600 dark:text-gray-400 italic">
+                  Supplier, quantity, and payment are skipped. Use Purchases later to receive stock.
+                </p>
+              )}
+
+              {includeFirstPurchase && (
+                <>
+                  {/* Supplier */}
+                  <div ref={supplierRef} className="relative">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Supplier <span className="text-red-500">*</span>
+                    </label>
+                    {selectedSupplier ? (
+                      <div className="flex items-center justify-between px-3 py-2 border border-amber-300 dark:border-amber-700 rounded-lg bg-white dark:bg-gray-700">
+                        <span className="text-sm text-gray-900 dark:text-white">{selectedSupplier.supplier_name || selectedSupplier.name}</span>
+                        <button type="button" onClick={() => setSelectedSupplier(null)} className="text-gray-400 hover:text-red-500">
+                          <X size={16} />
                         </button>
-                      ))
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          value={supplierSearch}
+                          onChange={(e) => { setSupplierSearch(e.target.value); setShowSupplierDropdown(true) }}
+                          onFocus={() => setShowSupplierDropdown(true)}
+                          placeholder="Search supplier..."
+                          className="w-full pl-9 pr-10 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAddSupplierModal(true)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-600 hover:text-amber-700"
+                          title="Add new supplier"
+                        >
+                          <UserPlus size={16} />
+                        </button>
+                      </div>
+                    )}
+                    {showSupplierDropdown && !selectedSupplier && (
+                      <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {loadingSuppliers ? (
+                          <div className="p-3 text-center text-sm text-gray-500"><Loader2 size={16} className="inline animate-spin mr-1" /> Loading...</div>
+                        ) : suppliers.length === 0 ? (
+                          <div className="p-3 text-center text-sm text-gray-500">No suppliers found</div>
+                        ) : (
+                          suppliers.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => { setSelectedSupplier(s); setShowSupplierDropdown(false); setSupplierSearch("") }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
+                            >
+                              {s.supplier_name || s.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              {/* Quantity */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Quantity <span className="text-red-500">*</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                    className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600"
-                  >
-                    <Minus size={16} />
-                  </button>
-                  <input
-                    type="number"
-                    value={quantity}
-                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                    min="1"
-                    className="w-20 text-center px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setQuantity(quantity + 1)}
-                    className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-              </div>
+                  {/* Quantity */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quantity <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                        className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <input
+                        type="number"
+                        value={quantity}
+                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                        min="1"
+                        className="w-20 text-center px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQuantity(quantity + 1)}
+                        className="p-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Payment Mode */}
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Payment Mode <span className="text-red-500">*</span>
-                </label>
-                {loadingPaymentModes ? (
-                  <div className="text-sm text-gray-500 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> Loading...</div>
-                ) : (
-                  <select
-                    value={selectedPaymentMode}
-                    onChange={(e) => setSelectedPaymentMode(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  >
-                    <option value="">Select payment mode</option>
-                    {paymentModeOptions.map((mode) => (
-                      <option key={mode} value={mode}>{mode}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                  {/* Payment Mode */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Payment Mode <span className="text-red-500">*</span>
+                    </label>
+                    {loadingPaymentModes ? (
+                      <div className="text-sm text-gray-500 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> Loading...</div>
+                    ) : (
+                      <select
+                        value={selectedPaymentMode}
+                        onChange={(e) => setSelectedPaymentMode(e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      >
+                        <option value="">Select payment mode</option>
+                        {paymentModeOptions.map((mode) => (
+                          <option key={mode} value={mode}>{mode}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </>
+              )}
 
               {/* Total */}
-              {buyingPrice > 0 && quantity > 0 && (
+              {includeFirstPurchase && buyingPrice > 0 && quantity > 0 && (
                 <div className="flex items-center justify-between pt-2 border-t border-amber-200 dark:border-amber-800/30">
                   <span className="text-xs text-gray-600 dark:text-gray-400">Purchase Total</span>
                   <span className="text-sm font-bold text-gray-900 dark:text-white">
@@ -1092,7 +1150,9 @@ export default function QuickAddPurchaseItemModal({
             </div>
 
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              Flow: Item master is created first, then selling/buying Item Prices, then Purchase Invoice updates stock (opening stock remains 0).
+              {includeFirstPurchase
+                ? "Flow: Item master first, then Item Prices, then Purchase Invoice adds stock (opening stock stays 0)."
+                : "Flow: Item master and Item Prices only; no purchase invoice until you receive stock from Purchases."}
             </p>
 
             {/* ---- Submit ---- */}
@@ -1113,7 +1173,7 @@ export default function QuickAddPurchaseItemModal({
               ) : (
                 <>
                   <CreditCard size={18} />
-                  <span>Create Item &amp; Purchase</span>
+                  <span>{includeFirstPurchase ? "Create Item & Purchase" : "Create Item"}</span>
                 </>
               )}
             </button>
