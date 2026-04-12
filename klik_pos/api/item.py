@@ -8,6 +8,30 @@ from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
 
+# region agent log
+def _agent_debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict):
+	try:
+		import json
+		import time
+
+		payload = {
+			"sessionId": "08c2ff",
+			"runId": run_id,
+			"hypothesisId": hypothesis_id,
+			"location": location,
+			"message": message,
+			"data": data,
+			"timestamp": int(time.time() * 1000),
+		}
+		with open("/workspace/development/.cursor/debug-08c2ff.log", "a", encoding="utf-8") as f:
+			f.write(json.dumps(payload, default=str) + "\n")
+	except Exception:
+		pass
+
+
+# endregion
+
+
 def _get_batch_qty_combined(batch_no, warehouse):
 	"""Get batch qty accounting for both old-style (SLE.batch_no) and
 	new-style (Serial and Batch Bundle) stock tracking."""
@@ -30,6 +54,25 @@ def _get_batch_qty_combined(batch_no, warehouse):
 	)[0][0] or 0
 
 	return flt(old_qty + new_qty)
+
+
+def _get_sle_qty_split_as_of(item_code, warehouse, posting_date, posting_time):
+	row = frappe.db.sql(
+		"""
+		SELECT
+			COALESCE(SUM(CASE WHEN IFNULL(batch_no, '') = '' THEN actual_qty ELSE 0 END), 0) AS no_batch_qty,
+			COALESCE(SUM(CASE WHEN IFNULL(batch_no, '') <> '' THEN actual_qty ELSE 0 END), 0) AS with_batch_qty,
+			COALESCE(SUM(actual_qty), 0) AS total_qty
+		FROM `tabStock Ledger Entry`
+		WHERE item_code = %s
+		  AND warehouse = %s
+		  AND is_cancelled = 0
+		  AND (posting_date < %s OR (posting_date = %s AND posting_time <= %s))
+		""",
+		(item_code, warehouse, posting_date, posting_date, posting_time),
+		as_dict=True,
+	)
+	return (row or [{}])[0] or {}
 
 
 def _calculate_ean13_check_digit(barcode_12: str) -> str:
@@ -169,10 +212,63 @@ def get_price_list_with_customer_priority(customer=None):
 		return None
 
 
-def fetch_item_balance(item_code: str, warehouse: str) -> float:
-	"""Get stock balance of an item from a warehouse."""
+def _item_stock_insight_for_pos(
+	item_code: str, warehouse: str, posting_date: str | None = None, posting_time: str | None = None
+) -> dict:
+	"""Warehouse balance, batch-total (``get_batch_qty``), sellable ``min``, mismatch flag for SPA."""
+	out = {
+		"warehouse_qty": 0.0,
+		"batch_total_qty": 0.0,
+		"sellable_qty": 0.0,
+		"has_batch_no": 0,
+		"batch_warehouse_mismatch": False,
+	}
+	if not item_code or not warehouse:
+		return out
 	try:
-		return get_stock_balance(item_code, warehouse) or 0
+		stock_balance = flt(
+			get_stock_balance(item_code, warehouse, posting_date, posting_time) or 0
+		)
+		out["warehouse_qty"] = stock_balance
+		has_batch_no = cint(frappe.db.get_value("Item", item_code, "has_batch_no") or 0)
+		out["has_batch_no"] = has_batch_no
+		batch_total = 0.0
+		if has_batch_no:
+			from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+			batches = get_batch_qty(
+				item_code=item_code,
+				warehouse=warehouse,
+				for_stock_levels=True,
+			) or []
+			if batches:
+				batch_total = flt(sum(flt(b.get("qty")) for b in batches if b.get("batch_no")))
+		out["batch_total_qty"] = batch_total
+		if not has_batch_no or batch_total <= 0:
+			out["sellable_qty"] = stock_balance
+		else:
+			out["sellable_qty"] = min(stock_balance, batch_total)
+		out["batch_warehouse_mismatch"] = bool(
+			has_batch_no and batch_total > 0 and abs(stock_balance - batch_total) > 0.01
+		)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Error in _item_stock_insight_for_pos {item_code}")
+	return out
+
+
+def fetch_item_balance(
+	item_code: str, warehouse: str, posting_date: str | None = None, posting_time: str | None = None
+) -> float:
+	"""Return sellable quantity for POS (list, detail, payment pre-check).
+
+	For batch-tracked items, batch-level figures and warehouse (Bin / SLE) totals
+	can disagree. ERPNext still blocks submission when the *warehouse* stock would
+	go negative, so we return ``min(warehouse_qty, batch_total)`` — never more than
+	can actually leave the warehouse. Fix data with Stock Reconciliation if the
+	two views diverge.
+	"""
+	try:
+		return flt(_item_stock_insight_for_pos(item_code, warehouse, posting_date, posting_time)["sellable_qty"])
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), f"Error fetching balance for {item_code}")
 		return 0
@@ -693,12 +789,47 @@ def _fetch_batch_stock(item_codes: list, warehouse: str) -> dict:
 			if item_code not in stock_map:
 				stock_map[item_code] = 0
 
+		batch_items = _get_batch_item_codes(item_codes)
+		if batch_items:
+			_apply_batch_qty_override(stock_map, batch_items, warehouse)
+
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), "Batch stock fetch error (SLE)")
 		for item_code in item_codes:
 			stock_map[item_code] = fetch_item_balance(item_code, warehouse)
 
 	return stock_map
+
+
+def _get_batch_item_codes(item_codes: list) -> set:
+	"""Return the subset of item_codes that have has_batch_no=1."""
+	if not item_codes:
+		return set()
+	placeholders = ", ".join(["%s"] * len(item_codes))
+	rows = frappe.db.sql(
+		f"SELECT name FROM `tabItem` WHERE name IN ({placeholders}) AND has_batch_no = 1",
+		item_codes,
+		as_dict=True,
+	)
+	return {r["name"] for r in rows}
+
+
+def _apply_batch_qty_override(stock_map: dict, batch_items: set, warehouse: str):
+	"""Align list stock with ``fetch_item_balance`` (min of SLE row vs batch total)."""
+	from erpnext.stock.doctype.batch.batch import get_batch_qty
+
+	for item_code in batch_items:
+		sle_qty = flt(stock_map.get(item_code, 0))
+		batches = get_batch_qty(
+			item_code=item_code,
+			warehouse=warehouse,
+			for_stock_levels=True,
+		) or []
+		batch_total = flt(sum(flt(b.get("qty")) for b in batches if b.get("batch_no")))
+		if not batches or batch_total <= 0:
+			continue
+		if abs(batch_total - sle_qty) > 0.01:
+			stock_map[item_code] = min(sle_qty, batch_total)
 
 
 def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict) -> dict:
@@ -1214,11 +1345,60 @@ def get_item_stock(item_code: str):
 	warehouse = pos_doc.warehouse
 
 	try:
-		balance = fetch_item_balance(item_code, warehouse)
-		return {"item_code": item_code, "available": balance, "warehouse": warehouse}
+		ins = _item_stock_insight_for_pos(item_code, warehouse)
+		balance = flt(ins["sellable_qty"])
+		# region agent log
+		_agent_debug_log(
+			"post-fix-run-4",
+			"H17",
+			"item.py:get_item_stock:visible_balance",
+			"computed visible item stock for SPA",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"warehouse_qty": ins.get("warehouse_qty"),
+				"batch_total_qty": ins.get("batch_total_qty"),
+				"visible_balance": balance,
+				"batch_warehouse_mismatch": ins.get("batch_warehouse_mismatch"),
+			},
+		)
+		# endregion
+		return {
+			"item_code": item_code,
+			"available": balance,
+			"warehouse": warehouse,
+			"warehouse_qty": flt(ins.get("warehouse_qty")),
+			"batch_total_qty": flt(ins.get("batch_total_qty")),
+			"sellable_qty": balance,
+			"has_batch_no": cint(ins.get("has_batch_no")),
+			"batch_warehouse_mismatch": bool(ins.get("batch_warehouse_mismatch")),
+		}
 	except Exception:
 		frappe.log_error(frappe.get_traceback(), f"Get Item Stock Error for {item_code}")
-		return {"item_code": item_code, "available": 0, "warehouse": warehouse}
+		return {
+			"item_code": item_code,
+			"available": 0,
+			"warehouse": warehouse,
+			"warehouse_qty": 0.0,
+			"batch_total_qty": 0.0,
+			"sellable_qty": 0.0,
+			"has_batch_no": 0,
+			"batch_warehouse_mismatch": False,
+		}
+
+
+@frappe.whitelist(allow_guest=True)
+def get_pos_default_warehouse():
+	"""POS Profile warehouse used as default for Stock Reconciliation from Item Detail."""
+	try:
+		pos = get_current_pos_profile()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "get_pos_default_warehouse: get_current_pos_profile")
+		pos = None
+	if not pos:
+		return {"warehouse": "", "pos_profile": None}
+	w = (getattr(pos, "warehouse", None) or "").strip()
+	return {"warehouse": w, "pos_profile": getattr(pos, "name", None)}
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1575,6 +1755,7 @@ def get_item_batch_stock_details(item_code):
 			"success": True,
 			"warehouse": "",
 			"currency": currency,
+			"stock_insight": _item_stock_insight_for_pos(item_code, ""),
 			"summary": {
 				"total_qty": 0.0,
 				"batch_count": 0,
@@ -1700,6 +1881,7 @@ def get_item_batch_stock_details(item_code):
 		"success": True,
 		"warehouse": warehouse,
 		"currency": currency,
+		"stock_insight": _item_stock_insight_for_pos(item_code, warehouse),
 		"summary": {
 			"total_qty": round(total_qty, 6),
 			"batch_count": batch_count,
@@ -3523,9 +3705,10 @@ def update_item_detail(
 
 		# --- 5. Stock correction (last — heaviest operation) ---
 		if cint(stock_changed):
+			resolved_wh = _warehouse_for_pos_item_stock((warehouse or "").strip() or None)
 			stock_result = update_opening_stock(
 				item_code=item_code,
-				warehouse=warehouse,
+				warehouse=resolved_wh,
 				qty=flt(available_qty),
 				expected_qty=flt(expected_qty) if expected_qty is not None else None,
 				correction_reason=correction_reason,
@@ -3535,6 +3718,7 @@ def update_item_detail(
 				result["stock_updated"] = True
 				result["stock_detail"] = {
 					"reconciliation_name": stock_result.get("reconciliation_name"),
+					"warehouse": stock_result.get("warehouse") or resolved_wh,
 					"old_qty": stock_result.get("old_qty"),
 					"new_qty": stock_result.get("new_qty"),
 					"balance_after": stock_result.get("balance_after"),
@@ -3575,7 +3759,14 @@ def _warehouse_for_pos_item_stock(warehouse_from_client: str | None) -> str:
 		return pos_wh
 	resolved = (warehouse_from_client or "").strip()
 	if not resolved:
-		frappe.throw(_("Warehouse is required"))
+		frappe.throw(
+			_(
+				"Stock reconciliation needs a warehouse. The active POS Profile has no default warehouse, "
+				"and none was sent from the client. Set a warehouse on the POS Profile or open Item Detail "
+				"after stock has loaded so the warehouse field is filled."
+			),
+			title=_("Warehouse required"),
+		)
 	return resolved
 
 
@@ -3613,6 +3804,22 @@ def update_opening_stock(
 	from erpnext.stock.utils import get_stock_balance
 
 	try:
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H1",
+			"item.py:update_opening_stock:entry",
+			"update_opening_stock called",
+			{
+				"item_code": item_code,
+				"warehouse_arg": warehouse,
+				"qty_arg": qty,
+				"expected_qty_arg": expected_qty,
+				"batch_no_arg": batch_no,
+			},
+		)
+		# endregion
+
 		if not item_code:
 			frappe.throw(_("Item Code is required"))
 
@@ -3640,7 +3847,29 @@ def update_opening_stock(
 		posting_date = posting_date or nowdate()
 		posting_time = nowtime()
 
-		total_current_qty = flt(get_stock_balance(item_code, warehouse, posting_date, posting_time))
+		raw_stock_balance = flt(get_stock_balance(item_code, warehouse, posting_date, posting_time))
+		total_current_qty = flt(
+			fetch_item_balance(item_code, warehouse, posting_date, posting_time)
+		)
+
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H1",
+			"item.py:update_opening_stock:after_get_stock_balance",
+			"computed warehouse stock before reconciliation",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"posting_date": posting_date,
+				"posting_time": posting_time,
+				"raw_stock_balance": raw_stock_balance,
+				"total_current_qty": total_current_qty,
+				"target_qty": qty,
+				"expected_qty": expected_qty,
+			},
+		)
+		# endregion
 
 		# --- optimistic concurrency ---
 		if expected_qty is not None:
@@ -3671,6 +3900,21 @@ def update_opening_stock(
 
 		reserved_map = get_sre_reserved_qty_for_items_and_warehouses([item_code], [warehouse]) or {}
 		reserved_qty = flt(reserved_map.get((item_code, warehouse)))
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H4",
+			"item.py:update_opening_stock:reserved_qty",
+			"reservation quantities checked",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"reserved_qty": reserved_qty,
+				"total_current_qty": total_current_qty,
+				"target_qty": qty,
+			},
+		)
+		# endregion
 		if reserved_qty > 0:
 			max_adjustable_qty = max(flt(total_current_qty - reserved_qty), 0)
 			frappe.throw(
@@ -3708,6 +3952,25 @@ def update_opening_stock(
 			valuation_rate=valuation_rate,
 			batch_no=batch_no,
 		)
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H2",
+			"item.py:update_opening_stock:rows_built",
+			"reconciliation rows built",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"target_qty": qty,
+				"total_current_qty": total_current_qty,
+				"row_count": len(item_rows),
+				"rows": [
+					{"batch_no": r.get("batch_no"), "qty": r.get("qty"), "valuation_rate": r.get("valuation_rate")}
+					for r in item_rows
+				],
+			},
+		)
+		# endregion
 
 		reconciliation = frappe.get_doc({
 			"doctype": "Stock Reconciliation",
@@ -3715,18 +3978,42 @@ def update_opening_stock(
 			"posting_date": posting_date,
 			"posting_time": posting_time,
 			"company": company,
+			"set_warehouse": warehouse,
 			"items": item_rows,
 			"remarks": full_remarks,
 		})
 
 		reconciliation.insert()
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run-3",
+			"H7",
+			"item.py:update_opening_stock:after_insert",
+			"stock reconciliation inserted; capturing resolved item state before submit",
+			{
+				"reconciliation_name": reconciliation.name,
+				"item_rows": [
+					{
+						"batch_no": d.get("batch_no"),
+						"qty": d.get("qty"),
+						"current_qty": d.get("current_qty"),
+						"use_serial_batch_fields": d.get("use_serial_batch_fields"),
+						"serial_and_batch_bundle": d.get("serial_and_batch_bundle"),
+						"current_serial_and_batch_bundle": d.get("current_serial_and_batch_bundle"),
+					}
+					for d in (reconciliation.items or [])
+				],
+			},
+		)
+		# endregion
 		reconciliation.submit()
 		frappe.db.commit()
 
-		balance_after = flt(get_stock_balance(item_code, warehouse))
+		balance_after = flt(fetch_item_balance(item_code, warehouse))
 
 		return {
 			"status": "success",
+			"applied": True,
 			"reconciliation_name": reconciliation.name,
 			"item_code": item_code,
 			"warehouse": warehouse,
@@ -3741,9 +4028,37 @@ def update_opening_stock(
 		}
 
 	except frappe.ValidationError as e:
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H3",
+			"item.py:update_opening_stock:validation_error",
+			"validation error while submitting stock reconciliation",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"target_qty": qty,
+				"error": str(e),
+			},
+		)
+		# endregion
 		frappe.log_error(frappe.get_traceback(), f"Stock reconciliation validation error: {str(e)}")
 		frappe.throw(str(e))
 	except Exception as e:
+		# region agent log
+		_agent_debug_log(
+			"pre-fix-run",
+			"H3",
+			"item.py:update_opening_stock:exception",
+			"non-validation exception while updating stock",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"target_qty": qty,
+				"error": str(e),
+			},
+		)
+		# endregion
 		frappe.db.rollback()
 		frappe.log_error(frappe.get_traceback(), f"Stock reconciliation error: {str(e)}")
 		frappe.throw(_("Failed to update stock: {0}").format(str(e)))
@@ -3776,6 +4091,22 @@ def _build_reconciliation_rows(
 
 	# --- batch-tracked item ---
 	batches = _get_all_batches_with_stock(item_code, warehouse)
+	# region agent log
+	_agent_debug_log(
+		"pre-fix-run",
+		"H2",
+		"item.py:_build_reconciliation_rows:batches_loaded",
+		"batch rows loaded for FEFO reconciliation",
+		{
+			"item_code": item_code,
+			"warehouse": warehouse,
+			"target_qty": target_qty,
+			"total_current_qty": total_current_qty,
+			"batch_count": len(batches),
+			"batches": [{"batch_no": b.get("batch_no"), "qty": b.get("qty"), "expiry_date": b.get("expiry_date")} for b in batches],
+		},
+	)
+	# endregion
 
 	if not batches:
 		batch_no = batch_no or _create_new_batch(item_code)
@@ -3808,8 +4139,25 @@ def _build_reconciliation_rows(
 	batch_total = flt(sum(flt(b["qty"]) for b in batches))
 	rows: list[dict] = []
 	target = flt(target_qty)
+	current_total = flt(total_current_qty)
+	# region agent log
+	_agent_debug_log(
+		"pre-fix-run-2",
+		"H6",
+		"item.py:_build_reconciliation_rows:branch_decision",
+		"deciding increase/reduce branch",
+		{
+			"item_code": item_code,
+			"warehouse": warehouse,
+			"target_qty": target,
+			"total_current_qty": current_total,
+			"batch_total_from_source": batch_total,
+			"branch": "reduce_or_equal" if target < current_total else "increase",
+		},
+	)
+	# endregion
 
-	if target <= batch_total:
+	if target < current_total:
 		# Walk oldest→newest.  Drain (zero-out) oldest batches first;
 		# the freshest batches keep their stock.
 		# Strategy: accumulate from the *freshest* end to fill remaining,
@@ -3842,7 +4190,7 @@ def _build_reconciliation_rows(
 				})
 	else:
 		# Increasing stock — add extra to the freshest batch
-		extra = target - batch_total
+		extra = target - current_total
 		freshest = batches[-1]
 		freshest_bno = freshest["batch_no"]
 		freshest_current = flt(freshest["qty"])
@@ -3871,12 +4219,63 @@ def _get_all_batches_with_stock(item_code, warehouse):
 	"""
 	from frappe.utils import flt
 	from erpnext.stock.doctype.batch.batch import get_batch_qty
+	from erpnext.stock.doctype.stock_reconciliation.stock_reconciliation import (
+		get_batch_qty_for_stock_reco,
+	)
+	from frappe.utils import now
 
 	batches = get_batch_qty(
 		item_code=item_code,
 		warehouse=warehouse,
 		for_stock_levels=True,
 	) or []
+
+	# region agent log
+	try:
+		sle_creation = now()
+		combined_rows = []
+		for b in batches:
+			bno = b.get("batch_no")
+			if not bno:
+				continue
+			stock_reco_qty = get_batch_qty_for_stock_reco(
+				item_code=item_code,
+				warehouse=warehouse,
+				batch_no=bno,
+				posting_date=today(),
+				posting_time="23:59:59",
+				voucher_no="__klik_pos_probe__",
+				sle_creation=sle_creation,
+			)
+			combined_rows.append({
+				"batch_no": bno,
+				"get_batch_qty_qty": flt(b.get("qty")),
+				"combined_qty": _get_batch_qty_combined(bno, warehouse),
+				"stock_reco_qty": stock_reco_qty,
+			})
+		_agent_debug_log(
+			"pre-fix-run-2",
+			"H5",
+			"item.py:_get_all_batches_with_stock:source_compare",
+			"compare get_batch_qty vs combined batch qty",
+			{
+				"item_code": item_code,
+				"warehouse": warehouse,
+				"batch_count_raw": len(batches),
+				"rows": combined_rows,
+				"sum_get_batch_qty": sum(flt(r["get_batch_qty_qty"]) for r in combined_rows),
+				"sum_combined_qty": sum(flt(r["combined_qty"]) for r in combined_rows),
+			},
+		)
+	except Exception as _e:
+		_agent_debug_log(
+			"pre-fix-run-2",
+			"H5",
+			"item.py:_get_all_batches_with_stock:source_compare_error",
+			"failed comparing batch quantity sources",
+			{"error": str(_e), "item_code": item_code, "warehouse": warehouse},
+		)
+	# endregion
 
 	return [
 		{

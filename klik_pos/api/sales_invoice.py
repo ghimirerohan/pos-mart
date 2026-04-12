@@ -2224,8 +2224,14 @@ def _validate_stock_availability(items):
 	while no single batch actually holds enough (e.g. split across depleted batches).
 	We validate both levels so the user gets a clear error before any document is
 	saved or submitted.
+
+	Item cards and ``get_items_stock_batch`` use ``fetch_item_balance`` (sellable
+	``min(warehouse, batch total)``). Submit still enforces warehouse-level stock in
+	the Stock Ledger, so this check must use the same cap first, then validate batch
+	allocation for auto-picked batches.
 	"""
-	from erpnext.stock.utils import get_stock_balance
+	# Lazy import avoids circular import (``item`` imports this module at load time).
+	from klik_pos.api.item import fetch_item_balance
 
 	pos_profile = _get_active_pos_profile()
 	warehouse = pos_profile.warehouse
@@ -2248,10 +2254,10 @@ def _validate_stock_availability(items):
 
 		item_name = item_fields.item_name or item_code
 
-		available = get_stock_balance(item_code, warehouse) or 0
-		if available < qty_requested:
+		sellable = flt(fetch_item_balance(item_code, warehouse))
+		if sellable < qty_requested:
 			insufficient.append(
-				f"{item_name}: requested {qty_requested}, available {available} in {warehouse}"
+				f"{item_name}: requested {qty_requested}, available {sellable} in {warehouse}"
 			)
 			continue
 
@@ -2267,11 +2273,11 @@ def _validate_stock_availability(items):
 							f"batch has {batch_avail} in {warehouse}"
 						)
 			else:
-				best = _pick_batch_for_item(item_code, warehouse=warehouse, qty_needed=qty_requested)
-				if not best:
+				allocation = _allocate_batches_fefo(item_code, warehouse, qty_requested)
+				if not allocation:
 					insufficient.append(
-						f"{item_name}: no single batch has {qty_requested} units in {warehouse} "
-						f"(total stock: {available})"
+						f"{item_name}: requested {qty_requested}, but batches in {warehouse} "
+						f"cannot cover that quantity (split across batches or insufficient stock)."
 					)
 
 	if insufficient:
@@ -2328,7 +2334,35 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 			)
 	else:
 		qty_needed = flt(item_data.get("qty"), 9)
-		batch_no = _pick_batch_for_item(item_code, warehouse=pos_profile.warehouse, qty_needed=qty_needed)
+		batch_alloc = _allocate_batches_fefo(item_code, pos_profile.warehouse, qty_needed)
+		if not batch_alloc:
+			allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
+			if not allow_negative:
+				item_name = frappe.db.get_value("Item", item_code, "item_name") or item_code
+				frappe.throw(
+					_("No batch allocation could cover {0} units for {1} in warehouse {2}. "
+					  "Please restock or adjust the quantity.").format(
+						qty_needed, item_name, pos_profile.warehouse
+					),
+					title=_("Insufficient Batch Stock"),
+				)
+			return
+		qty = qty_needed
+		bundle_name = _create_outward_bundle(
+			item_code=item_code,
+			warehouse=pos_profile.warehouse,
+			qty=qty,
+			doc=doc,
+			batch_allocations=dict(batch_alloc),
+		)
+		item_data["use_serial_batch_fields"] = 1
+		if len(batch_alloc) == 1:
+			item_data["batch_no"] = next(iter(batch_alloc.keys()))
+		else:
+			item_data["batch_no"] = ""
+		if bundle_name:
+			item_data["serial_and_batch_bundle"] = bundle_name
+		return
 
 	if not batch_no:
 		allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
@@ -2427,21 +2461,24 @@ def _get_batch_qty(batch_no, warehouse):
 	return flt(old_qty + new_qty)
 
 
-def _pick_batch_for_item(item_code, warehouse=None, qty_needed=0):
-	"""Return the best batch for *item_code* that has sufficient stock.
+def _allocate_batches_fefo(item_code, warehouse, qty_needed):
+	"""Split *qty_needed* across batches using FEFO (expiry_date, then creation).
 
-	Prioritises non-expired batches (FEFO).  Falls back to expired batches
-	only when no non-expired batch can satisfy the request.
+	Uses the same per-batch quantities as ``_get_batch_qty`` (SLE + bundle rows)
+	so allocations never exceed what ERPNext will allow on submit.
 
-	Handles both old-style (SLE.batch_no) and new-style (Serial and Batch
-	Bundle) stock tracking.
+	Returns a ``frappe._dict`` mapping ``batch_no -> qty`` summing to *qty_needed*,
+	or ``None`` if batches cannot cover the request.
 	"""
 	if not warehouse:
 		pos_profile = _get_active_pos_profile()
 		warehouse = pos_profile.warehouse
 
-	today = frappe.utils.nowdate()
+	qty_needed = flt(qty_needed)
+	if qty_needed <= 1e-9:
+		return frappe._dict()
 
+	today = frappe.utils.nowdate()
 	batches = frappe.db.sql(
 		"""SELECT name, expiry_date FROM `tabBatch`
 		   WHERE item = %s AND disabled = 0
@@ -2449,37 +2486,43 @@ def _pick_batch_for_item(item_code, warehouse=None, qty_needed=0):
 		item_code,
 		as_dict=True,
 	)
-
-	best_valid = None
-	best_valid_qty = 0
-	best_expired = None
-	best_expired_qty = 0
+	allocation = frappe._dict()
+	remaining = qty_needed
 
 	for b in batches:
-		available = _get_batch_qty(b.name, warehouse)
-		if available <= 0:
+		if remaining <= 1e-9:
+			break
+		is_expired = bool(b.expiry_date and getdate(b.expiry_date) < getdate(today))
+		if is_expired:
 			continue
+		avail = _get_batch_qty(b.name, warehouse)
+		if avail <= 1e-9:
+			continue
+		take = min(remaining, avail)
+		allocation[b.name] = take
+		remaining -= take
 
-		is_expired = b.expiry_date and getdate(b.expiry_date) < getdate(today)
-
+	for b in batches:
+		if remaining <= 1e-9:
+			break
+		is_expired = bool(b.expiry_date and getdate(b.expiry_date) < getdate(today))
 		if not is_expired:
-			if available >= qty_needed and qty_needed > 0:
-				return b.name
-			if available > best_valid_qty:
-				best_valid_qty = available
-				best_valid = b.name
-		else:
-			if available >= qty_needed and qty_needed > 0 and not best_expired:
-				best_expired = b.name
-				best_expired_qty = available
-			elif available > best_expired_qty:
-				best_expired_qty = available
-				best_expired = b.name
+			continue
+		avail = _get_batch_qty(b.name, warehouse)
+		if avail <= 1e-9:
+			continue
+		take = min(remaining, avail)
+		allocation[b.name] = take
+		remaining -= take
 
-	return best_valid or best_expired
+	if remaining > 1e-9:
+		return None
+	return allocation
 
 
-def _create_outward_bundle(item_code, warehouse, qty, doc, batch_no=None, serial_nos=None):
+def _create_outward_bundle(
+	item_code, warehouse, qty, doc, batch_no=None, serial_nos=None, batch_allocations=None
+):
 	"""Create a draft Serial and Batch Bundle for an outward (sales) transaction.
 
 	By explicitly passing ``batches`` / ``serial_nos`` we bypass
@@ -2499,7 +2542,9 @@ def _create_outward_bundle(item_code, warehouse, qty, doc, batch_no=None, serial
 		"company": doc.company,
 		"do_not_submit": True,
 	}
-	if batch_no:
+	if batch_allocations:
+		kwargs["batches"] = frappe._dict({k: flt(v) for k, v in batch_allocations.items()})
+	elif batch_no:
 		kwargs["batches"] = frappe._dict({batch_no: qty})
 	if serial_nos:
 		kwargs["serial_nos"] = serial_nos

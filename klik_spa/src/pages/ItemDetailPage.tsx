@@ -58,6 +58,11 @@ interface ItemDetails {
   has_expiry_date: number
   shelf_life_in_days: number | null
   available_qty: number
+  /** Same as available_qty: min(warehouse, batch total) for batch items. */
+  sellable_qty: number
+  warehouse_qty: number
+  batch_total_qty: number
+  batch_warehouse_mismatch: boolean
   warehouse: string
   disabled: number
 }
@@ -368,16 +373,40 @@ export default function ItemDetailPage() {
       // Fetch stock qty
       let availableQty = 0
       let warehouse = ""
+      let warehouseQty = 0
+      let batchTotalQty = 0
+      let sellableQty = 0
+      let batchMismatch = false
       try {
         const stockResponse = await fetch(
           "/api/method/klik_pos.api.item.get_item_stock",
           await frappeJsonPostInit({ item_code: itemCode })
         )
         const stockData = await stockResponse.json()
-        availableQty = stockData.message?.available || 0
-        warehouse = stockData.message?.warehouse || ""
+        const sm = stockData.message as Record<string, unknown> | undefined
+        availableQty = typeof sm?.available === "number" ? sm.available : Number(sm?.available) || 0
+        warehouse = typeof sm?.warehouse === "string" ? sm.warehouse : ""
+        warehouseQty = typeof sm?.warehouse_qty === "number" ? sm.warehouse_qty : Number(sm?.warehouse_qty) || 0
+        batchTotalQty = typeof sm?.batch_total_qty === "number" ? sm.batch_total_qty : Number(sm?.batch_total_qty) || 0
+        sellableQty = typeof sm?.sellable_qty === "number" ? sm.sellable_qty : Number(sm?.sellable_qty) || availableQty
+        batchMismatch = Boolean(sm?.batch_warehouse_mismatch)
       } catch {
         console.error("Failed to fetch stock")
+      }
+
+      if (!warehouse) {
+        try {
+          const whRes = await fetch(
+            "/api/method/klik_pos.api.item.get_pos_default_warehouse",
+            await frappeJsonPostInit({})
+          )
+          const whData = await whRes.json()
+          const wm = whData.message as Record<string, unknown> | undefined
+          const w = typeof wm?.warehouse === "string" ? wm.warehouse.trim() : ""
+          if (w) warehouse = w
+        } catch {
+          console.error("Failed to fetch POS default warehouse")
+        }
       }
 
       // Fetch prices from Item Price table (single source of truth)
@@ -412,6 +441,10 @@ export default function ItemDetailPage() {
         has_expiry_date: itemDoc.has_expiry_date || 0,
         shelf_life_in_days: itemDoc.shelf_life_in_days || null,
         available_qty: availableQty,
+        sellable_qty: sellableQty,
+        warehouse_qty: warehouseQty,
+        batch_total_qty: batchTotalQty,
+        batch_warehouse_mismatch: batchMismatch,
         warehouse: warehouse,
         disabled: itemDoc.disabled || 0,
       }
@@ -650,15 +683,32 @@ export default function ItemDetailPage() {
       return
     }
 
-    if (stockChanged && !item?.warehouse) {
-      toast.error('Warehouse not found. Please configure POS profile with a warehouse.')
-      return
-    }
-
     setIsSaving(true)
     if (stockChanged) setIsUpdatingStock(true)
 
     try {
+      let resolvedWarehouse = (item?.warehouse || "").trim()
+      if (stockChanged && !resolvedWarehouse) {
+        try {
+          const whRes = await fetch(
+            "/api/method/klik_pos.api.item.get_pos_default_warehouse",
+            await frappeJsonPostInit({})
+          )
+          const whData = await whRes.json()
+          const wm = whData.message as Record<string, unknown> | undefined
+          const w = typeof wm?.warehouse === "string" ? wm.warehouse.trim() : ""
+          if (w) resolvedWarehouse = w
+        } catch {
+          console.error("Failed to resolve POS warehouse for stock update")
+        }
+      }
+      if (stockChanged && !resolvedWarehouse) {
+        toast.error(
+          "No warehouse is available for stock reconciliation. Set a warehouse on the active POS Profile in ERPNext, then refresh this page."
+        )
+        return
+      }
+
       const barcodeChanged = form.barcode !== originalForm?.barcode
       const sellingPriceChanged = form.standard_rate !== originalForm?.standard_rate
       const buyingPriceChanged = form.valuation_rate !== originalForm?.valuation_rate
@@ -687,7 +737,7 @@ export default function ItemDetailPage() {
         expected_qty: originalForm?.available_qty ?? 0,
         correction_reason: form.correction_reason,
         correction_note: form.correction_note,
-        warehouse: item?.warehouse || "",
+        warehouse: stockChanged ? resolvedWarehouse : (item?.warehouse || "").trim(),
       }
 
       const response = await fetch(
@@ -734,9 +784,11 @@ export default function ItemDetailPage() {
         const srName = sd?.reconciliation_name ?? ""
         const oldQ = sd?.old_qty ?? ""
         const newQ = sd?.new_qty ?? ""
+        const whName = typeof sd?.warehouse === "string" ? sd.warehouse.trim() : ""
+        const whPart = whName ? ` in ${whName}` : ""
         toast.success(
-          `Stock corrected: ${String(oldQ)} → ${String(newQ)}` +
-            (srName ? ` (${String(srName)})` : "")
+          `Stock corrected${whPart}: ${String(oldQ)} → ${String(newQ)}` +
+            (srName ? ` · ${String(srName)}` : "")
         )
       }
 
@@ -1325,6 +1377,31 @@ export default function ItemDetailPage() {
               )}
             </div>
           </div>
+
+          {!isEditing && item.has_batch_no > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                <span className="font-medium text-gray-800 dark:text-gray-200">
+                  Sellable right now (POS / checkout):
+                </span>{" "}
+                {formatGroupedAmount(item.sellable_qty)} {item.stock_uom}
+              </p>
+              {item.batch_warehouse_mismatch && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-xs text-amber-950 dark:text-amber-100"
+                >
+                  <p className="font-medium">Stock data mismatch</p>
+                  <p className="mt-1 leading-relaxed">
+                    Warehouse balance is {formatGroupedAmount(item.warehouse_qty)} {item.stock_uom}; batch stock
+                    (ERPNext batch view) sums to {formatGroupedAmount(item.batch_total_qty)} {item.stock_uom}. Do not
+                    trust the higher figure for sales — checkout uses the lower amount ({formatGroupedAmount(item.sellable_qty)} {item.stock_uom}). Run{" "}
+                    <strong>Stock Reconciliation</strong> in ERPNext for this item and warehouse so both match.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Stock correction reason — shown only when qty is changed */}
           {isEditing && form.available_qty !== originalForm?.available_qty && (
