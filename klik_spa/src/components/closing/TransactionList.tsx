@@ -22,6 +22,8 @@ interface TransactionListProps {
   currency: string;
   paymentModes: string[];
   onViewInvoice?: (reference: string) => void;
+  /** When set, replaces the Time column (e.g. BS date + Nepali-formatted clock). */
+  formatTransactionDateTime?: (txn: PaymentTransaction) => string;
 }
 
 export default function TransactionList({
@@ -29,6 +31,7 @@ export default function TransactionList({
   currency,
   paymentModes,
   onViewInvoice,
+  formatTransactionDateTime,
 }: TransactionListProps) {
   const [activeTab, setActiveTab] = useState<FilterTab>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -216,7 +219,7 @@ export default function TransactionList({
                   Amount
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Time
+                  {formatTransactionDateTime ? "Date / time (BS)" : "Time"}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Cashier
@@ -283,7 +286,9 @@ export default function TransactionList({
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="text-sm text-gray-500 dark:text-gray-400">
-                      {formatTime(txn.posting_time)}
+                      {formatTransactionDateTime
+                        ? formatTransactionDateTime(txn)
+                        : formatTime(txn.posting_time)}
                     </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">

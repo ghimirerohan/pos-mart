@@ -23,6 +23,7 @@ import {
   ExternalLink
 } from "lucide-react"
 import { useAuth } from "../hooks/useAuth"
+import { usePOSDetails } from "../hooks/usePOSProfile"
 import BottomNavigation from "../components/BottomNavigation"
 import BarcodePrintDialog from "../components/BarcodePrintDialog"
 import { toast } from "react-toastify"
@@ -192,6 +193,42 @@ const optimizeImage = (file: File): Promise<string> => {
 const commonUOMs = ["Nos", "Kg", "Gram", "Liter", "ML", "Box", "Pack", "Dozen", "Piece", "Unit"]
 const itemGroups = ["Products", "Services", "Raw Materials", "Consumables", "Sub Assemblies"]
 
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${day}`
+}
+
+/** Same calendar day, previous month (matches ERPNext-style “one month” ranges). */
+function subtractCalendarMonth(d: Date): Date {
+  const copy = new Date(d.getTime())
+  copy.setMonth(copy.getMonth() - 1)
+  return copy
+}
+
+function getDeskOrigin(): string {
+  const explicit = import.meta.env.VITE_ERPNEXT_DESK_URL?.trim()
+  if (explicit) return explicit.replace(/\/$/, "")
+  if (typeof window !== "undefined") return window.location.origin
+  return ""
+}
+
+/** Stock Ledger query report — same pattern as ERPNext desk URL. */
+function buildStockLedgerReportUrl(company: string, itemCode: string): string {
+  const to = new Date()
+  const from = subtractCalendarMonth(to)
+  const params = new URLSearchParams({
+    company,
+    from_date: formatLocalYmd(from),
+    to_date: formatLocalYmd(to),
+    item_code: JSON.stringify([itemCode]),
+    valuation_field_type: "Currency",
+  })
+  const origin = getDeskOrigin()
+  return `${origin}/app/query-report/Stock%20Ledger?${params.toString()}`
+}
+
 function parseFrappeClientError(data: Record<string, unknown>): string | null {
   const toPlainText = (raw: string): string => {
     const s = raw.trim()
@@ -275,6 +312,8 @@ export default function ItemDetailPage() {
     }
   })()
   const { user } = useAuth()
+  const { posDetails } = usePOSDetails()
+  const companyName = (posDetails?.company ?? "").trim()
 
   const [item, setItem] = useState<ItemDetails | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -870,6 +909,16 @@ export default function ItemDetailPage() {
     toast.success('Item details exported to CSV')
   }
 
+  const handleOpenStockLedger = () => {
+    if (!item?.item_code) return
+    if (!companyName) {
+      toast.error("Company is not available yet. Wait for POS details to load, then try again.")
+      return
+    }
+    const url = buildStockLedgerReportUrl(companyName, item.item_code)
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
+
   // Make item inactive (Administrator only)
   const handleMakeInactive = async () => {
     if (!itemCode || !isAdministrator) return
@@ -1013,6 +1062,20 @@ export default function ItemDetailPage() {
               >
                 <Download size={18} />
                 <span className="hidden sm:inline">Export</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenStockLedger}
+                disabled={!companyName}
+                className="flex items-center space-x-1 px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={
+                  companyName
+                    ? "Open Stock Ledger in ERPNext (from same day last month to today)"
+                    : "Loading company from POS profile…"
+                }
+              >
+                <ExternalLink size={18} />
+                <span className="hidden sm:inline">Stock Ledger</span>
               </button>
               {/* Print Barcode Button - only show if item has barcode */}
               {item.barcode && (

@@ -1,9 +1,10 @@
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import LoginPage from "../pages/LoginPage";
 import POSPage from "../pages/POSPage";
 import PurchasePage from "../pages/PurchasePage";
 import DashboardPage from "../pages/DashboardPage";
 import ClosingShiftPage from "../pages/ClosingShiftPage";
+import CashierInsightsPage from "../pages/CashierInsightsPage";
 import SettingsPage from "../components/SettingsPage";
 import PaymentPage from "../pages/PaymentPage";
 import CustomersPage from "../components/CustomersPage";
@@ -52,6 +53,14 @@ const router = createBrowserRouter([
       {
         path: "closing_shift",
         element: <ProtectedRoute element={<ClosingShiftPage />} />,
+      },
+      {
+        path: "cashier_insights",
+        element: <ProtectedRoute element={<CashierInsightsPage />} />,
+      },
+      {
+        path: "session_insights",
+        element: <Navigate to="/cashier_insights" replace />,
       },
       {
         path: "date-wise-inventory",

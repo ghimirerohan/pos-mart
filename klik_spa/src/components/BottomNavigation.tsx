@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus, ShoppingBag, ClipboardList, Menu, X } from "lucide-react"
+import { Receipt, FileText, Grid3X3, BarChart3, Users, Package, PackagePlus, ShoppingBag, ClipboardList, Menu, X, Activity } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useUserInfo } from "../hooks/useUserInfo"
 
@@ -42,6 +42,7 @@ export default function BottomNavigation() {
         { icon: Package, path: "/items", label: "Items" },
         { icon: Users, path: "/customers", label: "Customers" },
         { icon: BarChart3, path: "/dashboard", label: "Dashboard" },
+        { icon: Activity, path: "/cashier_insights", label: "Insights" },
         { icon: FileText, path: "/closing_shift", label: "Closing" },
       ]
     : userMenuItems
@@ -55,6 +56,9 @@ export default function BottomNavigation() {
     }
     if (path === "/date-wise-inventory") {
       return location.pathname === "/date-wise-inventory"
+    }
+    if (path === "/cashier_insights") {
+      return location.pathname === "/cashier_insights"
     }
     return location.pathname.startsWith(path)
   }

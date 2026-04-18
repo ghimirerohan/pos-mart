@@ -629,6 +629,45 @@ def bs_range_to_ad(from_year, from_month, from_day, to_year, to_month, to_day):
 
 
 @frappe.whitelist()
+def ad_to_bs_batch(ad_dates=None):
+	"""
+	Map AD dates (YYYY-MM-DD) to BS YYYY-MM-DD for SPA display (e.g. transaction rows).
+
+	Pass ``ad_dates`` as a comma-separated list (GET) or JSON array / body list (POST).
+	"""
+	if ad_dates is None:
+		data = frappe.request.get_json(silent=True) or {}
+		ad_dates = data.get("ad_dates")
+
+	if ad_dates is None:
+		return {"map": {}}
+
+	if isinstance(ad_dates, str):
+		s = ad_dates.strip()
+		if not s:
+			return {"map": {}}
+		if s.startswith("["):
+			try:
+				ad_dates = json.loads(s)
+			except (TypeError, ValueError):
+				return {"map": {}}
+		else:
+			ad_dates = [x.strip() for x in s.split(",") if x.strip()]
+
+	if not isinstance(ad_dates, (list, tuple)):
+		return {"map": {}}
+	out = {}
+	for d in ad_dates:
+		if not d or not isinstance(d, str):
+			continue
+		key = d.strip()[:10]
+		if not re.match(r"^\d{4}-\d{2}-\d{2}$", key):
+			continue
+		out[key] = _ad_to_bs_date_only(key)
+	return {"map": out}
+
+
+@frappe.whitelist()
 def get_filter_options():
 	"""Return companies, item_groups, warehouses for Date Wise Inventory filter dropdowns."""
 	_check_permission()

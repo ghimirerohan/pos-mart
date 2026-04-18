@@ -8,6 +8,12 @@ interface PaymentModeCardProps {
   currency: string;
   onClick?: () => void;
   isSelected?: boolean;
+  /** When false, never show the opening row (e.g. period reports where opening is not meaningful). */
+  showOpening?: boolean;
+  /** Label for the net line (default: NET). */
+  netLabel?: string;
+  /** When true, Money In / Money Out lines are always visible (no expand/collapse). */
+  alwaysShowBreakdown?: boolean;
 }
 
 export default function PaymentModeCard({
@@ -15,8 +21,12 @@ export default function PaymentModeCard({
   currency,
   onClick,
   isSelected = false,
+  showOpening = true,
+  netLabel = "NET",
+  alwaysShowBreakdown = false,
 }: PaymentModeCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const breakdownOpen = alwaysShowBreakdown || isExpanded;
 
   // Get icon based on payment mode name
   const getPaymentIcon = () => {
@@ -41,6 +51,12 @@ export default function PaymentModeCard({
 
   const hasInTransactions = mode.in.total > 0;
   const hasOutTransactions = mode.out.total > 0;
+  const showSalesRow = alwaysShowBreakdown || mode.in.sales > 0;
+  const showPartialRow = alwaysShowBreakdown || mode.in.partial_payments > 0;
+  const showCreditPaidRow = alwaysShowBreakdown || mode.in.credit_payments > 0;
+  const showReturnsRow = alwaysShowBreakdown || mode.out.returns > 0;
+  const showMoneyInSection = alwaysShowBreakdown || hasInTransactions;
+  const showMoneyOutSection = alwaysShowBreakdown || hasOutTransactions;
 
   return (
     <div
@@ -58,20 +74,24 @@ export default function PaymentModeCard({
             <span className="text-2xl">{getPaymentIcon()}</span>
             <h3 className="font-semibold text-gray-900 dark:text-white">{mode.name}</h3>
           </div>
-          <button
-            onClick={handleExpandClick}
-            className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            {isExpanded ? (
-              <ChevronUp className="w-5 h-5 text-gray-500" />
-            ) : (
-              <ChevronDown className="w-5 h-5 text-gray-500" />
-            )}
-          </button>
+          {!alwaysShowBreakdown && (
+            <button
+              type="button"
+              onClick={handleExpandClick}
+              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-expanded={isExpanded}
+            >
+              {isExpanded ? (
+                <ChevronUp className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              )}
+            </button>
+          )}
         </div>
 
-        {/* Opening Balance */}
-        {mode.opening > 0 && (
+        {/* Opening Balance (hidden when not meaningful, e.g. multi-day admin report) */}
+        {showOpening && mode.opening > 0 && (
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="text-gray-500 dark:text-gray-400">Opening</span>
             <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -105,7 +125,7 @@ export default function PaymentModeCard({
         {/* NET - Highlighted */}
         <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
           <div className="flex items-center justify-between">
-            <span className="text-gray-900 dark:text-white font-bold">NET</span>
+            <span className="text-gray-900 dark:text-white font-bold">{netLabel}</span>
             <span
               className={`text-xl font-bold ${
                 mode.net >= 0
@@ -122,17 +142,16 @@ export default function PaymentModeCard({
         </div>
       </div>
 
-      {/* Expanded Details */}
-      {isExpanded && (
+      {/* Breakdown (collapsible, or always visible when alwaysShowBreakdown) */}
+      {breakdownOpen && (
         <div className="px-4 pb-4 pt-2 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 rounded-b-xl">
-          {/* IN Breakdown */}
-          {hasInTransactions && (
+          {showMoneyInSection && (
             <div className="mb-3">
               <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-1 uppercase tracking-wide">
                 Money In
               </div>
               <div className="space-y-1 text-sm">
-                {mode.in.sales > 0 && (
+                {showSalesRow && (
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Sales</span>
                     <span className="text-gray-900 dark:text-white">
@@ -140,7 +159,7 @@ export default function PaymentModeCard({
                     </span>
                   </div>
                 )}
-                {mode.in.partial_payments > 0 && (
+                {showPartialRow && (
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Partial Payments</span>
                     <span className="text-gray-900 dark:text-white">
@@ -148,7 +167,7 @@ export default function PaymentModeCard({
                     </span>
                   </div>
                 )}
-                {mode.in.credit_payments > 0 && (
+                {showCreditPaidRow && (
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Credits Paid</span>
                     <span className="text-gray-900 dark:text-white">
@@ -160,14 +179,13 @@ export default function PaymentModeCard({
             </div>
           )}
 
-          {/* OUT Breakdown */}
-          {hasOutTransactions && (
+          {showMoneyOutSection && (
             <div>
               <div className="text-xs font-medium text-red-600 dark:text-red-400 mb-1 uppercase tracking-wide">
                 Money Out
               </div>
               <div className="space-y-1 text-sm">
-                {mode.out.returns > 0 && (
+                {showReturnsRow && (
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Returns</span>
                     <span className="text-gray-900 dark:text-white">
@@ -179,12 +197,13 @@ export default function PaymentModeCard({
             </div>
           )}
 
-          {/* No transactions message */}
-          {!hasInTransactions && !hasOutTransactions && (
-            <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-              No transactions
-            </div>
-          )}
+          {!alwaysShowBreakdown &&
+            !showMoneyInSection &&
+            !showMoneyOutSection && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
+                No transactions
+              </div>
+            )}
         </div>
       )}
     </div>

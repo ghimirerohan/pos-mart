@@ -1,4 +1,4 @@
-import { Receipt, Grid3X3, BarChart3, Users, MonitorX, Package, ShoppingBag, PackagePlus, ClipboardList } from "lucide-react"
+import { Receipt, Grid3X3, BarChart3, Users, MonitorX, Package, ShoppingBag, PackagePlus, ClipboardList, Activity } from "lucide-react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useUserInfo } from "../hooks/useUserInfo"
 
@@ -25,6 +25,7 @@ export default function RetailSidebar() {
         { icon: Package, path: "/items", label: "Items" },
         { icon: Users, path: "/customers", label: "Customers" },
         { icon: BarChart3, path: "/dashboard", label: "Dashboard" },
+        { icon: Activity, path: "/cashier_insights", label: "Cashier insights" },
         { icon: MonitorX, path: "/closing_shift", label: "Closing Shift" },
       ]
     : userMenuItems
@@ -39,6 +40,9 @@ export default function RetailSidebar() {
     }
     if (path === "/date-wise-inventory") {
       return location.pathname === "/date-wise-inventory"
+    }
+    if (path === "/cashier_insights") {
+      return location.pathname === "/cashier_insights"
     }
     return location.pathname.startsWith(path)
   }

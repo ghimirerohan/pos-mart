@@ -27,7 +27,7 @@ const ProtectedRoute = ({ element }: { element: React.ReactElement }) => {
 
   // Wrap the element with POSOpeningEntryGuard to ensure opening entry exists
   return (
-    <POSOpeningEntryGuard excludePaths={['/settings']}>
+    <POSOpeningEntryGuard excludePaths={['/settings', '/cashier_insights', '/session_insights']}>
       {element}
     </POSOpeningEntryGuard>
   );

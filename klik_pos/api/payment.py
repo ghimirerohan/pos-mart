@@ -295,7 +295,7 @@ def _get_user_filter(is_admin, cashier_filter):
 
 	By default **all** users (including admins) are scoped to their own
 	POS Opening Entry so the Closing Shift shows only the current
-	session's transactions.  Admins can explicitly select "All Cashiers"
+	cashier's transactions.  Admins can explicitly select "All Cashiers"
 	to see the aggregated day-view.
 
 	Returns:
@@ -308,7 +308,7 @@ def _get_user_filter(is_admin, cashier_filter):
 
 	if cashier_filter == "all":
 		return "all"
-	if cashier_filter and cashier_filter not in ("my_session",):
+	if cashier_filter and cashier_filter not in ("current_cashier", "my_session"):
 		return cashier_filter
 
 	return "opening_entry"
@@ -532,7 +532,7 @@ def _fetch_payment_entries(pos_profile, opening_entry_name, opening_date, is_adm
 	Fetch Payment Entries for credit payments and partial payments.
 	These are payments made against previous invoices.
 	
-	For "My Session" (opening_entry filter), matches entries linked to the opening
+	For current cashier (opening_entry filter), matches entries linked to the opening
 	entry OR entries by the same user without a link (created outside the POS app).
 	"""
 	pe_meta = frappe.get_meta("Payment Entry")
@@ -869,3 +869,440 @@ def _get_cashiers_list(pos_profile, opening_date):
 	
 	# Add "All" option at the beginning
 	return [{"user_id": "all", "name": "All Cashiers"}] + cashiers
+
+
+def _parse_report_dates(from_date, to_date):
+	"""Normalize YYYY-MM-DD strings; default to today."""
+	from frappe.utils import getdate
+
+	today = frappe.utils.today()
+	fd = getdate(from_date) if from_date else getdate(today)
+	td = getdate(to_date) if to_date else fd
+	if td < fd:
+		fd, td = td, fd
+	return fd, td
+
+
+def _get_report_user_filter(cashier_filter):
+	"""
+	For date-range report (admin). cashier_filter from SPA: current_cashier | all | user id.
+	Legacy alias my_session is accepted.
+	Returns internal filter key: 'all' | <user name>
+	"""
+	cf = (cashier_filter or "").strip() or "current_cashier"
+	if cf == "all":
+		return "all"
+	if cf in ("current_cashier", "my_session"):
+		return frappe.session.user
+	return cf
+
+
+def _pos_payment_method_rows_as_opening_zero(pos_profile):
+	rows = frappe.get_all(
+		"POS Payment Method",
+		filters={"parent": pos_profile},
+		fields=["mode_of_payment"],
+	)
+	# _build_comprehensive_payment_summary uses attribute access (mode.mode_of_payment);
+	# frappe.get_all rows are _dict, but plain dict literals are not — use frappe._dict.
+	return [
+		frappe._dict(mode_of_payment=r.get("mode_of_payment"), opening_amount=0.0)
+		for r in rows
+		if r.get("mode_of_payment")
+	]
+
+
+def _fetch_sales_invoice_payments_range(pos_profile, date_from, date_to, user_filter):
+	params = []
+	if user_filter == "all":
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.custom_pos_opening_entry IS NOT NULL
+			AND si.custom_pos_opening_entry != ''
+		"""
+		params = [pos_profile, date_from, date_to]
+	else:
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, date_from, date_to, user_filter]
+
+	query = f"""
+		SELECT
+			si.name as invoice_name,
+			si.customer,
+			si.customer_name,
+			si.posting_date,
+			si.posting_time,
+			si.owner,
+			si.is_return,
+			si.status,
+			sip.mode_of_payment,
+			sip.amount,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
+			u.full_name as cashier_name
+		FROM `tabSales Invoice` si
+		JOIN `tabSales Invoice Payment` sip ON si.name = sip.parent
+		LEFT JOIN `tabUser` u ON si.owner = u.name
+		WHERE {base_condition}
+		ORDER BY si.posting_date DESC, si.posting_time DESC
+	"""
+	return frappe.db.sql(query, params, as_dict=True)
+
+
+def _fetch_payment_entries_range(pos_profile, date_from, date_to, user_filter):
+	pe_meta = frappe.get_meta("Payment Entry")
+	has_pos_opening_field = pe_meta.has_field("custom_pos_opening_entry")
+	pos_opening_col = "pe.custom_pos_opening_entry," if has_pos_opening_field else "NULL as custom_pos_opening_entry,"
+	payment_type_col = "pe.custom_pos_payment_type," if pe_meta.has_field("custom_pos_payment_type") else "NULL as custom_pos_payment_type,"
+
+	params = []
+	if user_filter == "all":
+		scope_condition = "AND pe.posting_date BETWEEN %s AND %s"
+		params = [date_from, date_to]
+	elif user_filter:
+		scope_condition = "AND pe.posting_date BETWEEN %s AND %s AND pe.owner = %s"
+		params = [date_from, date_to, user_filter]
+
+	query = f"""
+		SELECT
+			pe.name,
+			pe.party,
+			pe.party_name,
+			pe.posting_date,
+			pe.paid_amount,
+			pe.mode_of_payment,
+			pe.payment_type,
+			pe.owner,
+			pe.docstatus,
+			{pos_opening_col}
+			{payment_type_col}
+			TIME(pe.creation) as creation_time,
+			per.reference_name,
+			si.posting_date as reference_posting_date,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
+			u.full_name as cashier_name
+		FROM `tabPayment Entry` pe
+		LEFT JOIN `tabPayment Entry Reference` per ON pe.name = per.parent
+		LEFT JOIN `tabSales Invoice` si ON per.reference_name = si.name AND per.reference_doctype = 'Sales Invoice'
+		LEFT JOIN `tabUser` u ON pe.owner = u.name
+		WHERE pe.docstatus = 1
+			AND pe.party_type = 'Customer'
+			AND pe.payment_type = 'Receive'
+			{scope_condition}
+		ORDER BY pe.posting_date DESC, pe.creation DESC
+	"""
+	return frappe.db.sql(query, params, as_dict=True)
+
+
+def _fetch_credits_given_range(pos_profile, date_from, date_to, user_filter):
+	params = []
+	if user_filter == "all":
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.is_return = 0
+			AND si.outstanding_amount > 0
+			AND si.custom_pos_opening_entry IS NOT NULL
+			AND si.custom_pos_opening_entry != ''
+		"""
+		params = [pos_profile, date_from, date_to]
+	else:
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.is_return = 0
+			AND si.outstanding_amount > 0
+			AND si.owner = %s
+		"""
+		params = [pos_profile, date_from, date_to, user_filter]
+
+	query = f"""
+		SELECT
+			si.name,
+			si.customer,
+			si.customer_name,
+			si.posting_date,
+			si.posting_time,
+			si.owner,
+			si.status,
+			si.outstanding_amount,
+			si.grand_total,
+			IFNULL(si.discount_amount, 0) as invoice_discount_amount,
+			u.full_name as cashier_name
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabUser` u ON si.owner = u.name
+		WHERE {base_condition}
+		ORDER BY si.posting_date DESC, si.posting_time DESC
+	"""
+	return frappe.db.sql(query, params, as_dict=True)
+
+
+def _fetch_all_payment_transactions_range(pos_profile, date_from, date_to, user_filter):
+	"""Same structure as _fetch_all_payment_transactions but scoped by posting date range."""
+	transactions = {
+		"in": {"sales": [], "partial_payments": [], "credit_payments": []},
+		"out": {"returns": [], "credit_given": []},
+		"transactions": [],
+	}
+
+	sales_payments = _fetch_sales_invoice_payments_range(pos_profile, date_from, date_to, user_filter)
+	for payment in sales_payments:
+		inv_disc = abs(float(payment.get("invoice_discount_amount") or 0))
+		txn = {
+			"id": f"{payment.invoice_name}-{payment.mode_of_payment or 'Unknown'}",
+			"type": "out" if payment.is_return else "in",
+			"source": "return" if payment.is_return else "sales",
+			"payment_mode": payment.mode_of_payment or "Unknown",
+			"amount": abs(float(payment.amount or 0)),
+			"discount_amount": inv_disc,
+			"customer": payment.customer_name or payment.customer or "Unknown",
+			"customer_id": payment.customer or "",
+			"reference": payment.invoice_name or "",
+			"reference_type": "Sales Invoice",
+			"timestamp": f"{payment.posting_date} {payment.posting_time}",
+			"posting_date": str(payment.posting_date),
+			"posting_time": str(payment.posting_time) if payment.posting_time else "00:00:00",
+			"cashier": payment.cashier_name or payment.owner or "Unknown",
+			"cashier_id": payment.owner or "",
+			"is_return": payment.is_return,
+			"status": payment.status or "",
+		}
+		if payment.is_return:
+			transactions["out"]["returns"].append(txn)
+		else:
+			transactions["in"]["sales"].append(txn)
+		transactions["transactions"].append(txn)
+
+	payment_entries = _fetch_payment_entries_range(pos_profile, date_from, date_to, user_filter)
+	seen_pe = {}
+	for pe in payment_entries:
+		if pe.name in seen_pe:
+			existing = seen_pe[pe.name]
+			if pe.reference_name and pe.reference_name not in existing["_invoices"]:
+				existing["_invoices"].append(pe.reference_name)
+			continue
+
+		explicit_type = (pe.get("custom_pos_payment_type") or "").strip()
+		if explicit_type == "Credit Payment":
+			source = "credit_payment"
+		elif explicit_type == "Partial Payment":
+			source = "partial_payment"
+		else:
+			source = "partial_payment" if bool(pe.get("custom_pos_opening_entry")) else "credit_payment"
+
+		pe_inv_disc = abs(float(pe.get("invoice_discount_amount") or 0))
+		txn = {
+			"id": pe.name or "",
+			"type": "in" if pe.payment_type == "Receive" else "out",
+			"source": source,
+			"payment_mode": pe.mode_of_payment or "Unknown",
+			"amount": abs(float(pe.paid_amount or 0)),
+			"discount_amount": pe_inv_disc,
+			"customer": pe.party_name or pe.party or "Unknown",
+			"customer_id": pe.party or "",
+			"reference": pe.name or "",
+			"reference_type": "Payment Entry",
+			"linked_invoice": pe.reference_name or "",
+			"timestamp": f"{pe.posting_date} {pe.creation_time}",
+			"posting_date": str(pe.posting_date),
+			"posting_time": pe.creation_time or "00:00:00",
+			"cashier": pe.cashier_name or pe.owner or "Unknown",
+			"cashier_id": pe.owner or "",
+			"is_return": False,
+			"status": "Submitted" if pe.docstatus == 1 else "Draft",
+			"_invoices": [pe.reference_name] if pe.reference_name else [],
+		}
+		seen_pe[pe.name] = txn
+
+	for txn in seen_pe.values():
+		txn.pop("_invoices", None)
+		if txn["type"] == "in":
+			bucket = "partial_payments" if txn["source"] == "partial_payment" else "credit_payments"
+			transactions["in"][bucket].append(txn)
+		transactions["transactions"].append(txn)
+
+	credits_given = _fetch_credits_given_range(pos_profile, date_from, date_to, user_filter)
+	for credit in credits_given:
+		credit_disc = abs(float(credit.get("invoice_discount_amount") or 0))
+		txn = {
+			"id": f"{credit.name}-credit",
+			"type": "out",
+			"source": "credit_given",
+			"payment_mode": "Credit",
+			"amount": float(credit.outstanding_amount or 0),
+			"discount_amount": credit_disc,
+			"customer": credit.customer_name or credit.customer or "Unknown",
+			"customer_id": credit.customer or "",
+			"reference": credit.name or "",
+			"reference_type": "Sales Invoice",
+			"timestamp": f"{credit.posting_date} {credit.posting_time}",
+			"posting_date": str(credit.posting_date),
+			"posting_time": str(credit.posting_time) if credit.posting_time else "00:00:00",
+			"cashier": credit.cashier_name or credit.owner or "Unknown",
+			"cashier_id": credit.owner or "",
+			"is_return": False,
+			"status": credit.status or "",
+		}
+		transactions["out"]["credit_given"].append(txn)
+		transactions["transactions"].append(txn)
+
+	transactions["transactions"].sort(key=lambda x: x["timestamp"], reverse=True)
+	return transactions
+
+
+def _build_invoice_summary_range(pos_profile, date_from, date_to, user_filter):
+	params = []
+	if user_filter == "all":
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.custom_pos_opening_entry IS NOT NULL
+			AND si.custom_pos_opening_entry != ''
+		"""
+		params = [pos_profile, date_from, date_to]
+	else:
+		base_condition = """
+			si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.owner = %s
+		"""
+		params = [pos_profile, date_from, date_to, user_filter]
+
+	query = f"""
+		SELECT
+			COUNT(*) as total_invoices,
+			SUM(CASE WHEN si.status = 'Paid' THEN 1 ELSE 0 END) as paid,
+			SUM(CASE WHEN si.status IN ('Unpaid', 'Overdue', 'Partly Paid') AND si.is_return = 0 THEN 1 ELSE 0 END) as unpaid,
+			SUM(CASE WHEN si.is_return = 1 THEN 1 ELSE 0 END) as returns,
+			SUM(CASE WHEN si.is_return = 0 THEN si.grand_total ELSE 0 END) as total_sales,
+			SUM(CASE WHEN si.is_return = 1 THEN ABS(si.grand_total) ELSE 0 END) as total_returns,
+			SUM(CASE WHEN si.is_return = 0 THEN IFNULL(si.discount_amount, 0) ELSE 0 END) as total_bill_discount
+		FROM `tabSales Invoice` si
+		WHERE {base_condition}
+	"""
+	result = frappe.db.sql(query, params, as_dict=True)
+
+	bill_discount_by_cashier = []
+	if user_filter == "all":
+		cashier_q = f"""
+			SELECT
+				si.owner as user_id,
+				IFNULL(u.full_name, si.owner) as name,
+				SUM(IFNULL(si.discount_amount, 0)) as discount_total
+			FROM `tabSales Invoice` si
+			LEFT JOIN `tabUser` u ON si.owner = u.name
+			WHERE {base_condition}
+				AND si.is_return = 0
+			GROUP BY si.owner, u.full_name
+			HAVING SUM(IFNULL(si.discount_amount, 0)) > 0
+			ORDER BY discount_total DESC
+		"""
+		bill_discount_by_cashier = frappe.db.sql(cashier_q, params, as_dict=True) or []
+
+	if result and result[0]:
+		data = result[0]
+		return {
+			"total_invoices": int(data.total_invoices or 0),
+			"paid": int(data.paid or 0),
+			"unpaid": int(data.unpaid or 0),
+			"returns": int(data.returns or 0),
+			"total_sales": float(data.total_sales or 0),
+			"total_returns": float(data.total_returns or 0),
+			"net_sales": float((data.total_sales or 0) - (data.total_returns or 0)),
+			"total_bill_discount": float(data.total_bill_discount or 0),
+			"bill_discount_by_cashier": bill_discount_by_cashier,
+		}
+
+	return {
+		"total_invoices": 0,
+		"paid": 0,
+		"unpaid": 0,
+		"returns": 0,
+		"total_sales": 0.0,
+		"total_returns": 0.0,
+		"net_sales": 0.0,
+		"total_bill_discount": 0.0,
+		"bill_discount_by_cashier": [],
+	}
+
+
+def _get_cashiers_list_range(pos_profile, date_from, date_to):
+	query = """
+		SELECT DISTINCT
+			si.owner as user_id,
+			u.full_name as name
+		FROM `tabSales Invoice` si
+		LEFT JOIN `tabUser` u ON si.owner = u.name
+		WHERE si.pos_profile = %s
+			AND si.docstatus = 1
+			AND si.posting_date BETWEEN %s AND %s
+			AND si.custom_pos_opening_entry IS NOT NULL
+			AND si.custom_pos_opening_entry != ''
+		ORDER BY u.full_name
+	"""
+	cashiers = frappe.db.sql(query, (pos_profile, date_from, date_to), as_dict=True)
+	return [{"user_id": "all", "name": "All Cashiers"}] + (cashiers or [])
+
+
+@frappe.whitelist()
+def get_payment_transactions_report(from_date=None, to_date=None, cashier_filter=None):
+	"""
+	Read-only payment / invoice movement report for a date range (Administrator workflow).
+
+	Does not require an open POS Opening Entry. Opening balances are shown as zero;
+	totals reflect activity in the selected range only.
+	"""
+	try:
+		if "Administrator" not in frappe.get_roles(frappe.session.user):
+			return _error_response(_("You do not have permission to view this report."))
+
+		date_from, date_to = _parse_report_dates(from_date, to_date)
+		user_filter = _get_report_user_filter(cashier_filter)
+
+		pos_doc = get_current_pos_profile()
+		pos_profile = pos_doc.name
+		mode_rows = _pos_payment_method_rows_as_opening_zero(pos_profile)
+
+		txn_data = _fetch_all_payment_transactions_range(
+			pos_profile, date_from, date_to, user_filter
+		)
+		payment_summary = _build_comprehensive_payment_summary(mode_rows, txn_data)
+		invoice_summary = _build_invoice_summary_range(
+			pos_profile, date_from, date_to, user_filter
+		)
+		cashiers = _get_cashiers_list_range(pos_profile, date_from, date_to)
+
+		credit_entry = payment_summary.get("Credit", {})
+		total_credit_given = (
+			credit_entry.get("total", 0.0) if credit_entry.get("type") == "credit" else 0.0
+		)
+
+		return {
+			"success": True,
+			"pos_profile": pos_profile,
+			"from_date": str(date_from),
+			"to_date": str(date_to),
+			"is_admin": True,
+			"payment_summary": payment_summary,
+			"transactions": txn_data["transactions"],
+			"invoice_summary": invoice_summary,
+			"cashiers": cashiers,
+			"total_credit_given": total_credit_given,
+			"report_mode": True,
+		}
+	except Exception as e:
+		frappe.log_error(
+			title="Get Payment Transactions Report Error",
+			message=frappe.get_traceback(),
+		)
+		return _error_response(str(e))

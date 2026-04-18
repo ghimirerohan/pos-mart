@@ -18,7 +18,8 @@ export default function CashierFilter({
     return null;
   }
 
-  const currentSelection = selectedCashier || "my_session";
+  const currentSelection = selectedCashier || "current_cashier";
+  const otherCashiers = cashiers.filter((c) => c.user_id !== "all");
 
   return (
     <div className="flex items-center space-x-2">
@@ -35,8 +36,9 @@ export default function CashierFilter({
         onChange={(e) => onCashierChange(e.target.value)}
         className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-[150px]"
       >
-        <option value="my_session">My Session</option>
-        {cashiers.map((cashier) => (
+        <option value="all">All Cashiers</option>
+        <option value="current_cashier">Current cashier</option>
+        {otherCashiers.map((cashier) => (
           <option key={cashier.user_id} value={cashier.user_id}>
             {cashier.name}
           </option>
