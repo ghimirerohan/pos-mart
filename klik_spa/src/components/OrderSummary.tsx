@@ -1935,51 +1935,10 @@ export default function OrderSummary({
           </div>
 
           {/* Action Buttons */}
-          <div className={`grid grid-cols-2 gap-3 ${isMobile ? "mb-3" : ""}`}>
-            <button
-              onClick={() => {
-                if (!validateCustomer()) return;
-
-                const sc = selectedCustomer;
-                if (!sc) return;
-
-                const orderData = {
-                  items: cartItems.map((item) => ({
-                    id: item.id,
-                    quantity: item.quantity,
-                    price: getDiscountedPrice(item),
-                  })),
-                  customer: { id: sc.id },
-                  subtotal,
-                  total,
-                  appliedCoupons,
-                  couponDiscount,
-                  itemDiscounts,
-                  totalItemDiscount,
-                  totalSavings:
-                    totalItemDiscount +
-                    couponDiscount +
-                    billBreakdown.billDiscountAmount,
-                  status: "held",
-                  ...billDiscountPayload(
-                    billDiscount.mode,
-                    billDiscount.value,
-                    couponDiscount,
-                    {
-                      totalAdditionalDiscount: billBreakdown.totalAdditionalDiscount,
-                    }
-                  ),
-                };
-
-                handleHoldOrder(orderData);
-              }}
-              className="px-3 py-2 border border-brand-600 text-brand-600 dark:text-brand-400 rounded-lg font-medium hover:bg-brand-600 hover:text-white transition-colors text-sm"
-            >
-              Hold
-            </button>
+          <div className={isMobile ? "mb-3" : ""}>
             <button
               onClick={handleClearCart}
-              className="px-3 py-2 border border-red-500 text-red-600 dark:text-red-400 rounded-lg font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm"
+              className="w-full px-3 py-2 border border-red-500 text-red-600 dark:text-red-400 rounded-lg font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-sm"
             >
               Clear Cart
             </button>
