@@ -41,6 +41,7 @@ import { handlePrintInvoice } from "../utils/printHandler";
 import SingleInvoiceReturn from "../components/SingleInvoiceReturn";
 import MultiInvoiceReturn from "../components/MultiInvoiceReturn";
 import { formatCurrency } from "../utils/currency";
+import { mergeInvoicePaymentMethods } from "../utils/invoicePaymentBreakdown";
 import AddCustomerModal from "../components/AddCustomerModal";
 
 export default function InvoiceViewPage() {
@@ -65,6 +66,15 @@ export default function InvoiceViewPage() {
   const discountPromoCode = invoice
     ? String(invAny?.discount_code || "").trim()
     : ""
+  const paymentBreakdown = invoice
+    ? mergeInvoicePaymentMethods(invAny?.payment_methods)
+    : []
+  const paymentSummaryText =
+    paymentBreakdown.length > 0 && invoice
+      ? paymentBreakdown
+          .map((row) => `${row.mode} ${formatCurrency(row.amount, invoice.currency)}`)
+          .join(" · ")
+      : invoice?.paymentMethod || "Cash"
   const { statistics: customerStats, isLoading: statsLoading } = useCustomerStatistics(invoice?.customer || null);
   const { posDetails } = usePOSDetails();
   const navigate = useNavigate()
@@ -508,7 +518,9 @@ export default function InvoiceViewPage() {
                           </div>
                           <div className="flex justify-between">
                             <span className="text-sm text-gray-600 dark:text-gray-400">Payment:</span>
-                            <span className="text-sm text-gray-900 dark:text-white">{invoice.paymentMethod}</span>
+                            <span className="text-sm text-gray-900 dark:text-white text-right max-w-[60%]">
+                              {paymentSummaryText}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -694,9 +706,35 @@ export default function InvoiceViewPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-orange-700 dark:text-orange-300">Payment Method:</span>
-                          <span className="text-orange-900 dark:text-orange-100 font-medium">{invoice.paymentMethod || 'Cash'}</span>
+                        <div>
+                          <span className="text-orange-700 dark:text-orange-300 block mb-1">
+                            {paymentBreakdown.length > 1
+                              ? "Payments"
+                              : paymentBreakdown.length === 1
+                                ? "Payment"
+                                : "Payment method"}
+                          </span>
+                          {paymentBreakdown.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {paymentBreakdown.map((row) => (
+                                <div
+                                  key={row.mode}
+                                  className="flex justify-between gap-3 text-orange-900 dark:text-orange-100"
+                                >
+                                  <span className="font-medium">{row.mode}</span>
+                                  <span className="font-semibold tabular-nums shrink-0">
+                                    {formatCurrency(row.amount, invoice.currency)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex justify-between">
+                              <span className="text-orange-900 dark:text-orange-100 font-medium">
+                                {invoice.paymentMethod || "Cash"}
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <div className="flex justify-between">
                           <span className="text-orange-700 dark:text-orange-300">Status:</span>

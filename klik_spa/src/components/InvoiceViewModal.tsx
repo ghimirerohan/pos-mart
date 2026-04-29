@@ -15,7 +15,8 @@ import type { SalesInvoice } from "../../types";
 import { useInvoiceDetails } from "../hooks/useInvoiceDetails";
 import { createSalesReturn } from "../services/salesInvoice";
 import { toast } from "react-toastify";
-import { formatGroupedAmount } from "../utils/currency";
+import { formatCurrency, formatGroupedAmount } from "../utils/currency";
+import { mergeInvoicePaymentMethods } from "../utils/invoicePaymentBreakdown";
 
 interface InvoiceViewModalProps {
   invoice: SalesInvoice | null;
@@ -55,6 +56,13 @@ export default function InvoiceViewModal({
   const promoCode = String(rawInv.discount_code || "").trim();
   const cashierLabel =
     rawInv.cashier_name || displayInvoice.cashier || displayInvoice.cashier_name || "—";
+  const paymentRowsForModal = mergeInvoicePaymentMethods(rawInv.payment_methods);
+  const paymentMethodLabel =
+    paymentRowsForModal.length > 0
+      ? paymentRowsForModal
+          .map((r) => `${r.mode}: ${formatCurrency(r.amount, displayInvoice.currency)}`)
+          .join(" · ")
+      : String(displayInvoice.paymentMethod ?? "—");
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -149,7 +157,7 @@ export default function InvoiceViewModal({
                     <InfoItem
                       icon={<CreditCard />}
                       label="Payment Method"
-                      value={displayInvoice.paymentMethod}
+                      value={paymentMethodLabel}
                     />
                   </div>
                 </div>

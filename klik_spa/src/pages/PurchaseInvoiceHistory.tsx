@@ -36,7 +36,7 @@ export default function PurchaseInvoiceHistoryPage() {
   const isMobile = useMediaQuery("(max-width: 1024px)");
   const [activeTab, setActiveTab] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [dateFilter, setDateFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("week");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [userFilter, setUserFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"cards" | "list">("list");
