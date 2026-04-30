@@ -192,26 +192,31 @@ export function ProductProvider({ children }: ProductProviderProps) {
   };
 
   // Fetch only stock updates - with fallback to batch API
-  const fetchStockUpdates = async (): Promise<Record<string, number>> => {
+  const fetchStockUpdates = async (): Promise<{
+    updates: Record<string, number>;
+    fetched: boolean;
+  }> => {
     try {
       // For large catalogs, only update stock for currently loaded items
-      const itemCodes = products.map(p => p.id).join(',');
-      if (!itemCodes) return {};
+      const itemCodesJson = JSON.stringify(products.map((p) => p.id));
+      if (!itemCodesJson || itemCodesJson === '[]')
+        return { updates: {}, fetched: false };
 
       const batchResponse = await fetch(
-        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodes)}`
+        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodesJson)}`
       );
 
       if (batchResponse.ok) {
         const batchData = await batchResponse.json();
-        if (batchData?.message && typeof batchData.message === 'object') {
-          return batchData.message;
+        const msg = batchData?.message;
+        if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
+          return { updates: msg as Record<string, number>, fetched: true };
         }
       }
-      return {};
+      return { updates: {}, fetched: false };
     } catch (error) {
       console.error('Error fetching stock updates:', error);
-      return {};
+      return { updates: {}, fetched: false };
     }
   };
 
@@ -322,16 +327,19 @@ export function ProductProvider({ children }: ProductProviderProps) {
   // Background stock update
   const updateStockInBackground = async () => {
     try {
-      const stockUpdates = await fetchStockUpdates();
-      if (Object.keys(stockUpdates).length > 0) {
-        setProducts(prevProducts =>
-          prevProducts.map(product => ({
-            ...product,
-            available: stockUpdates[product.id] ?? product.available
-          }))
-        );
-        // console.log('Stock updated in background for', Object.keys(stockUpdates).length, 'items');
-      }
+      const { updates, fetched } = await fetchStockUpdates();
+      // Apply whenever the batch API succeeded — including all-zero payloads (must not preserve stale badges).
+      if (!fetched) return;
+
+      setProducts(prevProducts =>
+        prevProducts.map(product => ({
+          ...product,
+          available:
+            product.id in updates
+              ? Number(updates[product.id])
+              : product.available,
+        }))
+      );
     } catch (error) {
       console.error('Background stock update failed:', error);
     }
@@ -356,11 +364,10 @@ export function ProductProvider({ children }: ProductProviderProps) {
     try {
       // console.log(`Updating stock for ${itemCodes.length} items:`, itemCodes);
 
-      // Create comma-separated string for the API
-      const itemCodesString = itemCodes.join(',');
+      const itemCodesJson = JSON.stringify(itemCodes);
 
       const response = await fetch(
-        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodesString)}`
+        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodesJson)}`
       );
 
       if (!response.ok) {
@@ -376,7 +383,10 @@ export function ProductProvider({ children }: ProductProviderProps) {
         setProducts(prevProducts =>
           prevProducts.map(product => ({
             ...product,
-            available: stockUpdates[product.id] ?? product.available
+            available:
+              product.id in stockUpdates
+                ? Number(stockUpdates[product.id])
+                : product.available,
           }))
         );
 
@@ -444,20 +454,24 @@ export function ProductProvider({ children }: ProductProviderProps) {
     // console.log("Refreshing stock only (lightweight)...");
     setIsRefreshingStock(true);
     try {
-      const stockUpdates = await fetchStockUpdates();
-      if (Object.keys(stockUpdates).length > 0) {
-        setProducts(prevProducts =>
-          prevProducts.map(product => ({
-            ...product,
-            available: stockUpdates[product.id] ?? product.available
-          }))
-        );
-        // console.log(`✅ Stock refreshed for ${Object.keys(stockUpdates).length} items - cashier can see updated availability`);
-        setLastUpdated(new Date());
-        return true; // Success
+      const { updates, fetched } = await fetchStockUpdates();
+      if (!fetched) {
+        console.log('Stock refresh skipped (request failed or empty catalog)');
+        return false;
       }
-      console.log("No stock updates needed - all items are current");
-      return false; // No updates
+
+      setProducts(prevProducts =>
+        prevProducts.map(product => ({
+          ...product,
+          available:
+            product.id in updates
+              ? Number(updates[product.id])
+              : product.available,
+        }))
+      );
+
+      setLastUpdated(new Date());
+      return true;
     } catch (error) {
       console.error('❌ Stock-only refresh failed:', error);
       // Don't fallback to full refresh automatically - let the user decide

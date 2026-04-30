@@ -724,7 +724,7 @@ export default function OrderSummary({
     try {
       const itemCodes = cartItems.map(item => item.item_code || item.id);
       const response = await fetch(
-        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(itemCodes.join(','))}`
+        `/api/method/klik_pos.api.item.get_items_stock_batch?item_codes=${encodeURIComponent(JSON.stringify(itemCodes))}`
       );
       if (response.ok) {
         const data = await response.json();

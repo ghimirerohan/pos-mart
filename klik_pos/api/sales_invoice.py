@@ -16,6 +16,13 @@ _cached_customer_data = {}
 _cached_item_accounts = {}
 
 
+def _warehouse_for_pos_stock_lines():
+	"""Lazy-import so this module can load before ``item`` (avoids circular import via utils)."""
+	from klik_pos.api.item import resolve_pos_warehouse_for_pos_stock
+
+	return resolve_pos_warehouse_for_pos_stock()
+
+
 def _patch_expired_batch_bypass(doc):
 	"""Replace validate_serialized_batch on *doc* to skip the expired-batch
 	check while keeping all other serial/batch validations."""
@@ -2077,7 +2084,7 @@ def _set_pos_profile_fields(doc, pos_profile, customer, business_type, is_credit
 	doc.currency = get_customer_billing_currency(customer)
 	doc.conversion_rate = 1.0
 	doc.update_stock = 1
-	doc.warehouse = pos_profile.warehouse
+	doc.warehouse = _warehouse_for_pos_stock_lines()
 
 	# For credit sales, set is_pos = 0 to bypass payment entry requirement
 	# ERPNext POS invoices require at least one payment mode
@@ -2205,7 +2212,7 @@ def _prepare_item_data(item, item_data_map, pos_profile, doc):
 		"rate": item.get("price"),
 		"income_account": income_account,
 		"expense_account": expense_account,
-		"warehouse": pos_profile.warehouse,
+		"warehouse": _warehouse_for_pos_stock_lines(),
 		"cost_center": pos_profile.cost_center,
 	}
 
@@ -2233,8 +2240,7 @@ def _validate_stock_availability(items):
 	# Lazy import avoids circular import (``item`` imports this module at load time).
 	from klik_pos.api.item import fetch_item_balance
 
-	pos_profile = _get_active_pos_profile()
-	warehouse = pos_profile.warehouse
+	warehouse = _warehouse_for_pos_stock_lines()
 	allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
 	if allow_negative:
 		return
@@ -2323,6 +2329,8 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 	if not item_db_data.get("has_batch_no", 0):
 		return
 
+	wh = _warehouse_for_pos_stock_lines()
+
 	item_code = item_data["item_code"]
 	batch_value = item.get("batchNumber")
 
@@ -2334,7 +2342,7 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 			)
 	else:
 		qty_needed = flt(item_data.get("qty"), 9)
-		batch_alloc = _allocate_batches_fefo(item_code, pos_profile.warehouse, qty_needed)
+		batch_alloc = _allocate_batches_fefo(item_code, wh, qty_needed)
 		if not batch_alloc:
 			allow_negative = frappe.db.get_single_value("Stock Settings", "allow_negative_stock")
 			if not allow_negative:
@@ -2342,7 +2350,7 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 				frappe.throw(
 					_("No batch allocation could cover {0} units for {1} in warehouse {2}. "
 					  "Please restock or adjust the quantity.").format(
-						qty_needed, item_name, pos_profile.warehouse
+						qty_needed, item_name, wh
 					),
 					title=_("Insufficient Batch Stock"),
 				)
@@ -2350,7 +2358,7 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 		qty = qty_needed
 		bundle_name = _create_outward_bundle(
 			item_code=item_code,
-			warehouse=pos_profile.warehouse,
+			warehouse=wh,
 			qty=qty,
 			doc=doc,
 			batch_allocations=dict(batch_alloc),
@@ -2370,7 +2378,7 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 			item_name = frappe.db.get_value("Item", item_code, "item_name") or item_code
 			frappe.throw(
 				_("No batch with sufficient stock found for {0} in warehouse {1}. "
-				  "Please restock or adjust the quantity.").format(item_name, pos_profile.warehouse),
+				  "Please restock or adjust the quantity.").format(item_name, wh),
 				title=_("Insufficient Batch Stock"),
 			)
 		return
@@ -2378,7 +2386,7 @@ def _add_batch_to_item(item_data, item, item_db_data, doc, pos_profile):
 	qty = flt(item_data.get("qty"), 9)
 	bundle_name = _create_outward_bundle(
 		item_code=item_code,
-		warehouse=pos_profile.warehouse,
+		warehouse=wh,
 		batch_no=batch_no,
 		qty=qty,
 		doc=doc,
@@ -2399,6 +2407,8 @@ def _add_serial_to_item(item_data, item, item_db_data, doc, pos_profile):
 	if item_data.get("serial_and_batch_bundle"):
 		return
 
+	wh_serial = _warehouse_for_pos_stock_lines()
+
 	from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
 	serial_nos = get_serial_nos(serial_number)
 	if not serial_nos:
@@ -2407,7 +2417,7 @@ def _add_serial_to_item(item_data, item, item_db_data, doc, pos_profile):
 	qty = flt(item_data.get("qty"), 9)
 	bundle_name = _create_outward_bundle(
 		item_code=item_data["item_code"],
-		warehouse=pos_profile.warehouse,
+		warehouse=wh_serial,
 		qty=qty,
 		doc=doc,
 		serial_nos=serial_nos,
@@ -2471,8 +2481,7 @@ def _allocate_batches_fefo(item_code, warehouse, qty_needed):
 	or ``None`` if batches cannot cover the request.
 	"""
 	if not warehouse:
-		pos_profile = _get_active_pos_profile()
-		warehouse = pos_profile.warehouse
+		warehouse = _warehouse_for_pos_stock_lines()
 
 	qty_needed = flt(qty_needed)
 	if qty_needed <= 1e-9:

@@ -4,7 +4,6 @@ from erpnext.stock.utils import get_stock_balance
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, getdate, today
 
-from klik_pos.api.sales_invoice import get_current_pos_opening_entry
 from klik_pos.klik_pos.utils import get_current_pos_profile
 
 
@@ -532,9 +531,7 @@ def get_item_price_for_customer(item_code, customer=None, uom=None):
 def get_item_by_barcode(barcode: str):
 	"""Get item details by barcode."""
 	try:
-		pos_doc = get_current_pos_profile()
-		warehouse = pos_doc.warehouse
-		price_list = pos_doc.selling_price_list
+		_, warehouse, price_list, _ = _get_pos_context()
 
 		item_code = frappe.db.sql(
 			"""
@@ -592,9 +589,7 @@ def get_item_by_identifier(code: str):
 		if not code:
 			frappe.throw(_("Identifier required"))
 
-		pos_doc = get_current_pos_profile()
-		warehouse = pos_doc.warehouse
-		price_list = pos_doc.selling_price_list
+		_, warehouse, price_list, _ = _get_pos_context()
 
 		matched_type = None
 		matched_value = None
@@ -701,6 +696,12 @@ def _get_pos_context():
 	hide_unavailable = getattr(pos_doc, "hide_unavailable_items", False)
 
 	return pos_doc, warehouse, price_list, hide_unavailable
+
+
+def resolve_pos_warehouse_for_pos_stock():
+	"""Warehouse used for POS stock APIs — must match ``get_items_with_balance_and_price``."""
+	_, warehouse, _, _ = _get_pos_context()
+	return warehouse
 
 
 def _item_price_row_uom_matches_item(stock_uom: str, row_uom) -> bool:
@@ -1258,20 +1259,7 @@ def get_items_with_balance_and_price(
 @frappe.whitelist(allow_guest=True)
 def get_stock_updates():
 	"""Get only stock updates for all items - lightweight endpoint with early filtering."""
-	pos_doc = None
-	try:
-		current_opening_entry = get_current_pos_opening_entry()
-		if current_opening_entry:
-			opening_doc = frappe.get_doc("POS Opening Entry", current_opening_entry)
-			pos_doc = frappe.get_doc("POS Profile", opening_doc.pos_profile)
-	except Exception:
-		pos_doc = None
-
-	if not pos_doc:
-		pos_doc = get_current_pos_profile()
-
-	warehouse = pos_doc.warehouse
-	hide_unavailable = getattr(pos_doc, "hide_unavailable_items", False)
+	pos_doc, warehouse, _, hide_unavailable = _get_pos_context()
 
 	try:
 		if hide_unavailable:
@@ -1341,8 +1329,7 @@ def get_item_detail_for_spa(item_code: str):
 @frappe.whitelist(allow_guest=True)
 def get_item_stock(item_code: str):
 	"""Get stock for a specific item - for individual updates."""
-	pos_doc = get_current_pos_profile()
-	warehouse = pos_doc.warehouse
+	warehouse = resolve_pos_warehouse_for_pos_stock()
 
 	try:
 		ins = _item_stock_insight_for_pos(item_code, warehouse)
@@ -1401,20 +1388,49 @@ def get_pos_default_warehouse():
 	return {"warehouse": w, "pos_profile": getattr(pos, "name", None)}
 
 
+def _parse_stock_batch_item_codes(item_codes: str | None) -> list[str]:
+	"""Decode ``item_codes`` query param for :func:`get_items_stock_batch`.
+
+	ERPNext item codes may contain commas (e.g. ``CELLO-SUNFLOWER-OIL, -726``), so a naive
+	``split(",")`` breaks lookups and the SPA sees 0 everywhere. Preferred form is a JSON
+	array string; legacy comma-separated lists are still accepted when the value does not
+	start with ``[``.
+	"""
+	import json
+
+	if not item_codes:
+		return []
+	raw = str(item_codes).strip()
+	if not raw:
+		return []
+	if raw.startswith("["):
+		try:
+			parsed = json.loads(raw)
+		except Exception:
+			return []
+		if not isinstance(parsed, list):
+			return []
+		return [str(x).strip() for x in parsed if str(x).strip()]
+	return [p.strip() for p in raw.split(",") if p.strip()]
+
+
 @frappe.whitelist(allow_guest=True)
 def get_items_stock_batch(item_codes: str):
-	"""Get stock for multiple specific items - uses same SLE query as initial load."""
-	pos_doc = get_current_pos_profile()
-	warehouse = pos_doc.warehouse
-	hide_unavailable = getattr(pos_doc, "hide_unavailable_items", False)
+	"""Get stock for multiple specific items - uses same SLE query as initial load.
+
+	Never omit zero balances for requested ``item_codes``: POS SPA merges this map into
+	the catalog with ``updates[id] ?? previous`` and validates checkout against the same
+	endpoint. Dropping zeros (historically tied to hide_unavailable) left stale positive
+	counts on cards while checkout treated missing keys as 0.
+
+	Pass ``item_codes`` as a URL-encoded JSON array of strings when codes may contain commas.
+	"""
+	warehouse = resolve_pos_warehouse_for_pos_stock()
 
 	try:
-		item_codes_list = [code.strip() for code in item_codes.split(",") if code.strip()]
+		item_codes_list = _parse_stock_batch_item_codes(item_codes)
 
 		stock_updates = _fetch_batch_stock(item_codes_list, warehouse)
-
-		if hide_unavailable:
-			stock_updates = {k: v for k, v in stock_updates.items() if v > 0}
 
 		return stock_updates
 	except Exception:
@@ -1486,8 +1502,7 @@ def get_batch_nos_with_qty(item_code):
 	Returns a list of dicts with batch numbers and their actual quantities
 	for a given item code and warehouse.
 	"""
-	pos_doc = get_current_pos_profile()
-	warehouse = pos_doc.warehouse
+	warehouse = resolve_pos_warehouse_for_pos_stock()
 
 	if not item_code or not warehouse:
 		return []
