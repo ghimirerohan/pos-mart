@@ -1,0 +1,17 @@
+node_modules/
+public/dist/
+*.min.js
+*.min.css
+.bundle.js
+**/.json
+!package.json
+patches/
+**/migrations/
+locale/
+translations/
+test_data/
+**/pycache/
+*.pyc
+*.pyo
+*.log
+.git/
