@@ -65,5 +65,25 @@ def clear_pos_profile_cache(user=None):
 
 
 def get_user_default_company():
-	user = frappe.session.user
-	return frappe.defaults.get_user_default(user, "Company")
+	"""Resolve current company: prefer active POS Profile, fall back to user/global default."""
+	try:
+		profile = get_current_pos_profile()
+		if profile and profile.company:
+			return profile.company
+	except Exception:
+		pass
+	return (
+		frappe.defaults.get_user_default("Company")
+		or frappe.db.get_single_value("Global Defaults", "default_company")
+	)
+
+
+def on_master_rename(doc, method=None):
+	"""Clear klik_pos in-process caches and Frappe defaults cache after a rename."""
+	global _cached_pos_profiles, _cached_company_data
+	_cached_pos_profiles.clear()
+	_cached_company_data.clear()
+	from frappe.cache_manager import clear_defaults_cache
+
+	clear_defaults_cache()
+	frappe.publish_realtime("klik_pos_cache_clear", message={"reason": "rename"}, after_commit=True)

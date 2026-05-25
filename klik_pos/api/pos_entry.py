@@ -47,12 +47,12 @@ def create_opening_entry():
 		else:
 			pos_profile = get_current_pos_profile().name if get_current_pos_profile() else None
 
-		company = frappe.defaults.get_user_default("Company")
-
-		if not company:
-			frappe.throw(_("No default company found for user {0}").format(user))
 		if not pos_profile:
 			frappe.throw(_("POS Profile could not be determined"))
+
+		company = frappe.db.get_value("POS Profile", pos_profile, "company")
+		if not company:
+			frappe.throw(_("POS Profile {0} has no company configured").format(pos_profile))
 
 		balance_details = data.get("balance_details") or data.get("opening_balance", [])
 		if not balance_details:

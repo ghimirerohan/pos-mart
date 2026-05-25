@@ -4,7 +4,7 @@ import frappe
 from erpnext.setup.utils import get_exchange_rate
 from frappe import _
 
-from klik_pos.klik_pos.utils import get_current_pos_profile
+from klik_pos.klik_pos.utils import get_current_pos_profile, get_user_default_company
 
 
 @frappe.whitelist(allow_guest=True)
@@ -246,9 +246,9 @@ def get_customers(limit: int = 100, start: int = 0, search: str = ""):
 
 
 def get_user_company_and_currency():
-	default_company = frappe.defaults.get_user_default("Company")
+	default_company = get_user_default_company()
 	if not default_company:
-		default_company = frappe.db.get_single_value("Global Defaults", "default_company")
+		return None, None
 
 	company_currency = frappe.db.get_value("Company", default_company, "default_currency")
 

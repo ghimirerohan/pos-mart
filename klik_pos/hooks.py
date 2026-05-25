@@ -98,6 +98,15 @@ doc_events = {
 			"klik_pos.api.date_wise_inventory.invalidate_date_wise_inventory_cache",
 		],
 	},
+	"Company": {
+		"after_rename": "klik_pos.klik_pos.utils.on_master_rename",
+	},
+	"POS Profile": {
+		"after_rename": "klik_pos.klik_pos.utils.on_master_rename",
+	},
+	"Mode of Payment": {
+		"after_rename": "klik_pos.klik_pos.utils.on_master_rename",
+	},
 }
 
 override_doctype_class = {

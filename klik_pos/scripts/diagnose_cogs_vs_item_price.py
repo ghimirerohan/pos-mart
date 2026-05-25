@@ -33,12 +33,12 @@ from klik_pos.api.sales_invoice import (
 def _default_company(company: str | None) -> str:
 	if company:
 		return company
-	c = frappe.defaults.get_user_default("Company")
+	from klik_pos.klik_pos.utils import get_user_default_company
+
+	c = get_user_default_company()
 	if c:
 		return c
-	return frappe.db.get_single_value("Global Defaults", "default_company") or frappe.get_all(
-		"Company", pluck="name", limit_page_length=1
-	)[0]
+	return frappe.get_all("Company", pluck="name", limit_page_length=1)[0]
 
 
 def _item_reference_prices(item_code: str) -> dict:

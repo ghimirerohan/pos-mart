@@ -4,7 +4,7 @@ from erpnext.stock.utils import get_stock_balance
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, getdate, today
 
-from klik_pos.klik_pos.utils import get_current_pos_profile
+from klik_pos.klik_pos.utils import get_current_pos_profile, get_user_default_company
 
 
 # region agent log
@@ -415,7 +415,7 @@ def fetch_item_price(
 				default_currency = (
 					frappe.get_value(
 						"Company",
-						frappe.defaults.get_user_default("Company"),
+						get_user_default_company(),
 						"default_currency",
 					)
 					or "SAR"
@@ -467,7 +467,7 @@ def fetch_item_price(
 			default_currency = (
 				frappe.get_value(
 					"Company",
-					frappe.defaults.get_user_default("Company"),
+					get_user_default_company(),
 					"default_currency",
 				)
 				or "SAR"
@@ -679,9 +679,7 @@ def _get_pos_context():
 	warehouse = getattr(pos_doc, "warehouse", None)
 	if not warehouse:
 		try:
-			default_company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-				"Global Defaults", "default_company"
-			)
+			default_company = get_user_default_company()
 			warehouse = frappe.db.get_value("Company", default_company, "default_warehouse")
 		except Exception:
 			warehouse = None
@@ -845,7 +843,7 @@ def _fetch_batch_prices(item_codes: list, price_list: str | None, uom_map: dict)
 		default_currency = (
 			frappe.get_value(
 				"Company",
-				frappe.defaults.get_user_default("Company"),
+				get_user_default_company(),
 				"default_currency",
 			)
 			or "SAR"
@@ -2144,7 +2142,7 @@ def _parse_cart_items(cart_items):
 def _build_pricing_context(customer=None):
 	"""Build context object with POS profile, company, and customer details."""
 	pos_profile = get_current_pos_profile()
-	company = pos_profile.company if pos_profile else frappe.defaults.get_user_default("Company")
+	company = pos_profile.company if pos_profile else get_user_default_company()
 
 	context = {
 		"pos_profile": pos_profile,
@@ -2852,9 +2850,7 @@ def create_item_with_barcode(
 			)
 
 		# Get default company
-		company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-			"Global Defaults", "default_company"
-		)
+		company = get_user_default_company()
 		
 		# Create the item
 		item_doc = frappe.get_doc({
@@ -3090,9 +3086,7 @@ def create_opening_stock(
 			frappe.throw(_("Item '{0}' not found").format(item_code))
 		
 		item_doc = frappe.get_doc("Item", item_code)
-		company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
-			"Global Defaults", "default_company"
-		)
+		company = get_user_default_company()
 		
 		result = _create_opening_stock_entry(
 			item_code=item_code,

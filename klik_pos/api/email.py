@@ -3,7 +3,7 @@ import json
 import frappe
 from frappe.utils import fmt_money, now
 
-from klik_pos.klik_pos.utils import get_current_pos_profile
+from klik_pos.klik_pos.utils import get_current_pos_profile, get_user_default_company
 
 
 @frappe.whitelist()
@@ -30,7 +30,7 @@ def send_invoice_email(**kwargs):
 
 		invoice_amount = fmt_money(doc.rounded_total or doc.grand_total, currency=doc.currency)
 
-		subject = f"Invoice {doc.name} from {frappe.defaults.get_user_default('Company')}"
+		subject = f"Invoice {doc.name} from {get_user_default_company()}"
 		message = f"""
 			<p>Dear {customer_name},</p>
 			<p>Please find attached your invoice <b>{doc.name}</b>.</p>

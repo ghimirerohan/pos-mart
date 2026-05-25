@@ -4,7 +4,7 @@ import frappe
 from frappe.core.doctype.sms_settings.sms_settings import send_sms
 from frappe.utils import fmt_money, now
 
-from klik_pos.klik_pos.utils import get_current_pos_profile
+from klik_pos.klik_pos.utils import get_current_pos_profile, get_user_default_company
 
 
 @frappe.whitelist()
@@ -35,7 +35,7 @@ def send_invoice_sms(**kwargs):
 		# Create SMS message with invoice details
 		sms_message = f"""
 Hi {customer_name}!
-Thank you for your purchase at {frappe.defaults.get_user_default('Company')}.
+Thank you for your purchase at {get_user_default_company()}.
 Invoice: {doc.name}
 Amount: {invoice_amount}
 Thank you!
